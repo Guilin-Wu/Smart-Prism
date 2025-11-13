@@ -326,10 +326,19 @@
                 <span id="item-config-modal-close-btn" class="modal-close-btn">&times;</span>
             </div>
             <div class="modal-body">
+                <div style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;">
+                    <label for="item-config-full-paper" style="display:block; font-weight:600; margin-bottom:8px;">
+                        📄 粘贴完整试卷文本 (AI 分析核心参考):
+                    </label>
+                    <textarea id="item-config-full-paper" rows="6" class="sidebar-select"
+                        placeholder="请在此处粘贴整张试卷的文字内容（包括题干、选项等）。&#10;AI 将结合具体题目内容，给出更精准的归因分析和教学建议。"
+                        style="width: 100%; resize: vertical; font-family: monospace; line-height: 1.5;"></textarea>
+                </div>
+
                 <p>
                     “满分”：留空则使用自动检测的满分 (见灰色提示文字)。手动填写数字将覆盖自动检测，并用于重新计算得分率。
                     <br>
-                    “考察内容”：填写本题的知识点，方便后续分析。
+                    “考察内容”：填写本题的知识点，方便后续分析。(ps:一个题目有多个知识点请用“；”或者符号隔开，如：加速度；牛顿第二定律)
                 </p>
                 <div class="table-container" style="max-height: 50vh; overflow-y: auto;">
                     <table id="item-config-table">
