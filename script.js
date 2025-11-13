@@ -25,6 +25,8 @@ let currentAIController = null;
 // 全局变量：存储 AI 对话历史
 let G_AIChatHistory = [];
 
+let G_CurrentHistoryId = null;
+
 // 存储UI状态
 let G_CurrentClassFilter = 'ALL';
 let G_CurrentImportType = 'main';
@@ -9346,105 +9348,122 @@ function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高
     return prompt;
 }
 
-// 3. 调用 DeepSeek API (最终安全版 V5：全流程异常捕获)
+// 3. 调用 DeepSeek API (最终完整版：支持底部固定输入框 & 历史记录新建)
 async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount, grade, targetSubject, targetClass) {
     const resultContainer = document.getElementById('ai-result-container');
     const loadingDiv = document.getElementById('ai-loading');
     const contentDiv = document.getElementById('ai-content');
-    const stopBtn = document.getElementById('ai-stop-btn');
+    const chatHistoryDiv = document.getElementById('ai-chat-history');
+    
+    // 底部UI元素
+    const inputArea = document.getElementById('ai-followup-input-area');
+    const floatingStopBtn = document.getElementById('ai-floating-stop-btn');
+    const sendBtn = document.getElementById('ai-send-btn');
 
     // UI 初始化
     if (typeof marked === 'undefined') { alert("错误：marked.js 未加载！"); return; }
+    
     resultContainer.style.display = 'block';
-    contentDiv.innerHTML = '';
-    contentDiv.classList.add('typing-cursor');
-    stopBtn.style.display = 'inline-block';
+    if (chatHistoryDiv) chatHistoryDiv.innerHTML = ''; // 清空旧的追问记录
+    
+    // [关键] 确保输入框可见，禁用发送按钮
+    if (inputArea) inputArea.style.display = 'flex';
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerText = '生成中...';
+    }
+    // 显示停止按钮
+    if (floatingStopBtn) floatingStopBtn.style.display = 'flex';
 
-    const chatHistoryDiv = document.getElementById('ai-chat-history');
-    const inputArea = document.getElementById('ai-followup-input-area');
-    if (chatHistoryDiv) chatHistoryDiv.innerHTML = '';
-    if (inputArea) inputArea.style.display = 'none';
-
-    // 动态 Loading
-    loadingDiv.innerHTML = `
-        <div style="font-size: 2.5em; margin-bottom: 10px; animation: bounce 1.5s infinite;">🧠</div>
-        <p style="color: #666; font-weight: 500;">AI 正在深度分析...</p>
-        <div class="ai-progress-container"><div class="ai-progress-bar" id="ai-progress-bar"></div></div>
+    // 1. 构建静态 HTML 结构 (空壳)，防止重绘导致折叠失效
+    contentDiv.innerHTML = `
+        <div id="ai-response-wrapper">
+            <details id="current-reasoning-box" class="ai-reasoning-box" style="display:none;" open>
+                <summary><span>🧠 深度思考过程 (点击切换)</span></summary>
+                <div id="current-reasoning-text" class="ai-reasoning-content"></div>
+            </details>
+            <div id="current-answer-text" class="typing-cursor" style="min-height: 50px;"></div>
+        </div>
     `;
+
+    const reasoningBox = document.getElementById('current-reasoning-box');
+    const reasoningTextEl = document.getElementById('current-reasoning-text');
+    const answerTextEl = document.getElementById('current-answer-text');
+
+    // Loading 动画
     loadingDiv.style.display = 'block';
+    
+    // [关键] 重置当前历史记录 ID (新分析 = 新记录)
+    G_CurrentHistoryId = null;
 
-    const progressBar = document.getElementById('ai-progress-bar');
-    let progress = 5;
-    progressBar.style.width = `${progress}%`;
-    const progressInterval = setInterval(() => {
-        if (progress < 90) { progress += Math.random() * 3; progressBar.style.width = `${progress}%`; }
-    }, 200);
-
+    // AbortController 设置
     if (currentAIController) currentAIController.abort();
     currentAIController = new AbortController();
 
-    stopBtn.onclick = () => {
+    // 定义停止逻辑
+    const handleStop = () => {
         if (currentAIController) {
             currentAIController.abort();
             currentAIController = null;
-            stopBtn.style.display = 'none';
-            contentDiv.classList.remove('typing-cursor');
-            contentDiv.innerHTML += `<br><br><em style="color: #dc3545;">(用户手动停止了生成)</em>`;
-            if (inputArea) inputArea.style.display = 'flex';
+            
+            // UI 恢复
+            if (floatingStopBtn) floatingStopBtn.style.display = 'none';
+            if (sendBtn) {
+                sendBtn.disabled = false;
+                sendBtn.innerText = '发送';
+            }
+            
+            answerTextEl.classList.remove('typing-cursor');
+            answerTextEl.innerHTML += `<br><br><em style="color: #dc3545;">(用户手动停止了生成)</em>`;
+            
+            // 触发保存逻辑 (如果已有内容)
+            if (fullContent && fullContent.length > 0) {
+                 // 复用标题生成逻辑
+                 const modeEl = document.getElementById('ai-mode-select');
+                 const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
+                 let historyTitle = `${studentName} - ${modeText}`;
+                 if(mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
+                 
+                 saveToAIHistory(historyTitle, `${grade} | ${targetSubject} (未完成)`, G_CurrentHistoryId);
+            }
         }
     };
 
+    // 绑定停止事件
+    if (floatingStopBtn) floatingStopBtn.onclick = handleStop;
+
+    // 变量提升
+    let fullReasoning = "";
     let fullContent = "";
-    // [!! 核心修复 !!] 使用 try-catch 包裹整个流程，包括 Prompt 生成
+
     try {
-        // 1. 生成 Prompt (这一步最容易出错，现在被保护起来了)
         const prompt = generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
+        // 检查 Prompt 生成是否报错
+        if (prompt.startsWith('错误：') || prompt.startsWith('系统错误：')) throw new Error(prompt);
 
-        // 2. 检查业务错误
-        if (prompt.startsWith('错误：') || prompt.startsWith('系统错误：')) {
-            throw new Error(prompt); // 抛出错误，交给 catch 处理
-        }
-
-        // 3. 初始化对话历史
+        // 初始化对话历史
         const temp = (model === 'deepseek-reasoner') ? 0.6 : 0.7;
         G_AIChatHistory = [
-            { "role": "system", "content": "你是一名专业的中学数据分析师。请使用 Markdown 格式输出。数学公式**必须**使用 LaTeX 格式：行内公式用 $...$ 或 \\(...\\) 包裹，独立公式用 $$...$$ 包裹。化学式请使用 \\ce{...} 格式。" },
-            { "role": "user", "content": prompt }
+            {"role": "system", "content": "你是一名专业的中学数据分析师。请使用 Markdown 格式输出。数学公式必须使用 LaTeX 格式 ($...$)。"},
+            {"role": "user", "content": prompt}
         ];
 
-        // 4. 发起请求
         const response = await fetch('https://api.deepseek.com/chat/completions', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: model,
-                messages: G_AIChatHistory,
-                temperature: temp,
-                stream: true
-            }),
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: model, messages: G_AIChatHistory, temperature: temp, stream: true }),
             signal: currentAIController.signal
         });
 
         if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error?.message || `API 请求失败: ${response.status}`);
+            const errJson = await response.json().catch(() => ({}));
+            throw new Error(errJson.error?.message || `API 请求失败: ${response.status}`);
         }
 
-        // 5. 成功连接
-        clearInterval(progressInterval);
-        progressBar.style.width = '100%';
-        await new Promise(r => setTimeout(r, 200));
+        // 开始接收流
         loadingDiv.style.display = 'none';
-
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
-
-        let fullReasoning = "";
-
-        const reasoningTemplate = (text) => `<div style="border-left: 3px solid #ccc; background: #f9f9f9; padding: 10px 15px; margin-bottom: 15px; color: #666; font-size: 0.9em; font-style: italic;"><div style="font-weight:bold; margin-bottom:5px;">🤔 深度思考过程:</div><div style="white-space: pre-wrap;">${text}</div></div>`;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -9459,165 +9478,163 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                     try {
                         const json = JSON.parse(trimmed.slice(6));
                         const delta = json.choices[0].delta;
+
+                        // A. 处理思考过程 (R1)
                         if (delta.reasoning_content) {
+                            if (fullReasoning === "") {
+                                reasoningBox.style.display = "block";
+                            }
                             fullReasoning += delta.reasoning_content;
-                            contentDiv.innerHTML = reasoningTemplate(fullReasoning) + (fullContent ? marked.parse(fullContent) : "");
+                            reasoningTextEl.textContent = fullReasoning; 
                         }
+
+                        // B. 处理正文内容
                         if (delta.content) {
                             fullContent += delta.content;
+                            // 使用 requestAnimationFrame 平滑渲染
                             requestAnimationFrame(() => {
-                                // 公式保护与渲染逻辑 (保持不变)
-                                let processedMd = fullContent.replace(/\\\[/g, '$$$').replace(/\\\]/g, '$$$').replace(/\\\(/g, '$').replace(/\\\)/g, '$');
-                                const mathSegments = [];
-                                const protectedMarkdown = processedMd.replace(/(\$\$[\s\S]*?\$\$|\$((?:\\.|[^\\$])*?)\$)/g, (m) => {
-                                    const p = `MATHBLOCK${mathSegments.length}END`; mathSegments.push(m); return p;
-                                });
-                                let html = marked.parse(protectedMarkdown);
-                                mathSegments.forEach((s, i) => html = html.replace(`MATHBLOCK${i}END`, () => s));
-                                const finalHtml = (fullReasoning ? reasoningTemplate(fullReasoning) : "") + html;
-                                contentDiv.innerHTML = finalHtml;
-                                if (window.renderMathInElement) {
-                                    renderMathInElement(contentDiv, {
-                                        delimiters: [{ left: "$$", right: "$$", display: true }, { left: "$", right: "$", display: false }],
-                                        throwOnError: false
-                                        // macros 行已删除，让 mhchem 插件自动工作
-                                    });
-                                }
+                                renderMarkdownWithMath(answerTextEl, fullContent);
                             });
                         }
-                    } catch (e) { }
+                    } catch (e) {}
                 }
             }
         }
-        G_AIChatHistory.push({ "role": "assistant", "content": fullContent });
-        // [!! NEW !!] 自动保存到历史记录
-        // 1. 构造标题
-        let historyTitle = "";
-        let historySubTitle = "";
 
-        // 根据模式获取更友好的标题
-        const modeText = document.getElementById('ai-mode-select').selectedOptions[0].text;
-
-        if (mode === 'teaching_guide') {
-            const className = document.getElementById('ai-item-class').value;
-            const classText = className === 'ALL' ? '全年段' : className;
-            historyTitle = `教学指导 - ${targetSubject}`;
-            historySubTitle = `${classText} | ${modeText}`;
-        } else {
-            historyTitle = `${studentName} - ${targetSubject || '综合'}`;
-            historySubTitle = `${grade} | ${modeText}`;
-        }
-
-        // 2. 保存当前生成的 HTML 内容
-        saveToAIHistory(historyTitle, historySubTitle, contentDiv.innerHTML);
-        if (inputArea) inputArea.style.display = 'flex';
+        // 生成结束
+        G_AIChatHistory.push({"role": "assistant", "content": fullContent}); 
+        
+        // [关键] 自动保存到历史记录 (新建存档)
+        const modeEl = document.getElementById('ai-mode-select');
+        const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
+        let historyTitle = `${studentName} - ${modeText}`;
+        if(mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
+        
+        // 传入 G_CurrentHistoryId (此时为 null)，saveToAIHistory 会返回新生成的 ID
+        const newId = saveToAIHistory(historyTitle, `${grade} | ${targetSubject}`, G_CurrentHistoryId);
+        G_CurrentHistoryId = newId; // 更新全局 ID，供后续追问使用
 
     } catch (err) {
-        clearInterval(progressInterval);
         loadingDiv.style.display = 'none';
-
-        // [!! 核心修改 2] 专门处理“手动停止”的情况
         if (err.name === 'AbortError') {
-            // 1. 在界面上标记已停止
-            contentDiv.classList.remove('typing-cursor');
-
-            // 2. 只有当已经生成了内容时，才保存
-            if (fullContent && fullContent.trim().length > 5) {
-                // (复用标题生成逻辑)
-                const modeEl = document.getElementById('ai-mode-select');
-                const modeText = modeEl.selectedOptions[0].text;
-                let historyTitle = "";
-                let historySubTitle = "";
-
-                if (mode === 'teaching_guide') {
-                    const className = document.getElementById('ai-item-class').value;
-                    const classText = className === 'ALL' ? '全年段' : className;
-                    historyTitle = `教学指导 - ${targetSubject}`;
-                    historySubTitle = `${classText} | ${modeText} (未完成)`; // 标记为未完成
-                } else {
-                    historyTitle = `${studentName} - ${targetSubject || '综合'}`;
-                    historySubTitle = `${grade} | ${modeText} (未完成)`;
-                }
-
-                // 保存当前已生成的内容 (并在末尾加上提示)
-                const savedContent = contentDiv.innerHTML + `<br><br><em style="color: #dc3545; font-size:0.9em;">(用户手动停止了生成)</em>`;
-                saveToAIHistory(historyTitle, historySubTitle, savedContent);
-            }
-        }
-        // 处理真正的错误 (排除 AbortError)
-        else {
-            contentDiv.innerHTML = `
-                <div style="padding: 20px; background-color: #fff5f5; border-left: 5px solid #dc3545; border-radius: 4px; color: #721c24;">
-                    <h3 style="margin-top: 0; color: #dc3545;">⚠️ 出错了</h3>
-                    <p style="margin-bottom: 0; white-space: pre-wrap;">${err.message}</p>
+            // 手动停止的逻辑已经在 handleStop 中处理了一部分，这里主要处理清理工作
+            answerTextEl.classList.remove('typing-cursor');
+        } else {
+            // 显示错误信息
+            answerTextEl.innerHTML = `
+                <div style="padding: 20px; background-color: #fff5f5; border-left: 5px solid #dc3545; color: #721c24;">
+                    <h3>⚠️ 出错了</h3>
+                    <p>${err.message}</p>
                 </div>
             `;
         }
     } finally {
-        contentDiv.classList.remove('typing-cursor');
-        stopBtn.style.display = 'none';
+        answerTextEl.classList.remove('typing-cursor');
+        if (floatingStopBtn) floatingStopBtn.style.display = 'none';
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerText = '发送';
+        }
         currentAIController = null;
     }
 }
 
-// 4. [NEW] 发送追问消息
+// 4. [最终完整版] 发送追问消息 (支持 R1 思考、单独打印、历史记录更新)
 async function sendAIFollowUp() {
     const input = document.getElementById('ai-user-input');
     const chatHistoryDiv = document.getElementById('ai-chat-history');
     const apiKey = localStorage.getItem('G_DeepSeekKey');
-    const model = document.getElementById('ai-model-select').value; // 沿用当前模型
-    const stopBtn = document.getElementById('ai-stop-btn');
+    const model = document.getElementById('ai-model-select').value; 
+    
+    // 底部UI元素
+    const floatingStopBtn = document.getElementById('ai-floating-stop-btn');
+    const sendBtn = document.getElementById('ai-send-btn');
 
     const userText = input.value.trim();
     if (!userText) return;
 
-    // 1. UI 更新：显示用户消息
-    input.value = ''; // 清空输入框
+    // 1. UI: 用户消息气泡
+    input.value = '';
     const userBubble = document.createElement('div');
     userBubble.style.cssText = "background: #e3f2fd; padding: 10px 15px; border-radius: 15px 15px 0 15px; margin: 10px 0 10px auto; max-width: 80%; color: #333; text-align: right; align-self: flex-end; width: fit-content;";
     userBubble.innerText = userText;
     chatHistoryDiv.appendChild(userBubble);
 
-    // 2. UI 更新：创建 AI 回复容器
+    // 2. UI: AI 回复容器
     const aiBubble = document.createElement('div');
-    aiBubble.style.cssText = "background: #f8f9fa; padding: 15px; border-radius: 0 15px 15px 15px; margin: 10px 0; border: 1px solid #eee; min-height: 40px;";
-    aiBubble.classList.add('typing-cursor');
+    aiBubble.style.cssText = "background: #f8f9fa; padding: 15px; border-radius: 0 15px 15px 15px; margin: 10px 0; border: 1px solid #eee; min-height: 40px; position: relative;";
+    
+    // 注入结构：打印按钮 + 折叠框 + 正文框
+    aiBubble.innerHTML = `
+        <button class="ai-bubble-print-btn" title="单独打印此条对话">🖨️</button>
+        <details class="ai-reasoning-box" style="display:none;" open>
+            <summary><span>🧠 深度思考过程 (追问)</span></summary>
+            <div class="ai-reasoning-content"></div>
+        </details>
+        <div class="ai-answer-content typing-cursor"></div>
+    `;
     chatHistoryDiv.appendChild(aiBubble);
 
-    // 滚动到底部
-    stopBtn.style.display = 'inline-block'; // 复用停止按钮
+    // 获取内部引用
+    const printBtn = aiBubble.querySelector('.ai-bubble-print-btn');
+    const reasoningBox = aiBubble.querySelector('details');
+    const reasoningContentEl = aiBubble.querySelector('.ai-reasoning-content');
+    const answerContentEl = aiBubble.querySelector('.ai-answer-content');
 
-    // 3. 更新历史记录
+    // 绑定单条打印事件
+    printBtn.onclick = () => {
+        const currentReasoning = reasoningContentEl.innerText; 
+        const currentAnswer = answerContentEl.innerHTML;
+        printSingleChatTurn(userText, currentAnswer, currentReasoning);
+    };
+
+    // [关键] UI 状态更新：显示停止按钮，禁用发送
+    if (floatingStopBtn) floatingStopBtn.style.display = 'flex';
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.innerText = '生成中...';
+    }
+    
     G_AIChatHistory.push({ "role": "user", "content": userText });
 
-    // 4. 发送请求
+    // AbortController
     if (currentAIController) currentAIController.abort();
     currentAIController = new AbortController();
 
-    // 绑定停止按钮 (复用逻辑)
-    stopBtn.onclick = () => {
+    // 定义停止逻辑
+    const handleStop = () => {
         if (currentAIController) {
             currentAIController.abort();
             currentAIController = null;
-            stopBtn.style.display = 'none';
-            aiBubble.classList.remove('typing-cursor');
-            aiBubble.innerHTML += `<br><em style="color: #dc3545;">(已停止)</em>`;
+            
+            // UI 恢复
+            if (floatingStopBtn) floatingStopBtn.style.display = 'none';
+            if (sendBtn) {
+                sendBtn.disabled = false;
+                sendBtn.innerText = '发送';
+            }
+            
+            answerContentEl.classList.remove('typing-cursor');
+            answerContentEl.innerHTML += `<br><em style="color: #dc3545;">(已停止)</em>`;
+            
+            // 手动停止时，更新历史记录
+            if (G_CurrentHistoryId) {
+                saveToAIHistory(null, null, G_CurrentHistoryId);
+            }
         }
     };
+
+    // 绑定停止按钮
+    if (floatingStopBtn) floatingStopBtn.onclick = handleStop;
+
+    let fullReasoning = "";
+    let fullContent = "";
 
     try {
         const response = await fetch('https://api.deepseek.com/chat/completions', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                model: model,
-                messages: G_AIChatHistory,
-                temperature: 0.7,
-                stream: true
-            }),
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: model, messages: G_AIChatHistory, temperature: 0.6, stream: true }),
             signal: currentAIController.signal
         });
 
@@ -9625,8 +9642,7 @@ async function sendAIFollowUp() {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
-        let fullMarkdown = "";
-
+        
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -9634,31 +9650,50 @@ async function sendAIFollowUp() {
             const lines = chunk.split('\n');
 
             for (const line of lines) {
-                const trimmedLine = line.trim();
-                if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
-                if (trimmedLine.startsWith('data: ')) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('data: ')) {
                     try {
-                        const json = JSON.parse(trimmedLine.slice(6));
-                        const content = json.choices[0].delta.content || "";
-                        fullMarkdown += content;
-                        requestAnimationFrame(() => {
-                            renderMarkdownWithMath(aiBubble, fullMarkdown);
-                        });
-                    } catch (e) { }
+                        const json = JSON.parse(trimmed.slice(6));
+                        const delta = json.choices[0].delta;
+
+                        // A. 思考过程
+                        if (delta.reasoning_content) {
+                            if (fullReasoning === "") reasoningBox.style.display = "block";
+                            fullReasoning += delta.reasoning_content;
+                            reasoningContentEl.textContent = fullReasoning;
+                        }
+
+                        // B. 正文内容
+                        if (delta.content) {
+                            fullContent += delta.content;
+                            requestAnimationFrame(() => {
+                                renderMarkdownWithMath(answerContentEl, fullContent);
+                            });
+                        }
+                    } catch (e) {}
                 }
             }
         }
 
-        // 保存 AI 回复
-        G_AIChatHistory.push({ "role": "assistant", "content": fullMarkdown });
+        // 生成结束，保存上下文
+        G_AIChatHistory.push({ "role": "assistant", "content": fullContent });
+
+        // [关键] 更新历史记录 (追问内容存入 chatContent)
+        if (G_CurrentHistoryId) {
+            saveToAIHistory(null, null, G_CurrentHistoryId);
+        }
 
     } catch (err) {
         if (err.name !== 'AbortError') {
-            aiBubble.innerHTML += `<div style="color: red;">❌ 出错: ${err.message}</div>`;
+            answerContentEl.innerHTML += `<div style="color: red; margin-top:10px;">❌ 出错: ${err.message}</div>`;
         }
     } finally {
-        aiBubble.classList.remove('typing-cursor');
-        stopBtn.style.display = 'none';
+        answerContentEl.classList.remove('typing-cursor');
+        if (floatingStopBtn) floatingStopBtn.style.display = 'none';
+        if (sendBtn) {
+            sendBtn.disabled = false;
+            sendBtn.innerText = '发送';
+        }
         currentAIController = null;
     }
 }
@@ -9743,7 +9778,7 @@ function printAIReport() {
 
     // 2. [!! 核心修改 !!] 拼接内容：首次回答 + 追问记录
     let reportHtml = "";
-    
+
     if (hasInitialContent) {
         reportHtml += contentDiv.innerHTML;
     }
@@ -9881,41 +9916,71 @@ function initAIHistoryUI() {
 }
 
 /**
- * 保存一次 AI 对话到历史记录
- * @param {string} title - 标题 (学生名 + 科目)
- * @param {string} subTitle - 副标题 (模式)
- * @param {string} htmlContent - 完整的 HTML 内容
+ * [重构版] 保存/更新 AI 对话历史
+ * @param {string} title - 标题
+ * @param {string} subTitle - 副标题
+ * @param {number|null} existingId - 如果是更新现有记录，传入 ID；否则传 null
  */
-function saveToAIHistory(title, subTitle, htmlContent) {
-    if (!htmlContent || htmlContent.trim().length < 50) return; // 内容太少不保存
+function saveToAIHistory(title, subTitle, existingId = null) {
+    const contentDiv = document.getElementById('ai-content');
+    const historyDiv = document.getElementById('ai-chat-history');
 
-    const now = new Date();
+    // 获取两个容器的 HTML
+    const mainHtml = contentDiv ? contentDiv.innerHTML : "";
+    const chatHtml = historyDiv ? historyDiv.innerHTML : "";
+
+    if (mainHtml.trim().length < 50) return; // 内容太少不保存
+
+    let history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]");
+    let recordId = existingId;
+
+    // 1. 构建记录对象
     const record = {
-        id: Date.now(), // 唯一ID
-        timestamp: now.toLocaleString(),
+        id: existingId || Date.now(), // 有旧ID就用旧的，没有就生成新的
+        timestamp: new Date().toLocaleString(),
         title: title,
         subTitle: subTitle,
-        content: htmlContent
+        mainContent: mainHtml, // 保存主回答
+        chatContent: chatHtml  // [!! NEW !!] 保存追问记录
     };
 
-    // 读取现有记录
-    let history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]");
-
-    // 添加新记录到开头
-    history.unshift(record);
-
-    // 限制存储数量 (例如最多保留 50 条，防止 LocalStorage 爆满)
-    if (history.length > 50) {
-        history = history.slice(0, 50);
+    // 2. 判断是“新增”还是“更新”
+    if (existingId) {
+        // --- 更新模式 ---
+        const index = history.findIndex(r => r.id === existingId);
+        if (index !== -1) {
+            // 更新内容和时间，但保留原来的标题（也可以选择更新标题）
+            history[index].timestamp = record.timestamp;
+            history[index].mainContent = mainHtml;
+            history[index].chatContent = chatHtml;
+            // 把更新的这条置顶
+            const updatedItem = history.splice(index, 1)[0];
+            history.unshift(updatedItem);
+        } else {
+            // 没找到ID（可能被删了），变更为新增
+            history.unshift(record);
+            recordId = record.id;
+        }
+    } else {
+        // --- 新增模式 ---
+        history.unshift(record);
+        recordId = record.id;
     }
 
+    // 3. 限制数量并保存
+    if (history.length > 50) history = history.slice(0, 50);
     localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history));
 
-    // 如果侧边栏是打开的，刷新它
+    // 4. 更新全局当前 ID
+    G_CurrentHistoryId = recordId;
+
+    // 5. 刷新侧边栏 UI
     const drawer = document.getElementById('ai-history-drawer');
-    if (drawer.classList.contains('open')) {
+    if (drawer && drawer.classList.contains('open')) {
         renderAIHistoryList();
     }
+
+    return recordId; // 返回 ID 供调用者使用
 }
 
 /**
@@ -9941,25 +10006,33 @@ function renderAIHistoryList() {
 }
 
 /**
- * 加载单条历史记录到主视图
+ * [重构版] 加载单条历史记录
  */
 function loadAIHistoryItem(id) {
     const history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]");
     const item = history.find(r => r.id === id);
 
     if (item) {
+        // 1. 恢复主回答
         const contentDiv = document.getElementById('ai-content');
-        const resultContainer = document.getElementById('ai-result-container');
+        contentDiv.innerHTML = item.mainContent || item.content; // 兼容旧数据(item.content)
 
-        // 显示结果容器
-        resultContainer.style.display = 'block';
+        // 2. [!! NEW !!] 恢复追问记录
+        const historyDiv = document.getElementById('ai-chat-history');
+        if (historyDiv) {
+            historyDiv.innerHTML = item.chatContent || ""; // 如果是旧数据可能没有 chatContent
+        }
 
-        // 注入内容
-        contentDiv.innerHTML = item.content;
+        // 3. 设置当前会话 ID (这样加载旧记录后，继续追问会保存在这条记录里，而不是新建)
+        G_CurrentHistoryId = item.id;
 
-        // 重新渲染公式 (因为 innerHTML 注入不会自动触发 KaTeX)
+        // 4. 显示容器
+        document.getElementById('ai-result-container').style.display = 'block';
+
+        // 5. 重新渲染公式
+        const renderTarget = document.getElementById('ai-result-container');
         if (window.renderMathInElement) {
-            renderMathInElement(contentDiv, {
+            renderMathInElement(renderTarget, {
                 delimiters: [
                     { left: "$$", right: "$$", display: true },
                     { left: "\\[", right: "\\]", display: true },
@@ -9970,14 +10043,37 @@ function loadAIHistoryItem(id) {
             });
         }
 
-        // 移动端/小屏下，点击后自动关闭抽屉
+        // 6. 绑定打印按钮事件 (因为 innerHTML 覆盖后，原来的 onclick 事件绑定会丢失)
+        reattachPrintHandlers();
+
+        // 7. 移动端自动关闭侧边栏
         if (window.innerWidth < 1000) {
             document.getElementById('ai-history-drawer').classList.remove('open');
         }
-
-        // 提示用户
-        alert(`已加载历史记录：${item.title}`);
     }
+}
+
+// [新增辅助函数] 重新绑定气泡上的打印按钮事件
+function reattachPrintHandlers() {
+    const printBtns = document.querySelectorAll('.ai-bubble-print-btn');
+    printBtns.forEach(btn => {
+        btn.onclick = function () {
+            // 找到父级气泡
+            const bubble = this.parentElement;
+            // 提取信息 (这里需要根据你的 DOM 结构反向获取，或者简单点，不重新绑定复杂逻辑)
+            // 简单的做法：重新解析 DOM 内容
+            const userBubble = bubble.previousElementSibling; // 假设上面一个是用户提问
+            const userText = userBubble ? userBubble.innerText : "历史记录";
+
+            const reasoningEl = bubble.querySelector('.ai-reasoning-content');
+            const answerEl = bubble.querySelector('.ai-answer-content');
+
+            const rText = reasoningEl ? reasoningEl.innerText : "";
+            const aHtml = answerEl ? answerEl.innerHTML : "";
+
+            printSingleChatTurn(userText, aHtml, rText);
+        };
+    });
 }
 
 /**
@@ -9992,4 +10088,104 @@ function deleteAIHistoryItem(event, id) {
     localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history));
 
     renderAIHistoryList();
+}
+
+
+/**
+ * [NEW] 打印单轮对话 (追问记录)
+ */
+function printSingleChatTurn(userQuestion, aiAnswerHtml, aiReasoningText) {
+    // 1. 获取基本信息 (用于页眉)
+    const studentSearch = document.getElementById('ai-student-search');
+    const studentName = studentSearch.dataset.selectedName || "学生";
+    const subject = document.getElementById('ai-item-subject').value || "综合";
+
+    // 2. 构建思考过程的 HTML (如果在打印时想展示)
+    let reasoningHtml = "";
+    if (aiReasoningText && aiReasoningText.trim() !== "") {
+        reasoningHtml = `
+            <div class="print-reasoning">
+                <h4>🧠 深度思考过程</h4>
+                <div class="reasoning-text">${aiReasoningText.replace(/\n/g, '<br>')}</div>
+            </div>
+        `;
+    }
+
+    // 3. 构建打印页面
+    const printHtml = `
+        <html>
+        <head>
+            <title>深度追问记录 - ${studentName}</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+            <style>
+                body { font-family: -apple-system, "Segoe UI", sans-serif; padding: 2cm; line-height: 1.6; color: #333; }
+                
+                /* 页眉 */
+                .header { border-bottom: 2px solid #333; margin-bottom: 30px; padding-bottom: 10px; text-align: center; }
+                .header h2 { margin: 0; font-size: 20px; }
+                .header p { margin: 5px 0 0; color: #666; font-size: 14px; }
+
+                /* 对话样式 */
+                .user-box { 
+                    background-color: #e3f2fd; 
+                    border: 1px solid #bbdefb; 
+                    padding: 15px; 
+                    border-radius: 8px; 
+                    margin-bottom: 20px; 
+                    color: #0d47a1; 
+                    font-weight: bold;
+                }
+                .user-label { font-size: 0.8em; color: #1976d2; margin-bottom: 5px; display: block; }
+
+                .ai-box { margin-top: 20px; }
+                
+                /* 思考过程样式 (打印版) */
+                .print-reasoning { 
+                    margin: 20px 0; 
+                    padding: 15px; 
+                    background-color: #f9fafb; 
+                    border-left: 4px solid #999; 
+                    font-size: 0.9em; 
+                    color: #555;
+                }
+                .print-reasoning h4 { margin: 0 0 10px 0; color: #333; }
+                .reasoning-text { white-space: pre-wrap; font-family: monospace; }
+
+                /* 正文样式复刻 */
+                h3 { border-left: 4px solid #007bff; padding-left: 10px; }
+                strong { background-color: #eee; padding: 0 4px; }
+                table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+                th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+                th { background-color: #f0f0f0; }
+
+                @media print {
+                    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>深度追问记录</h2>
+                <p>对象：${studentName} | 科目：${subject} | 时间：${new Date().toLocaleString()}</p>
+            </div>
+
+            <div class="user-box">
+                <span class="user-label">🙋 追问问题：</span>
+                ${userQuestion}
+            </div>
+
+            <div class="ai-box">
+                ${reasoningHtml}
+                <div class="ai-content">
+                    ${aiAnswerHtml}
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+
+    const win = window.open('', '_blank');
+    win.document.write(printHtml);
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 1000);
 }

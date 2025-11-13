@@ -251,13 +251,16 @@
                     <div id="ai-chat-history" style="margin-top: 20px; border-top: 1px dashed #eee; padding-top: 20px;">
                     </div>
 
-                    <div id="ai-followup-input-area"
-                        style="display: none; margin-top: 15px; gap: 10px; align-items: flex-start;">
+                    <div id="ai-followup-input-area">
+
+                        <button id="ai-floating-stop-btn" style="display: none;">
+                            ⏹ 停止生成
+                        </button>
+
                         <textarea id="ai-user-input" class="sidebar-select" rows="1"
-                            placeholder="继续追问 AI (例如：根据掌握不扎实的知识点出一套题目...)"
-                            style="flex-grow: 1; resize: none; height: 40px; padding: 10px; line-height: 20px;"></textarea>
-                        <button id="ai-send-btn" class="sidebar-button"
-                            style="height: 42px; background-color: var(--primary-color); white-space: nowrap; flex-shrink: 0; width: 80px;">发送</button>
+                            placeholder="在此输入您的问题 (例如：针对第5题再出几道变式题)..."></textarea>
+
+                        <button id="ai-send-btn" class="sidebar-button">发送</button>
                     </div>
         </main>
     </div>

@@ -1048,3 +1048,196 @@ td span.regress {
     padding: 0 5px;
 }
 .history-delete-btn:hover { color: var(--color-red); }
+
+
+/* --- DeepSeek 深度思考折叠框样式 --- */
+details.ai-reasoning-box {
+    border: 1px solid #e5e7eb;
+    background-color: #f9fafb;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden; /* 防止内容溢出圆角 */
+    transition: all 0.3s ease;
+}
+
+details.ai-reasoning-box summary {
+    padding: 10px 15px;
+    background-color: #f3f4f6;
+    cursor: pointer;
+    font-weight: 600;
+    color: #4b5563;
+    user-select: none;
+    list-style: none; /* 隐藏默认三角，下面自定义 */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* 自定义小箭头 */
+details.ai-reasoning-box summary::after {
+    content: '▼';
+    font-size: 0.8em;
+    transition: transform 0.2s;
+}
+
+/* 收起时箭头旋转 */
+details.ai-reasoning-box:not([open]) summary::after {
+    transform: rotate(-90deg);
+}
+
+/* 思考内容的容器 */
+.ai-reasoning-content {
+    padding: 15px;
+    font-size: 0.9em;
+    color: #666;
+    line-height: 1.6;
+    border-top: 1px solid #e5e7eb;
+    background-color: #fff;
+    white-space: pre-wrap; /* 保留换行 */
+    font-family: "Menlo", "Monaco", "Courier New", monospace; /* 代码感字体 */
+}
+
+/* --- 打印时的控制 (核心) --- */
+@media print {
+    /* 1. 隐藏折叠框的背景色和边框，省墨水 */
+    details.ai-reasoning-box {
+        border: 1px dashed #ccc;
+        background-color: transparent;
+    }
+    
+    details.ai-reasoning-box summary {
+        background-color: transparent;
+        border-bottom: 1px solid #ccc;
+    }
+
+    /* 2. 关键：如果屏幕上是收起的(没有open属性)，打印时彻底隐藏内容 */
+    details.ai-reasoning-box:not([open]) .ai-reasoning-content {
+        display: none !important;
+    }
+
+    /* 3. 如果屏幕上是展开的，打印时显示内容 */
+    details.ai-reasoning-box[open] .ai-reasoning-content {
+        display: block !important;
+    }
+}
+
+
+/* --- 追问气泡上的打印按钮 --- */
+.ai-bubble-print-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    cursor: pointer;
+    font-size: 1.1em;
+    color: #999;
+    opacity: 0.4;
+    transition: all 0.2s;
+    background: none;
+    border: none;
+    z-index: 10;
+}
+.ai-bubble-print-btn:hover {
+    opacity: 1;
+    color: #007bff; /* 悬停变蓝 */
+    transform: scale(1.1);
+}
+
+/* 打印时隐藏这个小按钮，避免纸上出现一个图标 */
+@media print {
+    .ai-bubble-print-btn {
+        display: none !important;
+    }
+}
+
+/* --- [!! NEW !!] 底部固定输入框与停止按钮 --- */
+
+/* 1. 整个输入区域容器 (吸底) */
+#ai-followup-input-area {
+    position: sticky; /* 吸附在底部 */
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: #fff;
+    border-top: 1px solid #e5e7eb;
+    padding: 15px 20px;
+    z-index: 900;
+    display: flex !important; /* [!!] 强制一直显示，覆盖 JS 的隐藏逻辑 */
+    gap: 10px;
+    align-items: flex-end; /* 对齐底部 */
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+}
+
+/* 2. 输入框样式优化 */
+#ai-user-input {
+    flex-grow: 1;
+    resize: none;
+    height: 50px; /* 默认高度 */
+    max-height: 150px;
+    padding: 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background-color: #f9fafb;
+    font-family: inherit;
+    line-height: 1.5;
+    transition: border-color 0.2s;
+}
+#ai-user-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    background-color: #fff;
+}
+
+/* 3. 发送按钮 */
+#ai-send-btn {
+    height: 50px;
+    width: 80px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    background-color: var(--primary-color);
+    color: white;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+#ai-send-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+/* 4. [核心] 停止按钮 (悬浮在输入框正上方) */
+#ai-floating-stop-btn {
+    position: absolute;
+    top: -50px; /* 位于输入框上方 */
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #fff;
+    border: 1px solid #dc3545;
+    color: #dc3545;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 910;
+    animation: popIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+#ai-floating-stop-btn:hover {
+    background-color: #fef2f2;
+}
+
+@keyframes popIn {
+    from { opacity: 0; transform: translate(-50%, 10px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* 为了防止最后一条消息被输入框挡住，给历史记录容器加个底部内边距 */
+#ai-chat-history {
+    padding-bottom: 20px;
+}
+/* 给主内容区也加个底部内边距 */
+#ai-result-container {
+    padding-bottom: 80px; 
+}
