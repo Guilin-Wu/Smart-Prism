@@ -9706,44 +9706,64 @@ function renderMarkdownWithMath(element, markdown) {
 }
 
 /**
- * 14.1 [NEW] 打印 AI 分析报告
- * - 特性：保留 Markdown 排版、保留 KaTeX 数学公式样式、自动生成页眉信息
+ * 14.1 [修复版] 打印 AI 分析报告 (包含追问记录)
  */
 function printAIReport() {
     const contentDiv = document.getElementById('ai-content');
-    if (!contentDiv || contentDiv.innerHTML.trim() === '') {
+    const historyDiv = document.getElementById('ai-chat-history'); // [!!] 获取追问容器
+
+    // 检查是否有内容
+    const hasInitialContent = contentDiv && contentDiv.innerHTML.trim() !== '';
+    const hasHistoryContent = historyDiv && historyDiv.innerHTML.trim() !== '';
+
+    if (!hasInitialContent && !hasHistoryContent) {
         alert("没有可打印的内容！请先生成分析报告。");
         return;
     }
 
     // 1. 获取上下文信息 (用于页眉)
-    const mode = document.getElementById('ai-mode-select').value;
+    const modeEl = document.getElementById('ai-mode-select');
+    const modeText = modeEl ? modeEl.selectedOptions[0].text : "分析报告";
     const grade = document.getElementById('ai-grade-select').value;
     const subject = document.getElementById('ai-item-subject').value || "综合";
     let title = "";
     let subTitle = "";
 
-    if (mode === 'teaching_guide') {
+    if (modeEl.value === 'teaching_guide') {
         const className = document.getElementById('ai-item-class').value;
         const classText = className === 'ALL' ? '全年段' : className;
         title = `教学诊断报告 - ${subject}`;
         subTitle = `分析对象：${classText} | 年级：${grade}`;
     } else {
-        const studentName = document.getElementById('ai-student-search').dataset.selectedName || "学生";
+        const searchInput = document.getElementById('ai-student-search');
+        const studentName = searchInput.dataset.selectedName || "学生";
         title = `学业分析报告 - ${studentName}`;
-        subTitle = `年级：${grade} | 科目：${subject} | 模式：${document.getElementById('ai-mode-select').selectedOptions[0].text}`;
+        subTitle = `年级：${grade} | 科目：${subject} | 模式：${modeText}`;
     }
 
-    // 2. 获取 AI 生成的 HTML
-    const reportHtml = contentDiv.innerHTML;
+    // 2. [!! 核心修改 !!] 拼接内容：首次回答 + 追问记录
+    let reportHtml = "";
+    
+    if (hasInitialContent) {
+        reportHtml += contentDiv.innerHTML;
+    }
+
+    if (hasHistoryContent) {
+        // 添加一个分割线和标题，区分追问部分
+        reportHtml += `
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 2px dashed #ccc;">
+                <h3 style="color: #333; border-left: 4px solid #666; padding-left: 10px;">💬 深度追问记录</h3>
+                ${historyDiv.innerHTML}
+            </div>
+        `;
+    }
 
     // 3. 构建打印页面
-    // [关键] 必须引入 KaTeX CSS，否则公式会显示乱码
     const printHtml = `
         <html>
         <head>
             <title>${title}</title>
-            <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.css">
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
             <style>
                 body {
                     font-family: -apple-system, "Segoe UI", "PingFang SC", sans-serif;
@@ -9761,28 +9781,43 @@ function printAIReport() {
                 .print-header h1 { margin: 0 0 10px 0; font-size: 24px; }
                 .print-header p { margin: 0; color: #666; font-size: 14px; }
 
-                /* AI 内容样式复刻 (来自 style.css) */
+                /* 内容样式复刻 */
                 h1, h2, h3 { color: #000; margin-top: 1.5em; }
-                h3 { border-left: 4px solid #000; padding-left: 10px; }
+                h3 { font-size: 1.2em; border-left: 4px solid #007bff; padding-left: 10px; }
                 ul, ol { padding-left: 25px; }
                 li { margin-bottom: 5px; }
                 p { text-align: justify; margin-bottom: 1em; }
-                
-                /* 重点文字在打印时用加粗+下划线，比颜色更清晰 */
-                strong { 
-                    font-weight: 900; 
-                    background-color: #eee;
-                    padding: 0 4px;
-                    border-radius: 2px;
-                }
-                
-                /* 表格样式 */
+                strong { font-weight: 900; background-color: #eee; padding: 0 4px; border-radius: 2px; }
                 table { width: 100%; border-collapse: collapse; margin: 15px 0; }
                 th, td { border: 1px solid #999; padding: 8px; text-align: center; font-size: 0.9em; }
                 th { background-color: #f0f0f0; font-weight: bold; }
+                blockquote { border-left: 4px solid #ddd; margin: 1em 0; padding: 0.5em 1em; background-color: #f9f9f9; font-style: italic; }
+
+                /* [!!] 追问对话气泡样式 (确保打印时也能看到气泡) */
+                div[style*="background: #e3f2fd"] { 
+                    /* 用户气泡 */
+                    background-color: #e3f2fd !important; 
+                    border: 1px solid #bbdefb;
+                    color: #0d47a1;
+                    margin: 15px 0 15px auto !important; /* 强制靠右 */
+                    max-width: 80%;
+                    padding: 10px 15px;
+                    border-radius: 15px 15px 0 15px;
+                    text-align: right;
+                }
+                div[style*="background: #f8f9fa"] { 
+                    /* AI 气泡 */
+                    background-color: #f8f9fa !important;
+                    border: 1px solid #dee2e6;
+                    margin: 15px 0;
+                    padding: 15px;
+                    border-radius: 0 15px 15px 15px;
+                }
 
                 @media print {
-                    @page { size: A4 portrait; margin: 0; } /* 边距由 body padding 控制 */
+                    @page { size: A4 portrait; margin: 0; }
+                    /* 强制打印背景色 (针对气泡) */
+                    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
             </style>
         </head>
@@ -9804,13 +9839,11 @@ function printAIReport() {
     win.document.write(printHtml);
     win.document.close();
 
-    // 等待图片和 KaTeX 样式加载完成后再打印
     setTimeout(() => {
         win.focus();
         win.print();
-    }, 1000); // 1秒延迟确保渲染
+    }, 1000);
 }
-
 // =====================================================================
 // [!! NEW !!] 模块十四：AI 历史记录管理器
 // =====================================================================
