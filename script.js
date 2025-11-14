@@ -9325,7 +9325,7 @@ function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高
         prompt += `1. **精准诊断**：根据小题得分，直接指出该生在哪些**具体知识点**或**题型**上存在严重漏洞（关注得分率远低于班级平均的题）。\n`;
         prompt += `2. **归因分析**：分析这些丢分是属于基础知识不牢、计算错误、还是综合运用能力不足（结合题号和知识点判断）。\n`;
         prompt += `3. **提分策略**：针对这些具体的薄弱点，给出极具操作性的复习建议（例如：“针对题12的向量问题，建议...”）。\n`;
-        prompt += `4. 输出表格或列表是，请使用 Markdown 格式，保证清晰美观呈现。数学/化学/物理公式请使用 LaTeX 格式。其他的文字请直接文字输出，按照一定的框架，保证逻辑清晰明了。\n`;
+        prompt += `4. 输出表格或列表时，请使用 Markdown 格式，保证清晰美观呈现。数学/化学/物理公式请使用 LaTeX 格式。其他的文字请直接文字输出，按照一定的框架，保证逻辑清晰明了。\n`;
 
         return prompt;
     }
@@ -9373,7 +9373,7 @@ function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高
     } else if (mode === 'question') {
         prompt += `1. 找出最薄弱的一门学科。\n2. 生成 ${qCount} 道该学科的典型练习题，难度适配**${grade}**水平。\n3. 提供详细解析。\n`;
     }
-    prompt += `注意：输出表格或列表是，请使用 Markdown 格式，保证清晰美观呈现。数学/化学/物理公式请使用 LaTeX 格式。其他的文字请直接文字输出，按照一定的框架，保证逻辑清晰明了。\n`;
+    prompt += `注意：输出表格或列表时，请使用 Markdown 格式，保证清晰美观呈现。数学/化学/物理公式请使用 LaTeX 格式。其他的文字请直接文字输出，按照一定的框架，保证逻辑清晰明了。\n`;
 
     return prompt;
 }
@@ -9728,97 +9728,44 @@ async function sendAIFollowUp() {
     }
 }
 
-/**
- * 渲染 Markdown 并处理 LaTeX 公式 (最终防弹版)
- * 核心策略：保护公式 -> 强制修复 AI 的烂格式 -> 渲染 -> 还原公式
- */
 function renderMarkdownWithMath(element, markdown) {
-    if (!markdown) {
-        element.innerHTML = '';
-        return;
-    }
+    // [!! 最终修复 !!] 移除所有的 replace 预处理
+    // 因为 Prompt 已经让 AI 生成了标准的 LaTeX 格式 ($...$)
+    // 我们直接渲染，不再画蛇添足，这样就不会导致换行或乱码了
 
-    // ============================================================
-    // 第 1 步：超级保护 (先把公式和代码块挖走，防止被清洗逻辑误伤)
-    // ============================================================
-    const placeholders = [];
-    
-    // 1.1 保护代码块 (``` ... ```)
-    let protectedText = markdown.replace(
-        /(`{3,})[\s\S]*?\1/g, 
+    // 1. 保护公式 (防止 marked.js 把公式里的符号误认为是 markdown 语法)
+    const mathSegments = [];
+    const protectedMarkdown = markdown.replace(
+        /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\ce\{[^\}]+\}|\$[^\$]+\$)/g,
         (match) => {
-            const placeholder = `___PROTECTED_BLOCK_${placeholders.length}___`;
-            placeholders.push(match);
+            const placeholder = `MATHBLOCK${mathSegments.length}END`;
+            mathSegments.push(match);
             return placeholder;
         }
     );
 
-    // 1.2 保护数学公式 ($$...$$ 和 $...$)
-    // 正则说明：匹配 $$...$$ 或 \[...\] 或 $...$ (排除 $100 这种金钱符号)
-    protectedText = protectedText.replace(
-        /(\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\ce\{[^\}]+\}|\$(?!\s)[^$\n]+(?<!\s)\$)/g,
-        (match) => {
-            const placeholder = `___PROTECTED_BLOCK_${placeholders.length}___`;
-            placeholders.push(match);
-            return placeholder;
-        }
-    );
+    // 2. 渲染 Markdown
+    let html = marked.parse(protectedMarkdown);
 
-    // ============================================================
-    // 第 2 步：暴力格式清洗 (针对 DeepSeek/AI 的常见坏习惯)
-    // ============================================================
-    let cleanMd = protectedText;
-
-    // 2.1 【标题修复】: 解决 "文本\n# 标题" (缺空行) 和 "#标题" (缺空格)
-    // 逻辑：只要看到 # 号，强制确保前面有双换行，后面有空格
-    cleanMd = cleanMd.replace(/([^\n])\n\s*(#{1,6})/g, '$1\n\n$2'); // 补空行
-    cleanMd = cleanMd.replace(/^(#{1,6})([^#\s])/gm, '$1 $2');     // 补空格
-
-    // 2.2 【列表修复】: 解决 "文本\n- 列表" (缺空行)
-    // 逻辑：确保 - * 1. 前面有空行
-    cleanMd = cleanMd.replace(/([^\n])\n\s*([-*]|\d+\.)\s/g, '$1\n\n$2 ');
-
-    // 2.3 【表格修复】: 解决 "文本\n| 表头" (缺空行)
-    // 逻辑：这是你截图中表格渲染失败的罪魁祸首
-    cleanMd = cleanMd.replace(/([^\n])\n\s*\|/g, '$1\n\n|');
-
-    // 2.4 【引用修复】: 解决 "文本\n> 引用"
-    cleanMd = cleanMd.replace(/([^\n])\n\s*(>)/g, '$1\n\n$2');
-
-    // 2.5 【分割线修复】
-    cleanMd = cleanMd.replace(/([^\n])\n\s*(---|___|\*\*\*)/g, '$1\n\n$2');
-
-    // 2.6 【粗体修复】(可选): 有时候 AI 会用 "**小标题**" 开头但没换行
-    cleanMd = cleanMd.replace(/([^\n])\n\s*(\*\*.*?\*\*)/g, '$1\n\n$2');
-
-    // ============================================================
-    // 第 3 步：Markdown 渲染
-    // ============================================================
-    // breaks: true 是关键，让 AI 的单次换行也能显示为 <br>
-    let html = marked.parse(cleanMd, { breaks: true });
-
-    // ============================================================
-    // 第 4 步：还原保护内容 (把公式填回去)
-    // ============================================================
-    placeholders.forEach((content, index) => {
-        // 使用 split/join 替换比 replace 更安全，防止 content 中包含 $ 等特殊字符
-        html = html.split(`___PROTECTED_BLOCK_${index}___`).join(content);
+    // 3. 还原公式
+    mathSegments.forEach((segment, index) => {
+        html = html.replace(`MATHBLOCK${index}END`, () => segment);
     });
 
-    // ============================================================
-    // 第 5 步：注入 DOM 并渲染 MathJax/KaTeX
-    // ============================================================
+    // 4. 注入 HTML
     element.innerHTML = html;
 
+    // 5. 渲染 Math (KaTeX)
     if (window.renderMathInElement) {
         renderMathInElement(element, {
             delimiters: [
-                { left: "$$", right: "$$", display: true },
+                { left: "$$", right: "$$", display: true }, // 块级公式 (居中)
                 { left: "\\[", right: "\\]", display: true },
-                { left: "$", right: "$", display: false },
+                { left: "$", right: "$", display: false },  // 行内公式 (不换行)
                 { left: "\\(", right: "\\)", display: false }
             ],
             throwOnError: false
+            // [重要] 确保这里没有 macros 配置
         });
     }
 }
