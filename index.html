@@ -55,7 +55,7 @@
                 <li><a href="#" class="nav-link" data-module="correlation">🌡️ 学科关联矩阵</a></li>
                 <li><a href="#" class="nav-link" data-module="weakness">📉 偏科诊断分析</a></li>
                 <li><a href="#" class="nav-link" data-module="trend">🚀 成绩趋势对比</a></li>
-                <li><a href="#" class="nav-link" data-module="multi-exam">📈 多次考试分析</a></li>
+                <li><a href="#" class="nav-link" data-module="multi-exam">📈 数据管理中心</a></li>
                 <li><a href="#" class="nav-link" data-module="item-analysis">🔬 学科小题分析</a></li>
 
                 <li><a href="#" class="nav-link" data-module="ai-advisor">🤖 AI 智能分析</a></li>
@@ -235,7 +235,12 @@
                                 style="background-color: #dc3545; padding: 4px 12px; font-size: 0.85em; display: none;">
                                 ⏹ 停止生成
                             </button>
-                            <button id="ai-print-btn" class="sidebar-button" ...>🖨️ 打印报告</button>
+                            <button id="ai-print-btn" class="sidebar-button" ...>🖨️ 全部打印</button>
+
+                            <button id="ai-print-range-btn" class="sidebar-button" style="background-color: #17a2b8;">
+                                🔢 选段打印
+                            </button>
+
                             <button id="ai-copy-btn" class="sidebar-button"
                                 style="font-size: 0.8em; padding: 4px 8px; background-color: var(--color-gray);">复制内容</button>
                         </div>
@@ -407,6 +412,39 @@
                 <p style="color: var(--text-muted); font-size: 0.9em; margin-top: 15px;">
                     “打印当前筛选”会打印您在小题分析模块选择的班级（例如 "高一(1)班" 或 "全体"）。
                 </p>
+            </div>
+        </div>
+    </div>
+
+    <button id="multi-collection-toggle-btn" title="切换考试列表">
+        📂 考试列表库
+    </button>
+
+    <div id="multi-collection-drawer">
+        <div class="drawer-header">
+            <h3>📂 考试列表库</h3>
+            <button id="multi-collection-close-btn">&times;</button>
+        </div>
+
+        <div class="drawer-content">
+            <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                在这里创建或切换不同的考试合集（如“高一上”、“高二月考”）。
+            </p>
+
+            <label style="font-weight: 600; display:block; margin-bottom:5px;">当前列表:</label>
+            <select id="multi-collection-select" class="sidebar-select"
+                style="width: 100%; margin-bottom: 15px; font-weight: bold;">
+            </select>
+
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button id="btn-new-collection" class="sidebar-button" style="width: 100%;">➕ 新建列表</button>
+
+                <div style="display: flex; gap: 10px;">
+                    <button id="btn-rename-collection" class="sidebar-button"
+                        style="flex: 1; background-color: var(--color-cyan);">✏️ 重命名</button>
+                    <button id="btn-delete-collection" class="sidebar-button"
+                        style="flex: 1; background-color: var(--color-red);">🗑️ 删除</button>
+                </div>
             </div>
         </div>
     </div>

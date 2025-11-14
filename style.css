@@ -142,7 +142,7 @@ h2, h3 {
     overflow-y: auto;
     box-sizing: border-box;
 }
-.module-panel { display: none; }
+.module-panel { display: none; position: relative;}
 .module-panel h2 {
     font-size: 1.8em;
     font-weight: 600;
@@ -1240,4 +1240,70 @@ details.ai-reasoning-box:not([open]) summary::after {
 /* 给主内容区也加个底部内边距 */
 #ai-result-container {
     padding-bottom: 80px; 
+}
+
+/* --- 多列表管理侧边栏样式 --- */
+
+/* 1. 悬浮开关按钮 */
+#multi-collection-toggle-btn {
+    position: absolute; /* 相对于 module-panel 定位 */
+    top: 20px;
+    right: 20px;
+    background-color: #6f42c1; /* 紫色，与 AI 区分 */
+    color: white;
+    border: none;
+    padding: 8px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    font-weight: 600;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+#multi-collection-toggle-btn:hover {
+    background-color: #5a32a3;
+}
+
+/* 2. 抽屉容器 */
+#multi-collection-drawer {
+    position: fixed;
+    top: 0;
+    right: -320px; /* 默认隐藏 */
+    width: 300px;
+    height: 100vh;
+    background-color: #fff;
+    box-shadow: -5px 0 15px rgba(0,0,0,0.1);
+    z-index: 2000; /* 层级要高 */
+    transition: right 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid #eee;
+}
+
+/* 激活状态 */
+#multi-collection-drawer.open {
+    right: 0;
+}
+
+/* 抽屉头部 */
+.drawer-header {
+    padding: 15px 20px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.drawer-header h3 { margin: 0; font-size: 1.1em; color: #333; }
+#multi-collection-close-btn {
+    background: none; border: none; font-size: 1.5em; cursor: pointer; color: #999;
+}
+#multi-collection-close-btn:hover { color: #333; }
+
+/* 抽屉内容 */
+.drawer-content {
+    padding: 20px;
+    flex-grow: 1;
 }

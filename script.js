@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initAIModule();
     // 初始化历史记录 UI
     initAIHistoryUI();
+    initMultiCollectionManager();
 
     // ---------------------------------
     // 3. 事件监听器
@@ -2695,7 +2696,7 @@ function renderMultiExam(container) {
 
     // 1. 渲染模块 HTML
     container.innerHTML = `
-        <h2>模块十二：多次考试分析</h2>
+        <h2>模块十二：考试系统中心和多次数据分析</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
             在此模块上传的成绩将被浏览器永久保存（直到您手动清除）。
         </p>
@@ -2797,6 +2798,8 @@ function renderMultiExam(container) {
             </div>
         </div>
     `;
+
+    
 
     // 2. 绑定 DOM 和事件
     const multiUploader = document.getElementById('multi-file-uploader');
@@ -5863,25 +5866,45 @@ function renderMultiExamList(multiExamData) {
 }
 
 /**
- * (新增) 11.3. (重构) 保存“多次考试”数据到 LocalStorage
+ * [修改版] 保存考试数据到当前选中的列表
  */
-function saveMultiExamData(data) {
-    localStorage.setItem('G_MultiExamData', JSON.stringify(data));
+function saveMultiExamData(examArray) {
+    // 1. 读取所有集合
+    const collections = getCollections();
+    
+    // 2. 更新当前集合的 exams
+    if (collections[G_CurrentCollectionId]) {
+        collections[G_CurrentCollectionId].exams = examArray;
+        
+        // 3. 保存回 LocalStorage
+        saveCollections(collections);
+        
+        // 4. 顺便更新一下下拉框显示的考试数量
+        renderCollectionSelect();
+    }
 }
 
 /**
- * (新增) 11.4. (重构) 从 LocalStorage 加载“多次考试”数据
+ * [修改版] 从当前选中的列表中加载考试数据
  */
 function loadMultiExamData() {
-    const storedData = localStorage.getItem('G_MultiExamData');
-    const data = storedData ? JSON.parse(storedData) : [];
-
-    // [!! 新增 !!] 
-    // 迁移旧数据：确保每个条目都有 isHidden 属性
-    return data.map(item => ({
-        ...item,
-        isHidden: item.isHidden || false // 如果 item.isHidden 不存在，则默认为 false
-    }));
+    // 1. 确保数据结构存在
+    ensureCollectionsExist(); 
+    
+    // 2. 读取所有集合
+    const collections = getCollections();
+    
+    // 3. 返回当前集合的 exams 数组
+    // (增加容错：如果当前ID不对，默认返回空数组)
+    if (collections[G_CurrentCollectionId]) {
+        // 同样做一次旧数据兼容处理 (isHidden)
+        return collections[G_CurrentCollectionId].exams.map(item => ({
+            ...item,
+            isHidden: item.isHidden || false
+        }));
+    } else {
+        return [];
+    }
 }
 
 
@@ -8888,6 +8911,18 @@ function initAIModule() {
     const sendFollowUpBtn = document.getElementById('ai-send-btn');
     if (sendFollowUpBtn) sendFollowUpBtn.addEventListener('click', sendAIFollowUp);
     const printReportBtn = document.getElementById('ai-print-btn');
+
+    const printRangeBtn = document.getElementById('ai-print-range-btn');
+    if (printRangeBtn) {
+        printRangeBtn.addEventListener('click', () => {
+            // 弹出输入框询问
+            const input = prompt("请输入要打印的对话轮次 (例如 '1' 或 '1-3' 或 '2,4')：\n\n● 第 1 轮 = 初始分析报告\n● 第 2+ 轮 = 后续追问对话", "1");
+            if (input) {
+                printRangeReport(input);
+            }
+        });
+    }
+
     if (printReportBtn) printReportBtn.addEventListener('click', printAIReport);
 
     saveKeyBtn.addEventListener('click', () => {
@@ -10180,4 +10215,342 @@ function printSingleChatTurn(userQuestion, aiAnswerHtml, aiReasoningText) {
     win.document.write(printHtml);
     win.document.close();
     setTimeout(() => { win.focus(); win.print(); }, 1000);
+}
+
+
+/**
+ * 14.2 [NEW] 范围打印功能 (按对话轮次切片)
+ * @param {string} rangeStr - 用户输入的范围字符串，如 "1-3" 或 "2"
+ */
+function printRangeReport(rangeStr) {
+    const contentDiv = document.getElementById('ai-content');
+    const historyDiv = document.getElementById('ai-chat-history');
+
+    // --- 1. 把页面内容整理成“轮次”数组 ---
+    let rounds = [];
+
+    // [第1轮]：初始报告
+    if (contentDiv && contentDiv.innerHTML.trim() !== "") {
+        rounds.push({
+            type: 'initial',
+            html: contentDiv.innerHTML
+        });
+    }
+
+    // [第2+轮]：追问记录
+    // 追问记录在 historyDiv 里是扁平排列的 (User, AI, User, AI...)
+    // 我们需要按顺序把它们两两配对
+    if (historyDiv) {
+        const nodes = Array.from(historyDiv.children);
+        let currentRound = { type: 'followup', user: '', ai: '' };
+        let hasUser = false;
+
+        nodes.forEach(node => {
+            // 识别用户气泡 (浅蓝背景)
+            if (node.style.backgroundColor === 'rgb(227, 242, 253)' || node.style.background.includes('e3f2fd')) {
+                if (hasUser) { 
+                    // 如果已经有一个用户问题但没AI回答(异常情况)，先封包
+                    rounds.push({ type: 'followup', html: buildFollowUpHtml(currentRound.user, currentRound.ai) });
+                    currentRound = { type: 'followup', user: '', ai: '' };
+                }
+                currentRound.user = node.innerHTML; // 拿取内容
+                hasUser = true;
+            } 
+            // 识别 AI 气泡 (灰白背景)
+            else if (node.style.backgroundColor === 'rgb(248, 249, 250)' || node.style.background.includes('f8f9fa')) {
+                currentRound.ai = node.innerHTML; // 拿取内容
+                // 配对完成，推入数组
+                rounds.push({ type: 'followup', html: buildFollowUpHtml(currentRound.user, currentRound.ai) });
+                hasUser = false;
+                currentRound = { type: 'followup', user: '', ai: '' }; // 重置
+            }
+        });
+    }
+
+    // --- 2. 解析用户输入的范围 ---
+    // 支持 "1", "1-3", "1,3,5" 格式
+    const selectedIndices = new Set();
+    const parts = rangeStr.split(/[,，]/); // 支持中英文逗号
+
+    parts.forEach(part => {
+        if (part.includes('-')) {
+            const [start, end] = part.split('-').map(Number);
+            if (!isNaN(start) && !isNaN(end)) {
+                for (let i = start; i <= end; i++) selectedIndices.add(i);
+            }
+        } else {
+            const num = Number(part);
+            if (!isNaN(num)) selectedIndices.add(num);
+        }
+    });
+
+    // --- 3. 拼接需要打印的 HTML ---
+    let finalHtml = "";
+    let count = 0;
+
+    // 遍历所有轮次 (注意：rounds 数组下标从 0 开始，用户输入从 1 开始)
+    rounds.forEach((round, index) => {
+        const roundNum = index + 1;
+        if (selectedIndices.has(roundNum)) {
+            if (round.type === 'initial') {
+                finalHtml += `
+                    <div class="print-section">
+                        <h3 class="section-title">📄 第 1 轮：初始分析报告</h3>
+                        ${round.html}
+                    </div>
+                `;
+            } else {
+                finalHtml += `
+                    <div class="print-section" style="page-break-before: auto;">
+                        <h3 class="section-title">💬 第 ${roundNum} 轮：深度追问</h3>
+                        ${round.html}
+                    </div>
+                `;
+            }
+            count++;
+        }
+    });
+
+    if (count === 0) {
+        alert("输入的范围无效或没有对应的内容！\n当前共有 " + rounds.length + " 轮对话。");
+        return;
+    }
+
+    // --- 4. 调用打印窗口 (复用之前的样式) ---
+    // 获取表头信息
+    const studentSearch = document.getElementById('ai-student-search');
+    const studentName = studentSearch.dataset.selectedName || "学生";
+    
+    const printPage = `
+        <html>
+        <head>
+            <title>选段打印 - ${studentName}</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+            <style>
+                body { font-family: "Segoe UI", sans-serif; padding: 2cm; color: #333; line-height: 1.6; }
+                .print-header { text-align: center; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 10px; }
+                
+                /* 区域样式 */
+                .print-section { margin-bottom: 40px; }
+                .section-title { background: #eee; padding: 8px 15px; border-left: 5px solid #007bff; margin-bottom: 20px; font-size: 1.1em; }
+
+                /* 气泡样式复刻 (强制打印背景色) */
+                .user-bubble-print { 
+                    background-color: #e3f2fd !important; 
+                    border: 1px solid #bbdefb; color: #0d47a1; 
+                    padding: 10px; border-radius: 8px; margin-bottom: 15px; font-weight: bold;
+                }
+                .ai-bubble-print { 
+                    background-color: #f8f9fa !important; 
+                    border: 1px solid #dee2e6; padding: 10px; border-radius: 8px; 
+                }
+                
+                /* 隐藏不需要的按钮 */
+                .ai-bubble-print-btn, details summary { display: none !important; } 
+                /* 打印时默认展开所有折叠框内容 */
+                details .ai-reasoning-content { display: block !important; border-left: 3px solid #ccc; padding-left: 10px; margin: 10px 0; color: #666; font-size: 0.9em; }
+
+                @media print { * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+            </style>
+        </head>
+        <body>
+            <div class="print-header">
+                <h2>AI 分析报告 (选段)</h2>
+                <p>对象：${studentName} | 打印范围：第 ${rangeStr} 轮</p>
+            </div>
+            ${finalHtml}
+        </body>
+        </html>
+    `;
+
+    const win = window.open('', '_blank');
+    win.document.write(printPage);
+    win.document.close();
+    setTimeout(() => { win.focus(); win.print(); }, 1000);
+}
+
+// (内部辅助函数) 构建追问的打印 HTML
+function buildFollowUpHtml(userHtml, aiHtml) {
+    return `
+        <div class="user-bubble-print">🙋 提问：<br>${userHtml}</div>
+        <div class="ai-bubble-print">🤖 回复：<br>${aiHtml}</div>
+    `;
+}
+
+
+// =====================================================================
+// [!! NEW !!] 模块十二：多列表管理逻辑
+// =====================================================================
+
+// 全局变量：当前选中的列表ID
+let G_CurrentCollectionId = 'default';
+const COLLECTIONS_KEY = 'G_MultiExam_Collections_V2';
+
+/**
+ * 初始化多列表管理器 (在 renderMultiExam 中调用)
+ */
+function initMultiCollectionManager() {
+    const select = document.getElementById('multi-collection-select');
+    const btnNew = document.getElementById('btn-new-collection');
+    const btnRename = document.getElementById('btn-rename-collection');
+    const btnDelete = document.getElementById('btn-delete-collection');
+
+    // 1. 数据迁移与加载
+    ensureCollectionsExist();
+    
+    // 2. 渲染下拉框
+    renderCollectionSelect();
+
+    // 3. 绑定事件
+    // 切换列表
+    select.onchange = () => {
+        G_CurrentCollectionId = select.value;
+        localStorage.setItem('G_MultiExam_ActiveId', G_CurrentCollectionId);
+        // 刷新列表显示
+        const data = loadMultiExamData(); // 现在这个函数会读取当前ID的数据
+        renderMultiExamList(data);
+        initializeStudentSearch(data);
+        document.getElementById('multi-student-report').style.display = 'none';
+    };
+
+    // 新建列表
+    btnNew.onclick = () => {
+        const name = prompt("请输入新列表名称 (例如：高二下学期):");
+        if (!name) return;
+        
+        const collections = getCollections();
+        const newId = 'col_' + Date.now();
+        collections[newId] = {
+            name: name,
+            exams: [] // 空列表
+        };
+        saveCollections(collections);
+        
+        // 切换到新列表
+        G_CurrentCollectionId = newId;
+        localStorage.setItem('G_MultiExam_ActiveId', newId);
+        
+        renderCollectionSelect();
+        
+        // 刷新界面
+        renderMultiExamList([]);
+        initializeStudentSearch([]);
+        document.getElementById('multi-student-report').style.display = 'none';
+    };
+
+    // 重命名列表
+    btnRename.onclick = () => {
+        const collections = getCollections();
+        const current = collections[G_CurrentCollectionId];
+        const newName = prompt("重命名列表:", current.name);
+        if (newName && newName !== current.name) {
+            current.name = newName;
+            saveCollections(collections);
+            renderCollectionSelect();
+        }
+    };
+
+    // 删除列表
+    btnDelete.onclick = () => {
+        const collections = getCollections();
+        const keys = Object.keys(collections);
+        if (keys.length <= 1) {
+            alert("这是最后一个列表，无法删除！");
+            return;
+        }
+        if (!confirm(`确定要删除列表【${collections[G_CurrentCollectionId].name}】及其包含的所有考试数据吗？此操作不可恢复！`)) {
+            return;
+        }
+
+        delete collections[G_CurrentCollectionId];
+        saveCollections(collections);
+
+        // 切换回第一个可用列表
+        G_CurrentCollectionId = Object.keys(collections)[0];
+        localStorage.setItem('G_MultiExam_ActiveId', G_CurrentCollectionId);
+        
+        renderCollectionSelect();
+        
+        // 刷新界面
+        const data = loadMultiExamData();
+        renderMultiExamList(data);
+        initializeStudentSearch(data);
+        document.getElementById('multi-student-report').style.display = 'none';
+    };
+
+// ... (之前的列表管理逻辑) ...
+
+    // [!! NEW !!] 侧边栏 UI 控制逻辑
+    const drawer = document.getElementById('multi-collection-drawer');
+    const toggleBtn = document.getElementById('multi-collection-toggle-btn');
+    const closeBtn = document.getElementById('multi-collection-close-btn');
+
+    if (toggleBtn && drawer) {
+        // 打开
+        toggleBtn.onclick = () => {
+            drawer.classList.add('open');
+        };
+        
+        // 关闭
+        closeBtn.onclick = () => {
+            drawer.classList.remove('open');
+        };
+        
+        // 点击列表项切换后，自动关闭侧边栏 (可选，根据体验决定)
+        select.addEventListener('change', () => {
+            setTimeout(() => drawer.classList.remove('open'), 300);
+        });
+        
+    }
+}
+
+// --- 辅助函数 ---
+
+function getCollections() {
+    const json = localStorage.getItem(COLLECTIONS_KEY);
+    return json ? JSON.parse(json) : {};
+}
+
+function saveCollections(data) {
+    localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(data));
+}
+
+function ensureCollectionsExist() {
+    let collections = getCollections();
+    
+    // 如果是第一次运行新版，或者没有数据
+    if (Object.keys(collections).length === 0) {
+        // 尝试迁移旧版数据 (G_MultiExamData)
+        const oldDataJson = localStorage.getItem('G_MultiExamData');
+        const oldData = oldDataJson ? JSON.parse(oldDataJson) : [];
+        
+        // 创建默认列表
+        collections = {
+            'default': {
+                name: '默认考试列表',
+                exams: oldData
+            }
+        };
+        saveCollections(collections);
+    }
+
+    // 恢复上次选中的ID
+    const savedId = localStorage.getItem('G_MultiExam_ActiveId');
+    if (savedId && collections[savedId]) {
+        G_CurrentCollectionId = savedId;
+    } else {
+        G_CurrentCollectionId = Object.keys(collections)[0];
+    }
+}
+
+function renderCollectionSelect() {
+    const select = document.getElementById('multi-collection-select');
+    const collections = getCollections();
+    
+    let html = '';
+    for (const id in collections) {
+        const selected = (id === G_CurrentCollectionId) ? 'selected' : '';
+        html += `<option value="${id}" ${selected}>${collections[id].name} (${collections[id].exams.length}次考试)</option>`;
+    }
+    select.innerHTML = html;
 }
