@@ -2347,7 +2347,7 @@ function renderHolisticBalance(container, activeData, stats) {
 
     // 1. 渲染HTML
     container.innerHTML = `
-        <h2>模块：全科均衡分析 (当前筛选: ${G_CurrentClassFilter})</h2>
+        <h2>模块六：全科均衡分析 (当前筛选: ${G_CurrentClassFilter})</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
             分析学生群体的“短板”数量分布。点击下方柱状图可查看学生列表。
         </p>
@@ -2438,27 +2438,37 @@ function renderHolisticBalance(container, activeData, stats) {
  * @param {Object} compareStats - G_CompareStatistics
  */
 /**
- * (新增) 9.10. 模块十：成绩分布变动
- * [!!] (完整修复版)
+ * (新增) 模块七：成绩分布变动 (支持桑基图按科目查看 - 修复版)
  */
 function renderTrendDistribution(container, currentData, compareData, currentStats, compareStats, currentFilter) {
 
     // 1. 检查是否有对比数据
     if (!compareData || compareData.length === 0) {
-        container.innerHTML = `<h2>模块：成绩分布变동</h2><p>请先在侧边栏导入 "对比成绩" 数据。</p>`;
+        container.innerHTML = `<h2>模块七：成绩分布变动</h2><p>请先在侧边栏导入 "对比成绩" 数据。</p>`;
         return;
+    }
+
+    // [!! 核心修复 !!] 检查对比数据是否缺少单科排名
+    // 如果 compareData 的第一个学生没有 gradeRanks 属性，说明数据是旧的，需要重新计算
+    if (compareData.length > 0 && !compareData[0].gradeRanks) {
+        console.warn("检测到对比数据缺少单科排名，正在自动补全...");
+        // 借用 addSubjectRanksToData 函数重新计算排名
+        // 注意：这里我们假设 addSubjectRanksToData 已经定义在全局作用域
+        compareData = addSubjectRanksToData(compareData);
+        // 存回缓存，避免下次还要算
+        localStorage.setItem('G_CompareData', JSON.stringify(compareData));
     }
 
     // 2. 渲染HTML
     container.innerHTML = `
-        <h2>模块：成绩分布变动 (当前筛选: ${G_CurrentClassFilter})</h2>
+        <h2>模块七：成绩分布变动 (当前筛选: ${G_CurrentClassFilter})</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
             对比两次考试的“群体形态”变化。
         </p>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <div class="controls-bar chart-controls">
-                <label for="dist-subject-select">选择科目:</label>
+                <label for="dist-subject-select">选择科目 (直方图):</label>
                 <select id="dist-subject-select" class="sidebar-select">
                     <option value="totalScore">总分</option>
                     ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
@@ -2468,7 +2478,14 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         </div>
 
         <div class="main-card-wrapper">
-            <h4 style="margin:0;">总分排名分层流动图 (桑基图)</h4>
+            <div class="controls-bar chart-controls" style="border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">
+                <h4 style="margin: 0; margin-right: 20px;">排名分层流动图 (桑基图)</h4>
+                <label for="dist-sankey-subject-select">分析对象:</label>
+                <select id="dist-sankey-subject-select" class="sidebar-select" style="width: auto;">
+                    <option value="totalScore">总分排名</option>
+                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}排名</option>`).join('')}
+                </select>
+            </div>
             <p style="color: var(--text-muted); font-size: 0.9em; margin-top: 0;">
                 点击图中的“节点”或“流向”可查看学生列表。(绿色表示向上流动，红色表示向下流动)
             </p>
@@ -2481,7 +2498,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         </div>
     `;
 
-    // 3. 匹配两个数据源 (包含 oldGradeRank)
+    // 3. 匹配两个数据源 (包含 oldGradeRank 和 oldClassRanks)
     const mergedData = currentData.map(student => {
         const oldStudent = compareData.find(s => String(s.id) === String(student.id));
         if (!oldStudent) return null;
@@ -2490,14 +2507,17 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
             ...student,
             oldTotalScore: oldStudent.totalScore,
             oldRank: oldStudent.rank,
-            oldGradeRank: oldStudent.gradeRank || 0
+            oldGradeRank: oldStudent.gradeRank || 0,
+            // [!!] 确保这里能取到数据，即使是空对象
+            oldScores: oldStudent.scores || {},
+            oldClassRanks: oldStudent.classRanks || {}, 
+            oldGradeRanks: oldStudent.gradeRanks || {}  
         };
     }).filter(s => s !== null);
 
 
     // 4. 绑定直方图事件
     const subjectSelect = document.getElementById('dist-subject-select');
-
     const drawHistogram = () => {
         const subject = subjectSelect.value;
         const currentScores = (subject === 'totalScore')
@@ -2510,11 +2530,13 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
         renderOverlappingHistogram('dist-overlap-histogram-chart', currentScores, compareScores, subject);
     };
-
     subjectSelect.addEventListener('change', drawHistogram);
 
-    // 5. 将分层逻辑移到此处，以便共享
+    // 5. 桑基图逻辑
+    const sankeySubjectSelect = document.getElementById('dist-sankey-subject-select');
     const total = currentData.length;
+    
+    // 分层规则
     const rankTiers = [
         { name: 'Top 10%', min: 1, max: Math.ceil(total * 0.1) },
         { name: '10%-30%', min: Math.ceil(total * 0.1) + 1, max: Math.ceil(total * 0.3) },
@@ -2522,167 +2544,127 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         { name: 'Bottom 40%', min: Math.ceil(total * 0.6) + 1, max: total }
     ];
 
-    // (辅助函数)
     const getRankCategory = (rank) => {
         for (const tier of rankTiers) {
-            if (rank >= tier.min && rank <= tier.max) {
-                return tier.name;
-            }
+            if (rank >= tier.min && rank <= tier.max) return tier.name;
         }
         return 'N/A';
     };
 
+    let sankeyInstance = null;
+    const drawSankey = () => {
+        const subject = sankeySubjectSelect.value;
+        sankeyInstance = renderRankingSankey('dist-sankey-chart', mergedData, rankTiers, getRankCategory, currentFilter, subject);
+        bindSankeyEvents();
+    };
+
+    sankeySubjectSelect.addEventListener('change', drawSankey);
+
     // 6. 初始绘制
     drawHistogram();
+    drawSankey();
 
-    // 7. [!!] (修复) 确保
-    // (A) 变量定义
-    // (B) 查找元素
-    // (C) IF 语句
-    // ...按此顺序执行
+    // 7. 绑定桑基图点击事件 (逻辑保持最新)
+    function bindSankeyEvents() {
+        const resultsWrapper = document.getElementById('dist-sankey-results-wrapper');
+        const resultsTitle = document.getElementById('dist-sankey-results-title');
+        const resultsTable = document.getElementById('dist-sankey-results-table');
 
-    // (A) 定义变量
-    const sankeyInstance = renderRankingSankey('dist-sankey-chart', mergedData, rankTiers, getRankCategory, currentFilter);
-
-    // (B) 查找表格元素
-    const resultsWrapper = document.getElementById('dist-sankey-results-wrapper');
-    const resultsTitle = document.getElementById('dist-sankey-results-title');
-    const resultsTable = document.getElementById('dist-sankey-results-table');
-
-    // (C) 使用变量 (IF 语句)
-    if (sankeyInstance) {
-        sankeyInstance.on('click', (params) => {
-            let students = [];
-            let title = '';
-            let tableHtml = '';
-
-            const { dataType, data } = params;
-
-            // (核心修复) 检查当前是否为年段模式
-            const useGradeRank = (currentFilter === 'ALL');
-
-            // (辅助函数) 获取分层索引
-            const getTierIndex = (tierName) => rankTiers.findIndex(t => t.name === tierName);
-
-            if (dataType === 'link') {
-                // --- 1. 点击了 "流向" ---
-                title = `${data.source} → ${data.target} (${data.value}人)`;
-                const sourceTierName = data.source.replace('上次: ', '');
-                const targetTierName = data.target.replace('本次: ', '');
-
-                students = mergedData.filter(s => {
-                    // (修复) 动态选择排名
-                    const oldRank = useGradeRank ? (s.oldGradeRank || 0) : s.oldRank;
-                    const newRank = useGradeRank ? (s.gradeRank || 0) : s.rank;
-
-                    return oldRank > 0 && newRank > 0 &&
-                        getRankCategory(oldRank) === sourceTierName &&
-                        getRankCategory(newRank) === targetTierName;
-                });
-
-                // (判断流动方向)
-                const oldIndex = getTierIndex(sourceTierName);
-                const newIndex = getTierIndex(targetTierName);
-                let rowClass = '';
-                if (oldIndex > newIndex) rowClass = 'progress'; // 进步
-                if (oldIndex < newIndex) rowClass = 'regress'; // 退步
-
-                // (修复) 动态表头
-                const newRankHeader = useGradeRank ? '本次年排' : '本次班排';
-                const oldRankHeader = useGradeRank ? '上次年排' : '上次班排';
-
-                tableHtml = `
-                    <thead>
-                        <tr><th>姓名</th><th>班级</th><th>本次总分</th><th>${newRankHeader}</th><th>上次总分</th><th>${oldRankHeader}</th></tr>
-                    </thead>
-                    <tbody>
-                        ${students.map(s => `
-                        <tr class="${rowClass}">
-                            <td>${s.name}</td>
-                            <td>${s.class}</td>
-                            <td>${s.totalScore}</td>
-                            <td>${useGradeRank ? (s.gradeRank || 0) : s.rank}</td>
-                            <td>${s.oldTotalScore}</td>
-                            <td>${useGradeRank ? (s.oldGradeRank || 0) : s.oldRank}</td>
-                        </tr>
-                        `).join('')}
-                    </tbody>
-                `;
-
-            } else if (dataType === 'node') {
-                // --- 2. 点击了 "节点" ---
-                title = `${params.name} (${params.value}人)`;
-
-                const nodeName = data.name.replace('上次: ', '').replace('本次: ', '');
-                const isOld = data.name.startsWith('上次:');
-
-                students = mergedData.filter(s => {
-                    // (核心修复) 动态选择排名
-                    const rank = isOld
-                        ? (useGradeRank ? (s.oldGradeRank || 0) : s.oldRank)
-                        : (useGradeRank ? (s.gradeRank || 0) : s.rank);
-                    return rank > 0 && getRankCategory(rank) === nodeName;
-                });
-
-                // (修复) 动态表头
-                const newRankHeader = useGradeRank ? '本次年排' : '本次班排';
-                const oldRankHeader = useGradeRank ? '上次年排' : '上次班排';
-
-                tableHtml = `
-                <thead>
-                    <tr>
-                        <th>姓名</th>
-                        <th>班级</th>
-                        <th>${newRankHeader}</th>
-                        <th>${oldRankHeader}</th>
-                        <th>上次分层</th>
-                        <th>本次分层</th> </tr>
-                </thead>
-                <tbody>
-                    ${students.map(s => {
-                    // (修复) 动态选择排名
-                    const oldRank = useGradeRank ? (s.oldGradeRank || 0) : s.oldRank;
-                    const newRank = useGradeRank ? (s.gradeRank || 0) : s.rank;
-
-                    const oldTierName = oldRank > 0 ? getRankCategory(oldRank) : 'N/A';
-                    const newTierName = newRank > 0 ? getRankCategory(newRank) : nodeName;
-
-                    const oldIndex = getTierIndex(oldTierName);
-                    const newIndex = getTierIndex(newTierName);
-                    let rowClass = '';
-                    if (oldIndex > newIndex && oldIndex !== -1 && newIndex !== -1) {
-                        rowClass = 'progress';
-                    } else if (oldIndex < newIndex && oldIndex !== -1 && newIndex !== -1) {
-                        rowClass = 'regress';
+        if (sankeyInstance) {
+            sankeyInstance.off('click');
+            sankeyInstance.on('click', (params) => {
+                const subject = sankeySubjectSelect.value;
+                const isTotal = (subject === 'totalScore');
+                const useGradeRank = (currentFilter === 'ALL');
+                const { dataType, data } = params;
+                
+                // 动态获取排名和分数
+                const getRanks = (s) => {
+                    if (isTotal) {
+                        return {
+                            old: useGradeRank ? s.oldGradeRank : s.oldRank,
+                            new: useGradeRank ? s.gradeRank : s.rank,
+                            oldScore: s.oldTotalScore,
+                            newScore: s.totalScore
+                        };
+                    } else {
+                        return {
+                            old: useGradeRank ? (s.oldGradeRanks[subject] || 0) : (s.oldClassRanks[subject] || 0),
+                            new: useGradeRank ? (s.gradeRanks[subject] || 0) : (s.classRanks[subject] || 0),
+                            oldScore: s.oldScores[subject],
+                            newScore: s.scores[subject]
+                        };
                     }
+                };
 
-                    return `
-                        <tr class="${rowClass}">
-                            <td>${s.name}</td>
-                            <td>${s.class}</td>
-                            <td>${newRank}</td>
-                            <td>${oldRank}</td>
-                            <td>${oldTierName}</td>
-                            <td>${newTierName}</td> </tr>
-                        `;
-                }).join('')}
-                </tbody>
-            `;
-            }
+                let students = [];
+                let title = '';
 
-            if (students.length > 0) {
-                resultsWrapper.style.display = 'block';
-                resultsTitle.innerText = title;
-                // 渲染表格
-                resultsTable.innerHTML = `
-                    <div class="table-container">
-                        <table>
-                            ${tableHtml}
-                        </table>
-                    </div>
-                `;
-            }
-        });
+                if (dataType === 'link') {
+                    title = `${data.source} → ${data.target} (${data.value}人)`;
+                    const sourceTierName = data.source.replace('上次: ', '');
+                    const targetTierName = data.target.replace('本次: ', '');
+
+                    students = mergedData.filter(s => {
+                        const r = getRanks(s);
+                        return r.old > 0 && r.new > 0 &&
+                            getRankCategory(r.old) === sourceTierName &&
+                            getRankCategory(r.new) === targetTierName;
+                    });
+                } else if (dataType === 'node') {
+                    title = `${params.name} (${params.value}人)`;
+                    const nodeName = data.name.replace('上次: ', '').replace('本次: ', '');
+                    const isOld = data.name.startsWith('上次:');
+
+                    students = mergedData.filter(s => {
+                        const r = getRanks(s);
+                        const rankToCheck = isOld ? r.old : r.new;
+                        return rankToCheck > 0 && getRankCategory(rankToCheck) === nodeName;
+                    });
+                }
+
+                if (students.length > 0) {
+                    resultsWrapper.style.display = 'block';
+                    resultsTitle.innerText = `${title} - ${isTotal ? '总分' : subject}`;
+                    
+                    const scoreLabel = isTotal ? '总分' : subject;
+                    const rankLabel = useGradeRank ? '年排' : '班排';
+
+                    resultsTable.innerHTML = `
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>姓名</th><th>班级</th>
+                                        <th>本次${scoreLabel}</th><th>本次${rankLabel}</th>
+                                        <th>上次${scoreLabel}</th><th>上次${rankLabel}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${students.map(s => {
+                                        const r = getRanks(s);
+                                        const tierOld = rankTiers.findIndex(t => t.name === getRankCategory(r.old));
+                                        const tierNew = rankTiers.findIndex(t => t.name === getRankCategory(r.new));
+                                        let rowClass = '';
+                                        if (tierOld > tierNew) rowClass = 'progress';
+                                        else if (tierOld < tierNew) rowClass = 'regress';
+
+                                        return `
+                                        <tr class="${rowClass}">
+                                            <td>${s.name}</td><td>${s.class}</td>
+                                            <td><strong>${r.newScore ?? '-'}</strong></td>
+                                            <td>${r.new}</td>
+                                            <td>${r.oldScore ?? '-'}</td>
+                                            <td>${r.old}</td>
+                                        </tr>`;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+            });
+        }
     }
 }
 
@@ -4907,9 +4889,9 @@ function renderFailureCountChart(elementId, failureCounts) {
     echartsInstances[elementId].setOption(option);
 }
 
-// ---------------------------------
-// (新增) 10.22. 渲染重叠直方图
-// ---------------------------------
+/**
+ * (新增) 10.22. 渲染重叠直方图 (升级版：带平均分辅助线和难度显示)
+ */
 function renderOverlappingHistogram(elementId, currentScores, compareScores, subjectName) {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
@@ -4927,21 +4909,39 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
         return;
     }
 
-    // 1. (核心) 确定统一的分箱
+    // --- 1. 计算统计指标 (平均分 & 难度) ---
+    const calcStats = (scores) => {
+        if (scores.length === 0) return { avg: 0, diff: 0 };
+        const sum = scores.reduce((a, b) => a + b, 0);
+        const avg = sum / scores.length;
+        // 获取该科满分 (用于计算难度)
+        let fullScore = 100;
+        if (subjectName === 'totalScore') {
+            fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
+        } else {
+            fullScore = G_SubjectConfigs[subjectName]?.full || 100;
+        }
+        return { 
+            avg: parseFloat(avg.toFixed(1)), 
+            difficulty: parseFloat((avg / fullScore).toFixed(2)),
+            full: fullScore
+        };
+    };
+
+    const currStats = calcStats(cleanCurrent);
+    const compStats = calcStats(cleanCompare);
+
+    // --- 2. 确定统一的分箱 ---
     const allScores = [...cleanCurrent, ...cleanCompare];
     const min = Math.min(...allScores);
     const max = Math.max(...allScores);
 
     // 动态计算 binSize
-    let fullScore = 150;
-    if (subjectName === 'totalScore') {
-        fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
-    } else {
-        fullScore = G_SubjectConfigs[subjectName]?.full || 150;
-    }
-    const binSize = Math.max(10, Math.round(fullScore / 15));
+    const fullScore = currStats.full;
+    const binSize = Math.max(5, Math.round(fullScore / 20)); // 稍微细一点的分箱
 
-    const startBin = Math.floor(min / binSize) * binSize;
+    // 优化 X 轴起点，使其看起来更整齐 (比如 55 变成 50)
+    const startBin = Math.floor(min / binSize) * binSize; 
     const endBinLimit = Math.ceil((max + 0.01) / binSize) * binSize;
 
     const labels = [];
@@ -4955,13 +4955,16 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
         binsCompare[label] = 0;
     }
 
-    // 2. 填充数据
+    // 填充数据
     const fillBins = (scores, bins) => {
         scores.forEach(score => {
-            const binIndex = Math.floor((score - startBin) / binSize);
-            const label = labels[binIndex];
-            if (label) {
-                bins[label]++;
+            if (score >= endBinLimit) { // 处理满分边界
+                 const lastLabel = labels[labels.length - 1];
+                 if(lastLabel) bins[lastLabel]++;
+            } else {
+                const binIndex = Math.floor((score - startBin) / binSize);
+                const label = labels[binIndex];
+                if (label) bins[label]++;
             }
         });
     };
@@ -4972,11 +4975,15 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
     const dataCurrent = labels.map(label => binsCurrent[label]);
     const dataCompare = labels.map(label => binsCompare[label]);
 
+    // --- 3. 构建图表配置 ---
     const option = {
         title: {
             text: `${subjectName} 成绩分布对比`,
+            // [!!] 在副标题显示难度系数差异
+            subtext: `本次均分: ${currStats.avg} (难度:${currStats.difficulty})  vs  上次均分: ${compStats.avg} (难度:${compStats.difficulty})`,
             left: 'center',
-            textStyle: { fontSize: 16, fontWeight: 'normal' }
+            textStyle: { fontSize: 16, fontWeight: 'normal' },
+            subtextStyle: { fontSize: 12, color: '#666' }
         },
         tooltip: {
             trigger: 'axis',
@@ -4984,34 +4991,55 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
         },
         legend: {
             data: ['本次成绩', '对比成绩'],
-            top: 30
+            top: 50
         },
-        grid: { left: '3%', right: '4%', bottom: '20%', containLabel: true },
+        grid: { left: '3%', right: '4%', bottom: '10%', top: 80, containLabel: true }, // 增加 top 给副标题留空
         xAxis: {
             type: 'category',
             data: labels,
             name: '分数段',
-            axisLabel: {
-                interval: 'auto',
-                rotate: labels.length > 10 ? 30 : 0
-            }
+            axisLabel: { interval: 'auto', rotate: 30 }
         },
-        yAxis: { type: 'value', name: '学生人数' },
+        yAxis: { type: 'value', name: '人数' },
         series: [
             {
                 name: '对比成绩',
                 type: 'bar',
                 data: dataCompare,
-                itemStyle: {
-                    color: 'rgba(108, 117, 125, 0.5)' // 灰色
+                itemStyle: { color: '#ccc' }, // 灰色
+                // [!!] 添加平均分辅助线
+                markLine: {
+                    symbol: 'none',
+                    data: [
+                        { 
+                            name: '上次平均分', 
+                            xAxis: (compStats.avg - startBin) / binSize, // 计算平均分在 X 轴的位置
+                            lineStyle: { color: '#999', type: 'dashed', width: 2 },
+                            label: { formatter: '上次均分\n{c}', position: 'start' },
+                            value: compStats.avg
+                        }
+                    ],
+                    silent: true
                 }
             },
             {
                 name: '本次成绩',
                 type: 'bar',
                 data: dataCurrent,
-                itemStyle: {
-                    color: 'rgba(0, 123, 255, 0.7)' // 蓝色
+                itemStyle: { color: '#4285f4' }, // 蓝色
+                // [!!] 添加平均分辅助线
+                markLine: {
+                    symbol: 'none',
+                    data: [
+                        { 
+                            name: '本次平均分', 
+                            xAxis: (currStats.avg - startBin) / binSize,
+                            lineStyle: { color: '#4285f4', type: 'dashed', width: 2 },
+                            label: { formatter: '本次均分\n{c}', position: 'end' },
+                            value: currStats.avg
+                        }
+                    ],
+                    silent: true
                 }
             }
         ]
@@ -5020,111 +5048,7 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
 }
 
 
-// ---------------------------------
-// (新增) 10.23. 渲染排名流动桑基图
-// ---------------------------------
-function renderRankingSankey(elementId, mergedData, totalStudents) {
-    const chartDom = document.getElementById(elementId);
-    if (!chartDom) return;
 
-    if (echartsInstances[elementId]) {
-        echartsInstances[elementId].dispose();
-    }
-    echartsInstances[elementId] = echarts.init(chartDom);
-
-    if (mergedData.length === 0) {
-        chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">无匹配的学生数据。</p>`;
-        return;
-    }
-
-    // 1. 定义分层
-    // (我们动态地按百分比分层)
-    const total = totalStudents;
-    const rankTiers = [
-        { name: 'Top 10%', min: 1, max: Math.ceil(total * 0.1) },
-        { name: '10%-30%', min: Math.ceil(total * 0.1) + 1, max: Math.ceil(total * 0.3) },
-        { name: '30%-60%', min: Math.ceil(total * 0.3) + 1, max: Math.ceil(total * 0.6) },
-        { name: 'Bottom 40%', min: Math.ceil(total * 0.6) + 1, max: total }
-    ];
-
-    // (辅助函数)
-    const getRankCategory = (rank) => {
-        for (const tier of rankTiers) {
-            if (rank >= tier.min && rank <= tier.max) {
-                return tier.name;
-            }
-        }
-        return 'N/A';
-    };
-
-    // 2. ECharts Nodes
-    const nodes = [];
-    rankTiers.forEach(tier => nodes.push({ name: `上次: ${tier.name}` }));
-    rankTiers.forEach(tier => nodes.push({ name: `本次: ${tier.name}` }));
-
-    // 3. ECharts Links
-    const linksMap = {};
-
-    mergedData.forEach(student => {
-        const oldRank = student.oldRank;
-        const newRank = student.rank;
-
-        if (oldRank > 0 && newRank > 0) { // (必须两次排名都有效)
-            const source = `上次: ${getRankCategory(oldRank)}`;
-            const target = `本次: ${getRankCategory(newRank)}`;
-            const key = `${source} -> ${target}`;
-
-            linksMap[key] = (linksMap[key] || 0) + 1;
-        }
-    });
-
-    const links = Object.keys(linksMap).map(key => {
-        const [source, target] = key.split(' -> ');
-        return {
-            source: source,
-            target: target,
-            value: linksMap[key]
-        };
-    });
-
-    const option = {
-        title: {
-            text: '总分排名分层流动图',
-            subtext: '基于两次考试均参加的学生',
-            left: 'center'
-        },
-        tooltip: {
-            trigger: 'item',
-            triggerOn: 'mousemove',
-            formatter: (params) => {
-                if (params.dataType === 'link') {
-                    return `${params.data.source} → ${params.data.target}: ${params.data.value} 人`;
-                }
-                if (params.dataType === 'node') {
-                    return `${params.name}: ${params.value} 人`;
-                }
-                return '';
-            }
-        },
-        series: [{
-            type: 'sankey',
-            data: nodes,
-            links: links,
-            emphasis: {
-                focus: 'adjacency'
-            },
-            nodeAlign: 'justify', // 两端对齐
-            lineStyle: {
-                color: 'source', // 颜色跟随源节点
-                curveness: 0.5
-            },
-            label: {
-                fontSize: 10
-            }
-        }]
-    };
-    echartsInstances[elementId].setOption(option);
-}
 
 /**
  * (新增) 10.24. 渲染临界生模块 - 单个学生科目详情
@@ -5523,13 +5447,13 @@ function renderFailureCountChart(elementId, failureData) {
     return echartsInstances[elementId]; // [!!] (新增) 返回实例
 }
 
-// ---------------------------------
-// (新增) 10.23. 渲染排名流动桑基图
-// ---------------------------------
-// [!!] (修改) 传入分层逻辑, 并返回实例
-function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, currentFilter) { // [!!] (修改) 接收 currentFilter
+/**
+ * 渲染排名流动桑基图 (修复颜色版)
+ * [!!] 修复点：为不同的排名层级分配了不同的颜色，不再全显示为灰色
+ */
+function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, currentFilter, subject = 'totalScore') {
     const chartDom = document.getElementById(elementId);
-    if (!chartDom) return null; // [!!] (修改)
+    if (!chartDom) return null;
 
     if (echartsInstances[elementId]) {
         echartsInstances[elementId].dispose();
@@ -5538,34 +5462,54 @@ function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, 
 
     if (mergedData.length === 0) {
         chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">无匹配的学生数据。</p>`;
-        return null; // [!!] (修改)
+        return null;
     }
 
-    // 1. [!!] (删除) 分层逻辑已移出
-    // const total = ...
-    // const rankTiers = ...
-    // const getRankCategory = ...
+    // [!!] 1. 定义颜色盘 (对应 rankTiers 的顺序)
+    // 顺序：Top 10% (蓝), 10-30% (橙), 30-60% (绿), Bottom 40% (红/粉)
+    const tierColors = ['#5470c6', '#fac858', '#91cc75', '#ee6666'];
 
-    // 2. ECharts Nodes (不变)
+    // 2. ECharts Nodes
     const nodes = [];
-    rankTiers.forEach(tier => nodes.push({ name: `上次: ${tier.name}` }));
-    rankTiers.forEach(tier => nodes.push({ name: `本次: ${tier.name}` }));
+    
+    // [!!] 修复：在生成节点时分配颜色
+    rankTiers.forEach((tier, index) => {
+        const color = tierColors[index % tierColors.length]; // 按顺序取色
+        nodes.push({ 
+            name: `上次: ${tier.name}`, 
+            itemStyle: { color: color } // 设定颜色
+        });
+    });
+    
+    rankTiers.forEach((tier, index) => {
+        const color = tierColors[index % tierColors.length];
+        nodes.push({ 
+            name: `本次: ${tier.name}`, 
+            itemStyle: { color: color } // 设定颜色
+        });
+    });
 
-    // 3. ECharts Links (不变)
+    // 3. ECharts Links
     const linksMap = {};
 
     mergedData.forEach(student => {
-        // [!!] (核心修复) 根据筛选器选择使用 年排 还是 班排
         const useGradeRank = (currentFilter === 'ALL');
+        let oldRank, newRank;
 
-        const oldRank = useGradeRank ? (student.oldGradeRank || 0) : student.oldRank;
-        const newRank = useGradeRank ? (student.gradeRank || 0) : student.rank;
+        if (subject === 'totalScore') {
+            oldRank = useGradeRank ? (student.oldGradeRank || 0) : student.oldRank;
+            newRank = useGradeRank ? (student.gradeRank || 0) : student.rank;
+        } else {
+            const oldRanksObj = useGradeRank ? (student.oldGradeRanks || {}) : (student.oldClassRanks || {});
+            const newRanksObj = useGradeRank ? (student.gradeRanks || {}) : (student.classRanks || {});
+            oldRank = oldRanksObj[subject] || 0;
+            newRank = newRanksObj[subject] || 0;
+        }
 
-        if (oldRank > 0 && newRank > 0) { // (必须两次排名都有效)
+        if (oldRank > 0 && newRank > 0) {
             const source = `上次: ${getRankCategory(oldRank)}`;
             const target = `本次: ${getRankCategory(newRank)}`;
             const key = `${source} -> ${target}`;
-
             linksMap[key] = (linksMap[key] || 0) + 1;
         }
     });
@@ -5579,10 +5523,12 @@ function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, 
         };
     });
 
+    const titleText = (subject === 'totalScore') ? '总分排名' : `${subject}排名`;
+
     const option = {
         title: {
-            text: '总分排名分层流动图',
-            subtext: '基于两次考试均参加的学生',
+            text: `${titleText}分层流动图`,
+            subtext: `基于两次${subject === 'totalScore' ? '总分' : subject}均有效的学生`,
             left: 'center'
         },
         tooltip: {
@@ -5602,23 +5548,29 @@ function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, 
             type: 'sankey',
             data: nodes,
             links: links,
-            emphasis: {
-                focus: 'adjacency'
-            },
-            nodeAlign: 'justify', // 两端对齐
+            emphasis: { focus: 'adjacency' },
+            nodeAlign: 'justify',
+            layoutIterations: 32,
             lineStyle: {
-                color: 'source', // 颜色跟随源节点
-                curveness: 0.5
+                color: 'gradient', // [!!] 恢复渐变色 (依赖 source 和 target 的颜色)
+                curveness: 0.5,
+                opacity: 0.4
             },
             label: {
-                fontSize: 10,
-                position: 'inside', // [!!] (新增) 强制标签在节点内部显示
-                color: '#333'      // [!!] (新增) 确保标签在彩色背景上(如粉色/绿色)可读
-            }
+                fontSize: 11,
+                color: '#333',
+                formatter: '{b}'
+            },
+            levels: [
+                { depth: 0, itemStyle: { opacity: 1 }, lineStyle: { color: 'source', opacity: 0.3 } },
+                { depth: 1, itemStyle: { opacity: 1 }, lineStyle: { color: 'source', opacity: 0.3 } }
+            ]
         }]
     };
-    echartsInstances[elementId].setOption(option);
-    return echartsInstances[elementId]; // [!!] (新增) 返回实例
+
+    echartsInstances[elementId].setOption(option, { notMerge: true });
+    
+    return echartsInstances[elementId];
 }
 
 
