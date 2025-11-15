@@ -11275,64 +11275,103 @@ function initPromptManager() {
 }
 
 /**
- * [NEW] 模块：目标设定与规划
- */
-/**
- * [NEW] 模块：目标设定与规划 (包含打印功能)
+ * [NEW] 模块：目标设定与规划 (双向规划版：支持单科分数/排名定制)
  */
 function renderGoalSetting(container, activeData, stats) {
-    // 1. 定义局部变量，用于暂存计算结果供打印使用
+    // 1. 定义局部变量
     let currentStudent = null;
     let currentTargetRank = 0;
     let currentTargetScore = 0;
     let currentStrategy = null;
+    let manualMode = 'score'; // 'score' (按分数) 或 'rank' (按排名)
 
+    // 2. 渲染界面框架
     container.innerHTML = `
         <h2>🎯 目标设定与规划 (Goal Setting)</h2>
-        <p style="color: var(--text-muted);">设定目标名次或分数，系统将根据学科难度和提分空间，智能规划提分路径。</p>
-
+        
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
-            <div class="controls-bar" style="background: transparent; padding: 0; box-shadow: none; flex-wrap: wrap;">
-                
-                <div class="search-combobox" style="margin-right: 20px;">
-                    <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">1. 选择学生</label>
-                    <input type="text" id="goal-student-search" placeholder="输入姓名或考号..." autocomplete="off" class="sidebar-select" style="width: 200px;">
-                    <div class="search-results" id="goal-student-search-results"></div>
-                </div>
+            <div class="search-combobox" style="width: 100%; max-width: 400px;">
+                <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">第一步：选择学生</label>
+                <input type="text" id="goal-student-search" placeholder="输入姓名或考号..." autocomplete="off" class="sidebar-select" style="width: 100%;">
+                <div class="search-results" id="goal-student-search-results"></div>
+            </div>
+        </div>
 
-                <div style="margin-right: 20px;">
-                    <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">2. 设定目标类型</label>
-                    <select id="goal-type-select" class="sidebar-select">
-                        <option value="rank">目标年级排名 (名次)</option>
-                        <option value="score">目标总分 (分数)</option>
-                    </select>
-                </div>
+        <div id="goal-planning-area" style="display: none;">
+            <div style="margin-bottom: 20px; border-bottom: 2px solid #eee; display: flex; gap: 20px;">
+                <button class="tab-btn active" data-tab="smart" style="padding: 10px 20px; border: none; background: none; font-weight: bold; cursor: pointer; border-bottom: 3px solid var(--primary-color); color: var(--primary-color);">
+                    📉 智能反推 (输入总目标)
+                </button>
+                <button class="tab-btn" data-tab="manual" style="padding: 10px 20px; border: none; background: none; font-weight: bold; cursor: pointer; color: #666; border-bottom: 3px solid transparent;">
+                    🎯 单科定制 (调整各科)
+                </button>
+            </div>
 
-                <div style="margin-right: 20px;">
-                    <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">3. 输入目标值</label>
-                    <input type="number" id="goal-target-value" class="sidebar-select" style="width: 100px;" placeholder="例如: 50">
+            <div id="tab-content-smart" class="tab-content">
+                <div class="controls-bar" style="background: var(--card-background); box-shadow: var(--shadow-sm); padding: 15px;">
+                    <div style="margin-right: 20px;">
+                        <label>设定目标类型:</label>
+                        <select id="goal-type-select" class="sidebar-select">
+                            <option value="rank">目标年级排名 (名次)</option>
+                            <option value="score">目标总分 (分数)</option>
+                        </select>
+                    </div>
+                    <div style="margin-right: 20px;">
+                        <label>输入目标值:</label>
+                        <input type="number" id="goal-target-value" class="sidebar-select" style="width: 100px;" placeholder="例如: 50">
+                    </div>
+                    <button id="goal-calc-smart-btn" class="sidebar-button" style="background-color: var(--color-purple);">🚀 智能分配</button>
                 </div>
+            </div>
 
-                <div style="align-self: flex-end; display: flex; gap: 10px;">
-                    <button id="goal-calc-btn" class="sidebar-button" style="background-color: var(--color-purple);">🚀 智能规划</button>
-                    <button id="goal-print-btn" class="sidebar-button" style="background-color: var(--color-blue);" disabled>🖨️ 打印规划书</button>
+            <div id="tab-content-manual" class="tab-content" style="display: none;">
+                <div class="main-card-wrapper" style="border-left: 5px solid var(--color-orange);">
+                    
+                    <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px dashed #eee; display: flex; align-items: center; gap: 20px;">
+                        <span style="font-weight: bold; color: var(--text-muted);">设定方式:</span>
+                        <label style="cursor: pointer; display: flex; align-items: center;">
+                            <input type="radio" name="manual-mode-radio" value="score" checked style="margin-right: 5px;"> 按分数 (Target Score)
+                        </label>
+                        <label style="cursor: pointer; display: flex; align-items: center;">
+                            <input type="radio" name="manual-mode-radio" value="rank" style="margin-right: 5px;"> 按排名 (Target Rank)
+                        </label>
+                    </div>
+
+                    <p style="margin: 0 0 15px 0; color: var(--text-muted); font-size: 0.9em;">
+                        👇 请根据学生实际情况，手动调整各科目标。系统将自动计算总分并预测排名。
+                    </p>
+                    
+                    <div id="manual-subject-inputs" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 15px;"></div>
+                    
+                    <div style="margin-top: 20px; text-align: right;">
+                        <button id="goal-calc-manual-btn" class="sidebar-button" style="background-color: var(--color-orange);">🧮 预测结果</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div id="goal-result-container" style="display: none;">
+        <div id="goal-result-container" style="display: none; margin-top: 30px;">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0;">📊 规划分析报告</h3>
+                <button id="goal-print-btn" class="sidebar-button" style="background-color: var(--color-blue);">🖨️ 打印规划书</button>
+            </div>
+
             <div class="kpi-grid" id="goal-kpi-cards"></div>
+
             <div class="dashboard-chart-grid-2x2">
                 <div class="main-card-wrapper" style="grid-column: span 2;">
-                    <h4 style="margin:0 0 15px 0;">📚 智能提分策略表</h4>
+                    <h4 style="margin:0 0 15px 0;">📚 科目提分明细表</h4>
                     <div class="table-container" id="goal-strategy-table"></div>
                 </div>
+
                 <div class="main-card-wrapper">
                     <h4 style="margin:0;">📈 提分路径瀑布图</h4>
                     <div class="chart-container" id="goal-waterfall-chart" style="height: 400px;"></div>
                 </div>
+
                 <div class="main-card-wrapper">
-                    <h4 style="margin:0;">🕸️ 能力现状 vs 目标模型</h4>
+                    <h4 style="margin:0;">🕸️ 现状 vs 目标 模型对比</h4>
                     <div class="chart-container" id="goal-radar-chart" style="height: 400px;"></div>
                 </div>
             </div>
@@ -11342,76 +11381,206 @@ function renderGoalSetting(container, activeData, stats) {
     // --- 绑定事件 ---
     const searchInput = document.getElementById('goal-student-search');
     const resultsContainer = document.getElementById('goal-student-search-results');
-    const calcBtn = document.getElementById('goal-calc-btn');
-    const printBtn = document.getElementById('goal-print-btn'); // [新增]
+    const planningArea = document.getElementById('goal-planning-area');
+    const manualInputsContainer = document.getElementById('manual-subject-inputs');
+    
+    // 1. Tab 切换逻辑 (不变)
+    const tabs = container.querySelectorAll('.tab-btn');
+    tabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabs.forEach(t => { t.style.color = '#666'; t.style.borderBottomColor = 'transparent'; t.classList.remove('active'); });
+            btn.style.color = 'var(--primary-color)'; btn.style.borderBottomColor = 'var(--primary-color)'; btn.classList.add('active');
+            document.getElementById('tab-content-smart').style.display = btn.dataset.tab === 'smart' ? 'block' : 'none';
+            document.getElementById('tab-content-manual').style.display = btn.dataset.tab === 'manual' ? 'block' : 'none';
+        });
+    });
 
-    // 搜索逻辑 (不变)
+    // 2. 搜索逻辑 (不变)
     searchInput.addEventListener('input', (e) => {
         const term = e.target.value.toLowerCase();
         if (term.length < 1) { resultsContainer.style.display = 'none'; return; }
         const matches = activeData.filter(s => s.name.toLowerCase().includes(term) || String(s.id).includes(term)).slice(0, 10);
-        resultsContainer.innerHTML = matches.map(s => `<div class="result-item" data-id="${s.id}" data-name="${s.name}">${s.name} (${s.id}) - 年排: ${s.gradeRank || '-'}</div>`).join('');
+        resultsContainer.innerHTML = matches.map(s => `<div class="result-item" data-id="${s.id}" data-name="${s.name}">${s.name} (${s.id}) - 班排:${s.rank}</div>`).join('');
         resultsContainer.style.display = 'block';
     });
 
     resultsContainer.addEventListener('click', (e) => {
         const item = e.target.closest('.result-item');
         if (item) {
-            searchInput.value = `${item.dataset.name} (${item.dataset.id})`;
-            searchInput.dataset.sid = item.dataset.id;
+            const sid = item.dataset.id;
+            const sname = item.dataset.name;
+            const student = activeData.find(s => String(s.id) === String(sid));
+            
+            searchInput.value = `${sname} (${sid})`;
+            searchInput.dataset.sid = sid;
             resultsContainer.style.display = 'none';
-            printBtn.disabled = true; // 重选人后禁用打印，直到重新计算
+            
+            planningArea.style.display = 'block';
+            document.getElementById('goal-result-container').style.display = 'none';
+
+            currentStudent = student; 
+            // 初始化时默认按分数渲染
+            renderSubjectInputs(student, 'score');
+            // 重置 radio
+            document.querySelector('input[name="manual-mode-radio"][value="score"]').checked = true;
+            manualMode = 'score';
         }
     });
 
-    // 计算逻辑
-    calcBtn.addEventListener('click', () => {
-        const studentId = searchInput.dataset.sid;
+    // [NEW] 3. 监听模式切换 (分数 vs 排名)
+    const modeRadios = document.querySelectorAll('input[name="manual-mode-radio"]');
+    modeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if (!currentStudent) return;
+            manualMode = e.target.value;
+            renderSubjectInputs(currentStudent, manualMode);
+        });
+    });
+
+    // [NEW] 4. 辅助：渲染单科输入框 (支持两种模式)
+    function renderSubjectInputs(student, mode) {
+        let html = '';
+        const totalStudents = activeData.length;
+
+        G_DynamicSubjectList.forEach(subject => {
+            let currentVal, maxVal, labelUnit, inputPlaceholder;
+            let currentLabel;
+
+            if (mode === 'score') {
+                // 分数模式
+                currentVal = student.scores[subject] || 0;
+                maxVal = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].full : 100;
+                labelUnit = `/${maxVal}`;
+                inputPlaceholder = "目标分";
+                currentLabel = `现分: <strong>${currentVal}</strong>`;
+            } else {
+                // 排名模式
+                // 优先用年级排名，如果没有则用班级排名或 '-';
+                const rankVal = (student.gradeRanks && student.gradeRanks[subject]) ? student.gradeRanks[subject] : (student.classRanks ? student.classRanks[subject] : '-');
+                currentVal = (rankVal === '-' || rankVal === 'N/A') ? totalStudents : rankVal;
+                
+                maxVal = totalStudents; // 排名最大值就是总人数
+                labelUnit = `名`;
+                inputPlaceholder = "目标名次";
+                currentLabel = `现排: <strong>${rankVal}</strong>`;
+            }
+            
+            html += `
+                <div style="background: #f8f9fa; padding: 10px; border-radius: 8px; border: 1px solid #eee;">
+                    <label style="display:block; font-size:0.85em; color:#666; margin-bottom:5px;">${subject} (${currentLabel})</label>
+                    <div style="display:flex; align-items:center;">
+                        <input type="number" class="manual-goal-input" data-subject="${subject}" value="${currentVal}" 
+                               style="width: 100%; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-weight:bold; color: var(--primary-color);"
+                               min="1" max="${maxVal}">
+                        <span style="font-size:0.8em; color:#999; margin-left:5px;">${labelUnit}</span>
+                    </div>
+                </div>
+            `;
+        });
+        manualInputsContainer.innerHTML = html;
+    }
+
+    // 5. 模式A: 智能分配 (Smart Calc) - 保持不变
+    document.getElementById('goal-calc-smart-btn').addEventListener('click', () => {
+        if (!currentStudent) return;
         const goalType = document.getElementById('goal-type-select').value;
-        const targetVal = parseFloat(document.getElementById('goal-target-value').value);
+        const val = parseFloat(document.getElementById('goal-target-value').value);
+        if (!val) { alert("请输入目标值"); return; }
 
-        if (!studentId) { alert("请先选择一名学生！"); return; }
-        if (!targetVal) { alert("请输入目标值！"); return; }
-
-        const student = activeData.find(s => String(s.id) === String(studentId));
-        if (!student) return;
-
-        // 计算目标分数
         let targetScore = 0;
         let targetRank = 0;
 
+        const sorted = [...activeData].sort((a, b) => b.totalScore - a.totalScore);
         if (goalType === 'score') {
-            targetScore = targetVal;
-            const sorted = [...activeData].sort((a, b) => b.totalScore - a.totalScore);
+            targetScore = val;
             const neighbor = sorted.find(s => s.totalScore <= targetScore);
             targetRank = neighbor ? neighbor.gradeRank : 1;
         } else {
-            targetRank = targetVal;
-            const sorted = [...activeData].sort((a, b) => b.totalScore - a.totalScore);
+            targetRank = val;
             if (targetRank <= 1) targetScore = sorted[0].totalScore;
-            else if (targetRank > sorted.length) targetScore = sorted[sorted.length - 1].totalScore;
-            else {
-                const targetIdx = Math.min(targetRank, sorted.length) - 1;
-                targetScore = sorted[targetIdx].totalScore;
-            }
+            else if (targetRank > sorted.length) targetScore = sorted[sorted.length-1].totalScore;
+            else targetScore = sorted[Math.min(targetRank, sorted.length)-1].totalScore;
         }
 
-        // 执行计算
-        const strategy = calculateSmartAllocation(student, targetScore, activeData, stats);
-        
-        // [关键] 更新局部变量，供打印使用
-        currentStudent = student;
-        currentTargetScore = targetScore;
-        currentTargetRank = targetRank;
-        currentStrategy = strategy;
-        
-        // 渲染并启用打印按钮
-        renderGoalResults(student, targetRank, targetScore, strategy);
-        printBtn.disabled = false; // [启用按钮]
+        const strategy = calculateSmartAllocation(currentStudent, targetScore, activeData, stats);
+        updateResultData(targetRank, targetScore, strategy);
     });
 
-    // [新增] 打印按钮点击事件
-    printBtn.addEventListener('click', () => {
+    // [NEW] 6. 模式B: 单科定制 (Manual Calc) - 增加排名转换逻辑
+    document.getElementById('goal-calc-manual-btn').addEventListener('click', () => {
+        if (!currentStudent) return;
+
+        const inputs = document.querySelectorAll('.manual-goal-input');
+        let manualTotal = 0;
+        const details = [];
+
+        inputs.forEach(input => {
+            const subject = input.dataset.subject;
+            const inputValue = parseFloat(input.value) || 0;
+            const current = currentStudent.scores[subject] || 0;
+            const full = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].full : 100;
+            
+            let targetScore = 0;
+
+            if (manualMode === 'score') {
+                // 模式1: 直接是分数
+                targetScore = inputValue;
+            } else {
+                // 模式2: 输入的是排名，需要转换为分数
+                const targetRank = Math.max(1, Math.floor(inputValue)); // 确保至少第1名
+                
+                // 获取该科目所有学生的分数并排序
+                const allScores = activeData
+                    .map(s => s.scores[subject])
+                    .filter(s => typeof s === 'number' && !isNaN(s))
+                    .sort((a, b) => b - a); // 降序
+
+                // 找到该排名对应的分数
+                // 索引 = 排名 - 1 (第1名是 index 0)
+                // 如果排名超出人数，取最后一名
+                const index = Math.min(targetRank - 1, allScores.length - 1);
+                targetScore = allScores[index] || 0;
+            }
+
+            // 计算增量
+            const gain = targetScore - current;
+            const room = Math.max(0, full - current); 
+
+            manualTotal += targetScore;
+            
+            details.push({
+                subject: subject,
+                current: current,
+                target: targetScore,
+                gain: gain,
+                room: room,
+                difficultyText: gain > 15 ? "挑战巨大 (需质变)" : (gain > 5 ? "重点突破 (需努力)" : (gain >= 0 ? "稳步保持" : "允许回撤"))
+            });
+        });
+
+        // 估算新总分的排名
+        const sorted = [...activeData].sort((a, b) => b.totalScore - a.totalScore);
+        const betterCount = sorted.filter(s => s.totalScore > manualTotal).length;
+        const predictedRank = betterCount + 1;
+
+        const strategy = {
+            details: details,
+            totalDeficit: manualTotal - currentStudent.totalScore
+        };
+
+        updateResultData(predictedRank, manualTotal, strategy);
+    });
+
+    // 7. 统一更新结果
+    function updateResultData(rank, score, strategy) {
+        currentTargetRank = rank;
+        currentTargetScore = score;
+        currentStrategy = strategy;
+        renderGoalResults(currentStudent, rank, score, strategy);
+    }
+
+    // 8. 打印按钮
+    document.getElementById('goal-print-btn').addEventListener('click', () => {
         if (currentStudent && currentStrategy) {
             startGoalPrintJob(currentStudent, currentTargetScore, currentTargetRank, currentStrategy);
         }
