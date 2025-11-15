@@ -34,11 +34,6 @@ let G_AIChatHistory = [];
 
 let G_CurrentHistoryId = null;
 
-// 存储UI状态
-let G_CurrentClassFilter = 'ALL';
-let G_CurrentImportType = 'main';
-let G_SubjectConfigs = {};
-
 // ---------------------------------
 // 2. DOM 元素
 // ---------------------------------
