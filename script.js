@@ -9404,6 +9404,9 @@ function renderSubjectRankChart(containerId, examNames, visibleExamData, student
 // 1. 初始化 AI 模块 (Debug 增强版)
 // 1. 初始化 AI 模块 (修复版：解决班级列表初始化问题)
 async function initAIModule() {
+
+    initPromptManager();
+    
     const apiKeyInput = document.getElementById('ai-api-key');
     const saveKeyBtn = document.getElementById('ai-save-key-btn');
     const analyzeBtn = document.getElementById('ai-analyze-btn');
@@ -9625,277 +9628,200 @@ async function initAIModule() {
     });
 }
 
+/**
+ * [重构版] 生成 AI 提示词
+ * 逻辑：准备数据上下文 (dataContextStr) -> 读取用户模板 -> 替换变量
+ */
 async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高三", targetSubject = "", targetClass = "ALL") {
+    
+    // 1. 加载模板 (如果读取失败则使用默认)
+    // 确保 DEFAULT_PROMPTS 已经在全局定义过 (见下文补充)
+    const prompts = JSON.parse(localStorage.getItem('G_AI_Prompts')) || DEFAULT_PROMPTS;
+    const activeId = localStorage.getItem('G_AI_ActivePromptId') || 'default';
+    const template = prompts[activeId] || prompts['default'];
 
-
-    // 1. [!! NEW !!] 智能判断学段 (小学/初中/高中)
-    let schoolStage = "高中"; // 默认
-    if (grade.includes("初")) {
-        schoolStage = "初中";
-    } else if (grade.includes("年级") || grade.includes("小")) {
-        schoolStage = "小学";
-    }
-
-    // 1. 尝试获取试卷原题上下文
+    // 2. 准备数据上下文 (Data Context)
+    // 我们将根据不同的 mode，生成一段详细的数据描述文本，最后填入 {{data_context}}
+    let dataContextStr = "";
     let paperContextInfo = "";
-    if (window.G_ItemAnalysisConfig && window.G_ItemAnalysisConfig[targetSubject]) {
+
+    // [通用] 尝试获取试卷原题文本 (如果存在)
+    if (targetSubject && window.G_ItemAnalysisConfig && window.G_ItemAnalysisConfig[targetSubject]) {
         const fullText = window.G_ItemAnalysisConfig[targetSubject]['_full_paper_context_'];
         if (fullText && fullText.trim() !== "") {
-            // 为了防止 Prompt 过长，可以截取前 10000 字 (DeepSeek窗口很大，一般不用太担心)
-            paperContextInfo = `\n\n=== 📄 附：本次考试完整试卷内容 ===\n${fullText}\n============================\n\n`;
+            paperContextInfo = `\n=== 📄 附：本次考试完整试卷内容 ===\n${fullText.substring(0, 15000)}\n============================\n\n`;
         }
     }
-    // ==========================================
-    // 分支 C: 教师教学指导 (智能分流版：支持班级对比 & 年段诊断)
-    // ==========================================
+
+    // ============================================================
+    // 场景 A: 教师教学指导 (班级/年级视角)
+    // ============================================================
     if (mode === 'teaching_guide') {
-        if (!window.G_ItemAnalysisData) return `系统错误：内存中没有小题分析数据。`;
+        if (!window.G_ItemAnalysisData || !window.G_ItemAnalysisData[targetSubject]) {
+            return { system: template.system, user: "错误：没有找到该科目的小题数据，请先导入模块13。" };
+        }
+        
         const itemData = window.G_ItemAnalysisData[targetSubject];
-        if (!itemData) return `错误：找不到科目【${targetSubject}】的数据。`;
-
         const itemConfig = window.G_ItemAnalysisConfig ? (window.G_ItemAnalysisConfig[targetSubject] || {}) : {};
-
+        
+        // 筛选学生
         let targetStudents = itemData.students;
         let scopeName = "全年段";
-        const isWholeGrade = (targetClass === 'ALL'); // [!!] 标记是否为全体模式
-
-        if (!isWholeGrade) {
+        if (targetClass !== 'ALL') {
             targetStudents = itemData.students.filter(s => s.class === targetClass);
             scopeName = targetClass;
         }
+        
+        dataContextStr += `【分析范围】：${scopeName} (共${targetStudents.length}人)\n`;
+        dataContextStr += `【分析任务】：请分析该群体的得分率数据，找出共性薄弱点。\n\n`;
+        dataContextStr += `【详细得分率数据】：\n`;
+        dataContextStr += `| 题号 | 知识点 | 本次得分率 | 满分 |\n|---|---|---|---|\n`;
 
-        if (targetStudents.length === 0) return `错误：在【${targetSubject}】中未找到【${scopeName}】的学生数据。`;
-
-        // [!!] 核心修改 1：根据模式切换身份设定
-        let prompt = "";
-        if (isWholeGrade) {
-            prompt = `你是一位**${targetSubject}年级组长**。现在请对**${scopeName}**（共${targetStudents.length}人）的考试数据进行整体学情诊断。\n\n`;
-            prompt += paperContextInfo;
-        } else {
-            prompt = `你是一位经验丰富的**${targetSubject}**任课教师。现在请对**${scopeName}**（共${targetStudents.length}人）的考试数据进行深度分析。\n\n`;
-            prompt += paperContextInfo;
-        }
-
-        // [!!] 核心修改 2：根据模式切换表格列和数据逻辑
-        let tableHeader = isWholeGrade
-            ? `| 题号 | 知识点 | **全年段得分率** | 难度评价 |\n|---|---|---|---|\n`
-            : `| 题号 | 知识点 | 本班得分率 | 年级得分率 | 差值 |\n|---|---|---|---|---|\n`;
-
-        let tableData = tableHeader;
-
-        const calcStats = (qList, scoreKey, statsObj) => {
-            let text = "";
+        // 辅助：计算得分率表格
+        const appendRates = (qList, scoreKey, statsObj) => {
             qList.forEach(qName => {
                 const gradeStat = statsObj[qName];
                 if (!gradeStat) return;
+                
                 const config = itemConfig[qName] || {};
                 const fullScore = config.fullScore || gradeStat.maxScore;
                 const content = config.content || "未标记";
-
+                
                 if (fullScore > 0) {
-                    let classTotal = 0, validCount = 0;
+                    let total = 0, count = 0;
                     targetStudents.forEach(s => {
-                        const val = s[scoreKey][qName];
-                        if (typeof val === 'number') { classTotal += val; validCount++; }
+                        const v = s[scoreKey][qName];
+                        if (typeof v === 'number') { total += v; count++; }
                     });
-                    const classAvg = validCount > 0 ? classTotal / validCount : 0;
-                    const classRatio = classAvg / fullScore;
-                    const gradeRatio = gradeStat.avg / fullScore;
-
-                    if (isWholeGrade) {
-                        // [模式 A: 全年段] 只看绝对得分率
-                        // 定义简单规则：得分率 < 60% 标记为困难/薄弱
-                        let status = "";
-                        if (gradeRatio < 0.4) status = "**极难 (攻坚点)**";
-                        else if (gradeRatio < 0.6) status = "**较低 (薄弱点)**";
-                        else if (gradeRatio > 0.85) status = "优秀";
-                        else status = "正常";
-
-                        // 只有当题目比较难(得分率<75%) 或者 极易时才放入报告，避免表格过长
-                        // (或者你可以列出所有，AI会自动挑重点) -> 这里我们全列出，交给AI筛选
-                        text += `| ${qName} | ${content} | ${(gradeRatio * 100).toFixed(1)}% | ${status} |\n`;
-
-                    } else {
-                        // [模式 B: 班级对比] 看差值
-                        const diff = classRatio - gradeRatio;
-                        const diffStr = diff > 0 ? `+${(diff * 100).toFixed(1)}%` : `**${(diff * 100).toFixed(1)}%**`;
-                        text += `| ${qName} | ${content} | ${(classRatio * 100).toFixed(1)}% | ${(gradeRatio * 100).toFixed(1)}% | ${diffStr} |\n`;
-                    }
+                    const avg = count > 0 ? total / count : 0;
+                    const ratio = (avg / fullScore * 100).toFixed(1);
+                    dataContextStr += `| ${qName} | ${content} | ${ratio}% | ${fullScore} |\n`;
                 }
             });
-            return text;
         };
-
-        tableData += calcStats(itemData.minorQuestions, 'minorScores', itemData.minorStats);
-        tableData += calcStats(itemData.majorQuestions, 'majorScores', itemData.majorStats);
-
-        if (isWholeGrade) {
-            prompt += `以下是全年段各题的得分率数据：\n\n${tableData}\n\n`;
-        } else {
-            prompt += `以下是详细的得分率对比数据（差值为负表示本班落后于年级）：\n\n${tableData}\n\n`;
+        
+        appendRates(itemData.minorQuestions, 'minorScores', itemData.minorStats);
+        appendRates(itemData.majorQuestions, 'majorScores', itemData.majorStats);
+    } 
+    
+    // ============================================================
+    // 场景 B: 学生小题深度诊断 (个人视角)
+    // ============================================================
+    else if (mode === 'item_diagnosis') {
+        if (!window.G_ItemAnalysisData || !window.G_ItemAnalysisData[targetSubject]) {
+             return { system: template.system, user: "错误：没有找到该科目的小题数据。" };
         }
-
-        // [!!] 核心修改 3：根据模式切换任务指令 (强制 CSS 适配)
-        prompt += `### 📝 输出格式要求 (请严格遵守)\n`;
-        prompt += `为了保证报告的美观性，请务必按照以下格式输出：\n\n`;
-        prompt += `1. **标题格式**：所有章节标题必须使用 **### (三级标题)**，例如：### 1. 诊断概览。\n`;
-        prompt += `2. **重点高亮**：关键数据（如${isWholeGrade ? '低得分率' : '落后幅度'}）请使用 **加粗**。\n`;
-
-        prompt += `3. **内容结构**：\n`;
-        if (isWholeGrade) {
-            // ---> 全年段模式的指令 <---
-            prompt += `   - **### 1. 年级学情概览**：简述全年段整体表现，平均分及试卷整体难度系数。\n`;
-            prompt += `   - **### 2. 共性薄弱点诊断**：\n`;
-            prompt += `     - 找出**全年段得分率最低**的几道题目（即全校学生的共同痛点）。\n`;
-            prompt += `     - 结合知识点，深入分析为什么大部分学生都掌握不好（是题目太难、还是教学盲区？）。\n`;
-            prompt += `     - 请输出一个 Markdown 表格列出这些“攻坚”题目。\n`;
-            prompt += `   - **### 3. 教学调整建议**：针对这些共性问题，给备课组提出下阶段的教学侧重点建议。\n`;
-        } else {
-            // ---> 班级对比模式的指令 (保持原样) <---
-            prompt += `   - **### 1. 班级诊断概览**：用列表简述本班整体表现，指出与年级相比的优势和劣势。\n`;
-            prompt += `   - **### 2. 痛点深度剖析**：\n`;
-            prompt += `     - 找出**差值**为负且绝对值最大的题目（即本班掌握最差的题）。\n`;
-            prompt += `     - 结合知识点，分析学生丢分原因。\n`;
-            prompt += `     - 请输出一个 Markdown 表格列出这些“重灾区”题目。\n`;
-            prompt += `   - **### 3. 教学干预策略**：针对上述痛点，给出具体的课堂教学调整建议。\n`;
-        }
-
-        prompt += `4. **公式格式**：涉及数学/物理/化学公式，必须使用 LaTeX 格式（如 $F=ma$）。\n`;
-
-        return prompt;
-    }
-
-
-    // --- 分支 A: 小题深度诊断 (模块13) ---
-    if (mode === 'item_diagnosis') {
-        // [!! 修复 !!] 增加防御性检查
-        if (!window.G_ItemAnalysisData) {
-            return `系统错误：内存中没有小题分析数据。请尝试刷新页面或重新导入模块13的数据。`;
-        }
-
         const itemData = window.G_ItemAnalysisData[targetSubject];
-
-        // [!! 修复核心 !!] 如果找不到该科目的数据，直接返回错误提示，不要继续执行
-        if (!itemData) {
-            return `错误：无法找到科目【${targetSubject}】的数据。\n请检查：\n1. 是否已在模块13导入该科目？\n2. 是否在下拉框中正确选择了科目？`;
-        }
-
         const itemConfig = window.G_ItemAnalysisConfig ? (window.G_ItemAnalysisConfig[targetSubject] || {}) : {};
-
-        // [!! 核心修复 !!] 双重匹配机制
-        // 1. 先尝试用 ID 匹配 (最准确)
+        
+        // 查找学生
         let studentDetails = itemData.students.find(s => String(s.id) === String(studentId));
-
-        // 2. 如果 ID 没找到，尝试用 姓名 匹配 (防止 Excel 缺少考号列导致 ID 不一致)
+        if (!studentDetails) studentDetails = itemData.students.find(s => s.name === studentName);
+        
         if (!studentDetails) {
-            console.warn(`按 ID (${studentId}) 查找失败，尝试按姓名 (${studentName}) 查找...`);
-            studentDetails = itemData.students.find(s => s.name === studentName);
+            return { system: template.system, user: `错误：未在科目【${targetSubject}】中找到该学生数据。` };
         }
 
-        if (!studentDetails) {
-            return `错误：在科目【${targetSubject}】中未找到学生 "${studentName}" (ID: ${studentId}) 的成绩记录。\n\n可能原因：\n1. 小题分 Excel 中该生缺考。\n2. 小题分 Excel 中该生姓名可能有错别字或空格。\n3. 小题分 Excel 缺少“考号”列，且姓名与系统不完全一致。`;
-        }
-
-        let prompt = `你是一位精通**${targetSubject}**教学的资深**${schoolStage}**老师。现在要对学生 "${studentName}" (${grade}) 的**${targetSubject}试卷**进行深度的小题诊断。\n\n`;
-
-        prompt += paperContextInfo;
-        prompt += `【试卷整体表现】：\n`;
-        prompt += `- 总分：${studentDetails.totalScore}\n`;
-        prompt += `- 班级排名：${studentDetails.class || '未知'}\n\n`;
-
-        prompt += `【小题详细得分数据】：\n`;
-        prompt += `(格式：题号 | 知识点 | 学生得分 / 满分 | 班级平均分 | 个人得分率)\n`;
-
-        // 辅助函数：生成题目数据行
+        dataContextStr += `【试卷总分】：${studentDetails.totalScore}\n`;
+        dataContextStr += `【小题得分详情】(题号 | 知识点 | 得分/满分 | 班级均分 | 个人得分率)：\n`;
+        
         const processQuestions = (qList, scoreObj, statsObj) => {
-            let text = "";
-            if (!qList) return text; // 防止 qList 为空
-
             qList.forEach(qName => {
                 const score = scoreObj[qName];
                 const stat = statsObj[qName];
                 const config = itemConfig[qName] || {};
-
-                // 满分 (优先用配置的，否则用统计的最大分)
                 const fullScore = config.fullScore || stat.maxScore;
-                const content = config.content || "未标记知识点"; // 知识点
-                const avg = stat.avg;
-
-                // 计算得分率 (难度)
-                const ratio = (fullScore > 0) ? (score / fullScore).toFixed(2) : 0;
-
-                // 只把有数据的题目发给 AI
+                const content = config.content || "未标记";
+                
                 if (typeof score === 'number') {
-                    text += `- 题${qName} | ${content} | 得${score}分 (满${fullScore}) | 班均${avg.toFixed(1)} | 个人得分率 ${ratio}\n`;
+                    const ratio = (fullScore > 0) ? (score / fullScore).toFixed(2) : 0;
+                    // 只列出得分率低于 0.8 的题目，或者是大题，避免数据过长
+                    // (或者全部列出，AI 处理能力很强)
+                    dataContextStr += `- 题${qName} | ${content} | 得${score} (满${fullScore}) | 班均${stat.avg} | 率${ratio}\n`;
                 }
             });
-            return text;
         };
 
-        prompt += `--- 客观题/小题 ---\n`;
-        prompt += processQuestions(itemData.minorQuestions, studentDetails.minorScores, itemData.minorStats);
+        dataContextStr += `--- 客观题 ---\n`;
+        processQuestions(itemData.minorQuestions, studentDetails.minorScores, itemData.minorStats);
+        dataContextStr += `--- 主观题 ---\n`;
+        processQuestions(itemData.majorQuestions, studentDetails.majorScores, itemData.majorStats);
+    }
+    
+    // ============================================================
+    // 场景 C: 综合趋势 / 偏科 / 出题 (通用数据)
+    // ============================================================
+    else {
+        // 1. 获取历史数据
+        const multiData = (await loadMultiExamData()).filter(e => !e.isHidden);
+        dataContextStr += `【历史考试数据】：\n`;
+        
+        if (multiData.length === 0) {
+            dataContextStr += `(暂无历史数据)\n`;
+        } else {
+            multiData.forEach(exam => {
+                const s = exam.students.find(st => String(st.id) === String(studentId));
+                if (s) {
+                    dataContextStr += `- ${exam.label}: 总分${s.totalScore} (班排${s.rank}, 年排${s.gradeRank || '-'}); `;
+                    // 简略各科
+                    const scores = [];
+                    for(let k in s.scores) scores.push(`${k}:${s.scores[k]}`);
+                    dataContextStr += scores.join(', ') + "\n";
+                }
+            });
+        }
 
-        prompt += `\n--- 主观题/大题 ---\n`;
-        prompt += processQuestions(itemData.majorQuestions, studentDetails.majorScores, itemData.majorStats);
+        // 2. 获取本次详情
+        const currentStudent = G_StudentsData.find(s => String(s.id) === String(studentId));
+        if (currentStudent) {
+            dataContextStr += `\n【本次考试详情】：\n`;
+            dataContextStr += `总分: ${currentStudent.totalScore}, 班排: ${currentStudent.rank}\n`;
+            dataContextStr += `各科明细 (科目: 分数 | 班排 | 年排 | T分):\n`;
+            
+            G_DynamicSubjectList.forEach(sub => {
+                const score = currentStudent.scores[sub];
+                if (score !== undefined) {
+                    const cr = currentStudent.classRanks ? currentStudent.classRanks[sub] : '-';
+                    const gr = currentStudent.gradeRanks ? currentStudent.gradeRanks[sub] : '-';
+                    const tScore = (currentStudent.tScores && currentStudent.tScores[sub]) ? currentStudent.tScores[sub] : '-';
+                    dataContextStr += `- ${sub}: ${score} | ${cr} | ${gr} | T:${tScore}\n`;
+                }
+            });
+        }
 
-        prompt += `\n【你的任务】：\n`;
-        prompt += `1. **精准诊断**：根据小题得分，直接指出该生在哪些**具体知识点**或**题型**上存在严重漏洞（关注得分率远低于班级平均的题）。\n`;
-        prompt += `2. **归因分析**：分析这些丢分是属于基础知识不牢、计算错误、还是综合运用能力不足（结合题号和知识点判断）。\n`;
-        prompt += `3. **提分策略**：针对这些具体的薄弱点，给出极具操作性的复习建议（例如：“针对题12的向量问题，建议...”）。\n`;
-        prompt += `4. 输出表格或列表时，请使用 Markdown 格式，保证清晰美观呈现。数学/化学/物理公式请使用 LaTeX 格式。其他的文字请直接文字输出，按照一定的框架，保证逻辑清晰明了。\n`;
-
-        return prompt;
+        // 3. 特定模式补充说明
+        if (mode === 'question') {
+            dataContextStr += `\n【特殊指令】：请针对该生最薄弱的学科，生成 ${qCount} 道适合 ${grade} 水平的练习题。`;
+        }
     }
 
-    // --- 分支 B: 原有的综合分析 (模块1/12) ---
-    // (这部分保持不变)
-    const multiData = (await loadMultiExamData()).filter(e => !e.isHidden);
+    // 3. 拼接最终 Prompt
+    // 将试卷内容放在最前面，数据放在中间
+    const fullDataContext = paperContextInfo + dataContextStr;
 
-    let prompt = `你是一位经验丰富的**${grade}**班主任兼学科分析专家。现在需要你分析学生 "${studentName}" (${grade}) 的成绩数据。\n`;
-    prompt += `请结合**${grade}**的学习特点（例如${grade === '高一' ? '初高中衔接、习惯养成' : grade === '高二' ? '两极分化、难度提升' : '全面复习、高考冲刺'}）给出建议。\n\n`;
+    // 执行模板替换
+    let finalUserPrompt = template.user
+        .replace(/{{name}}/g, studentName)
+        .replace(/{{grade}}/g, grade)
+        .replace(/{{subject}}/g, targetSubject || "综合")
+        .replace(/{{score}}/g, "") // 简单置空，具体数据在 data_context 里
+        .replace(/{{rank}}/g, "")
+        .replace(/{{data_context}}/g, fullDataContext);
 
-    prompt += `【历史考试数据】：\n`;
-    if (multiData.length === 0) {
-        prompt += `(暂无历史数据，仅参考本次成绩)\n`;
-    } else {
-        multiData.forEach(exam => {
-            const s = exam.students.find(st => String(st.id) === String(studentId));
-            if (s) {
-                prompt += `- 考试名称：${exam.label}\n`;
-                prompt += `  总分：${s.totalScore} (班排: ${s.rank}, 年排: ${s.gradeRank || 'N/A'})\n`;
-                const scoreStr = Object.entries(s.scores).map(([k, v]) => `${k}:${v}`).join(', ');
-                prompt += `  各科得分：${scoreStr}\n`;
-            }
-        });
-    }
-
-    const currentStudent = G_StudentsData.find(s => String(s.id) === String(studentId));
-    if (currentStudent) {
-        prompt += `\n【最新一次考试详情】：\n`;
-        G_DynamicSubjectList.forEach(sub => {
-            const score = currentStudent.scores[sub];
-            if (score !== undefined) {
-                const cr = currentStudent.classRanks ? currentStudent.classRanks[sub] : '-';
-                const gr = currentStudent.gradeRanks ? currentStudent.gradeRanks[sub] : '-';
-                prompt += `- ${sub}: ${score}分 | 班排${cr} | 年排${gr}\n`;
-            }
-        });
-    }
-
-    prompt += `\n【你的任务】：\n`;
-    if (mode === 'trend') {
-        prompt += `1. 分析该生的总分及排名变化趋势。\n2. 指出优势学科和劣势学科。\n3. 给出符合**${grade}阶段**的学习建议。\n`;
-    } else if (mode === 'weakness') {
-        prompt += `1. 识别最薄弱的 1-2 门学科。\n2. 分析弱科是依然在下滑还是有所回升。\n3. 制定**${grade}**阶段的短期提分计划。\n`;
-    } else if (mode === 'question') {
-        prompt += `1. 找出最薄弱的一门学科。\n2. 生成 ${qCount} 道该学科的典型练习题，难度适配**${grade}**水平。\n3. 提供详细解析。\n`;
-    }
-    prompt += `注意：输出表格或列表时，请使用 Markdown 格式，保证清晰美观呈现。数学/化学/物理公式请使用 LaTeX 格式。其他的文字请直接文字输出，按照一定的框架，保证逻辑清晰明了。\n`;
-
-    return prompt;
+    // 返回符合 API 格式的对象
+    return { 
+        system: template.system, 
+        user: finalUserPrompt 
+    };
 }
 
-// 3. 调用 DeepSeek API (最终完整版：支持底部固定输入框 & 历史记录新建)
+/**
+ * 3. 调用 DeepSeek API (最终完整版)
+ * - 支持 Prompt 模板 (从 generateAIPrompt 获取 system/user)
+ * - 包含流式输出节流 (Throttle) 优化，防止页面卡顿
+ * - 包含智能滚屏 (Smart Auto-scroll)
+ * - 包含底部固定输入框状态管理
+ */
 async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount, grade, targetSubject, targetClass) {
     const resultContainer = document.getElementById('ai-result-container');
     const loadingDiv = document.getElementById('ai-loading');
@@ -9907,11 +9833,12 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
     const floatingStopBtn = document.getElementById('ai-floating-stop-btn');
     const sendBtn = document.getElementById('ai-send-btn');
 
-    // UI 初始化
+    // UI 初始化检查
     if (typeof marked === 'undefined') { alert("错误：marked.js 未加载！"); return; }
 
+    // 显示区域，清空旧历史
     resultContainer.style.display = 'block';
-    if (chatHistoryDiv) chatHistoryDiv.innerHTML = ''; // 清空旧的追问记录
+    if (chatHistoryDiv) chatHistoryDiv.innerHTML = ''; 
 
     // [关键] 确保输入框可见，禁用发送按钮
     if (inputArea) inputArea.style.display = 'flex';
@@ -9943,9 +9870,13 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
     // [关键] 重置当前历史记录 ID (新分析 = 新记录)
     G_CurrentHistoryId = null;
 
-    // AbortController 设置
+    // AbortController 设置 (用于停止生成)
     if (currentAIController) currentAIController.abort();
     currentAIController = new AbortController();
+
+    // 变量提升 (用于停止时保存)
+    let fullReasoning = "";
+    let fullContent = "";
 
     // 定义停止逻辑
     const handleStop = () => {
@@ -9965,12 +9896,12 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
 
             // 触发保存逻辑 (如果已有内容)
             if (fullContent && fullContent.length > 0) {
-                // 复用标题生成逻辑
                 const modeEl = document.getElementById('ai-mode-select');
                 const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
                 let historyTitle = `${studentName} - ${modeText}`;
                 if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
-
+                
+                // 保存未完成的记录
                 saveToAIHistory(historyTitle, `${grade} | ${targetSubject} (未完成)`, G_CurrentHistoryId);
             }
         }
@@ -9979,22 +9910,24 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
     // 绑定停止事件
     if (floatingStopBtn) floatingStopBtn.onclick = handleStop;
 
-    // 变量提升
-    let fullReasoning = "";
-    let fullContent = "";
-
     try {
-        const prompt = await generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
-        // 检查 Prompt 生成是否报错
-        if (prompt.startsWith('错误：') || prompt.startsWith('系统错误：')) throw new Error(prompt);
+        // 2. 生成 Prompt (使用模板)
+        // 注意：generateAIPrompt 现在返回对象 { system: "...", user: "..." }
+        const promptData = await generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
+        
+        // 检查 Prompt 生成是否报错 (字符串形式的错误)
+        if (promptData.user && (promptData.user.startsWith('错误：') || promptData.user.startsWith('系统错误：'))) {
+            throw new Error(promptData.user);
+        }
 
-        // 初始化对话历史
+        // 初始化对话历史 (使用模板中的 System Prompt)
         const temp = (model === 'deepseek-reasoner') ? 0.6 : 0.7;
         G_AIChatHistory = [
-            { "role": "system", "content": "你是一名专业的中学数据分析师。请使用 Markdown 格式输出。数学公式必须使用 LaTeX 格式 ($...$)。" },
-            { "role": "user", "content": prompt }
+            { "role": "system", "content": promptData.system },
+            { "role": "user", "content": promptData.user }
         ];
 
+        // 3. 发起 Fetch 请求
         const response = await fetch('https://api.deepseek.com/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -10012,9 +9945,26 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
 
+        // [!! 核心优化 !!] 节流渲染变量
+        let lastRenderTime = 0;
+        const RENDER_INTERVAL = 100; // 每 100ms 渲染一次 Markdown，防止页面闪烁
+        
+        // [!! 核心优化 !!] 智能滚屏检测
+        // 我们监听窗口滚动，只有当用户本来就在最底部时，AI生成内容才自动滚动
+        // 如果用户往上翻看历史，AI生成时不会强制把用户拉回底部
+        let isUserAtBottom = true; 
+        const checkScroll = () => {
+            const threshold = 100; // 容差
+            // 使用 document.documentElement (整个页面) 或 main-content
+            const el = document.documentElement; 
+            isUserAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) <= threshold;
+        };
+        window.addEventListener('scroll', checkScroll);
+
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            
             const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split('\n');
 
@@ -10026,45 +9976,64 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                         const json = JSON.parse(trimmed.slice(6));
                         const delta = json.choices[0].delta;
 
-                        // A. 处理思考过程 (R1)
+                        // A. 处理思考过程 (R1) - 纯文本，直接追加即可
                         if (delta.reasoning_content) {
                             if (fullReasoning === "") {
                                 reasoningBox.style.display = "block";
                             }
                             fullReasoning += delta.reasoning_content;
                             reasoningTextEl.textContent = fullReasoning;
+                            // 思考过程默认自动滚动
+                            // reasoningTextEl.scrollTop = reasoningTextEl.scrollHeight;
                         }
 
-                        // B. 处理正文内容
+                        // B. 处理正文内容 - 节流渲染 Markdown
                         if (delta.content) {
                             fullContent += delta.content;
-                            // 使用 requestAnimationFrame 平滑渲染
-                            requestAnimationFrame(() => {
+                            
+                            const now = Date.now();
+                            // 只有间隔超过 100ms 才重新解析 Markdown 并渲染 DOM
+                            if (now - lastRenderTime > RENDER_INTERVAL) {
                                 renderMarkdownWithMath(answerTextEl, fullContent);
-                            });
+                                lastRenderTime = now;
+                                
+                                // 智能滚动：仅当用户在底部时滚动
+                                if (isUserAtBottom) {
+                                    // 滚动整个窗口到底部
+                                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'auto' });
+                                }
+                            }
                         }
                     } catch (e) { }
                 }
             }
         }
 
-        // 生成结束
+        // 移除滚动监听
+        window.removeEventListener('scroll', checkScroll);
+
+        // 4. 循环结束：确保最后一次内容被完整渲染
+        renderMarkdownWithMath(answerTextEl, fullContent);
+        // 最后强制滚动到底部
+        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+
+        // 生成结束，更新历史上下文
         G_AIChatHistory.push({ "role": "assistant", "content": fullContent });
 
-        // [关键] 自动保存到历史记录 (新建存档)
+        // 5. 自动保存到历史记录存档
         const modeEl = document.getElementById('ai-mode-select');
         const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
         let historyTitle = `${studentName} - ${modeText}`;
         if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
 
-        // 传入 G_CurrentHistoryId (此时为 null)，saveToAIHistory 会返回新生成的 ID
+        // 传入 G_CurrentHistoryId (此时为 null)，返回新生成的 ID
         const newId = saveToAIHistory(historyTitle, `${grade} | ${targetSubject}`, G_CurrentHistoryId);
-        G_CurrentHistoryId = newId; // 更新全局 ID，供后续追问使用
+        G_CurrentHistoryId = newId; // 更新全局 ID
 
     } catch (err) {
         loadingDiv.style.display = 'none';
         if (err.name === 'AbortError') {
-            // 手动停止的逻辑已经在 handleStop 中处理了一部分，这里主要处理清理工作
+            // 已在 handleStop 处理
             answerTextEl.classList.remove('typing-cursor');
         } else {
             // 显示错误信息
@@ -11219,4 +11188,84 @@ function renderContributionChart(elementId, subjects, data, totalDiff) {
     };
     myChart.setOption(option);
     echartsInstances[elementId] = myChart;
+}
+
+
+
+// [!! 新增 !!] 默认模板库
+const DEFAULT_PROMPTS = {
+    "default": {
+        name: "默认专家风格",
+        system: "你是一名专业的中学数据分析师。请使用 Markdown 格式输出。数学公式使用 LaTeX。",
+        user: "请分析学生 {{name}} ({{grade}}) 的{{subject}}成绩。\n\n数据背景：\n{{data_context}}\n\n请给出：\n1. 成绩诊断\n2. 归因分析\n3. 提分建议"
+    },
+    "encouraging": {
+        name: "鼓励式沟通 (给家长看)",
+        system: "你是一位温暖、富有同理心的资深班主任。你的分析对象是学生家长，语气要委婉、多鼓励，少批评。",
+        user: "请为 {{name}} 同学的家长写一份{{subject}}学情反馈。\n\n数据详情：\n{{data_context}}\n\n要求：\n1. 先肯定孩子的努力和亮点（具体到题目或知识点）。\n2. 委婉指出存在的小问题。\n3. 给家长提供配合建议。"
+    },
+    "strict": {
+        name: "严厉诊断 (给学生看)",
+        system: "你是一位严厉但负责的学科教练。说话针针见血，不留情面，直接指出漏洞。",
+        user: "直接指出 {{name}} 在{{subject}}上的严重失分点。\n\n数据：\n{{data_context}}\n\n告诉我：他到底哪学的不行？接下来该怎么魔鬼训练？"
+    }
+};
+
+// [!! 在 initAIModule 中调用此函数 !!]
+function initPromptManager() {
+    const modal = document.getElementById('ai-prompt-modal');
+    const openBtn = document.getElementById('ai-prompt-settings-btn');
+    const closeBtn = document.getElementById('ai-prompt-close-btn');
+    const select = document.getElementById('ai-prompt-select');
+    const nameInput = document.getElementById('ai-prompt-name');
+    const sysInput = document.getElementById('ai-prompt-system');
+    const userInput = document.getElementById('ai-prompt-user');
+    const saveBtn = document.getElementById('ai-prompt-save-btn');
+    const newBtn = document.getElementById('ai-prompt-new-btn');
+    const delBtn = document.getElementById('ai-prompt-delete-btn');
+
+    // 加载模板
+    let prompts = JSON.parse(localStorage.getItem('G_AI_Prompts')) || DEFAULT_PROMPTS;
+
+    const renderSelect = () => {
+        select.innerHTML = Object.keys(prompts).map(k => `<option value="${k}">${prompts[k].name}</option>`).join('');
+        loadTemplate(select.value);
+    };
+
+    const loadTemplate = (key) => {
+        const t = prompts[key];
+        if(t) {
+            nameInput.value = t.name;
+            sysInput.value = t.system;
+            userInput.value = t.user;
+        }
+    };
+
+    openBtn.onclick = () => { modal.style.display = 'flex'; renderSelect(); };
+    closeBtn.onclick = () => { modal.style.display = 'none'; };
+    select.onchange = () => loadTemplate(select.value);
+
+    newBtn.onclick = () => {
+        const id = 'custom_' + Date.now();
+        prompts[id] = { name: "新模板", system: "", user: "" };
+        renderSelect();
+        select.value = id;
+        loadTemplate(id);
+    };
+
+    saveBtn.onclick = () => {
+        const key = select.value;
+        prompts[key] = {
+            name: nameInput.value,
+            system: sysInput.value,
+            user: userInput.value
+        };
+        localStorage.setItem('G_AI_Prompts', JSON.stringify(prompts));
+        // 保存当前选中的模板ID，供生成时使用
+        localStorage.setItem('G_AI_ActivePromptId', key);
+        alert("模板已保存");
+    };
+    
+    // 初始化
+    renderSelect();
 }
