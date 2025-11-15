@@ -183,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // [!!] 这里也需要改为从 localforage 读取，以防万一
             let storedConfigs = await localforage.getItem('G_SubjectConfigs');
             if (!storedConfigs) storedConfigs = {};
-            
+
             G_SubjectConfigs = storedConfigs; // 更新内存
 
             G_DynamicSubjectList.forEach(subject => {
@@ -218,10 +218,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (importMainBtn) importMainBtn.innerHTML = labelText;
 
-        } else { 
+        } else {
             // --- 导入到【对比成绩】 ---
             G_CompareData = selectedExam.students;
-            
+
             // [关键修复] 保存到 IndexedDB
             await localforage.setItem('G_CompareData', G_CompareData);
             await localforage.setItem('G_CompareFileName', selectedExam.label);
@@ -270,11 +270,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-// [!! 核心修复 !!] “清除所有数据”按钮逻辑升级
+    // [!! 核心修复 !!] “清除所有数据”按钮逻辑升级
     // 必须同时清除 localStorage (旧) 和 localforage (新数据库)
     clearAllBtn.addEventListener('click', async () => {
         if (confirm("⚠️ 高能预警\n\n您确定要清除所有已导入的“本次成绩”和“对比成绩”吗？\n此操作不可恢复！\n\n(注意：此操作【不会】清除“模块十二”中的历史存档)")) {
-            
+
             // 给按钮一点反馈
             const originalText = clearAllBtn.innerHTML;
             clearAllBtn.innerText = "🧹 正在强力清理...";
@@ -1057,6 +1057,8 @@ function runAnalysisAndRender() {
     calculateStandardScores(activeData, G_Statistics);
     if (activeCompareData.length > 0) {
         G_CompareStatistics = calculateAllStatistics(activeCompareData);
+
+        calculateStandardScores(activeCompareData, G_CompareStatistics); // <-- 关键：这一行之前漏了
     }
 
     // 6. (重构) 渲染当前激活的模块
@@ -1234,14 +1236,14 @@ function populateSubjectConfigModal() {
 function saveSubjectConfigsFromModal() {
     // 获取表格里所有的 input 标签
     const inputs = subjectConfigTableBody.querySelectorAll('input');
-    
+
     inputs.forEach(input => {
         const subject = input.dataset.subject;
         const type = input.dataset.type; // 例如 'full', 'excel', 'isAssigned'
-        
+
         // 确保配置对象存在
         if (!G_SubjectConfigs[subject]) {
-            G_SubjectConfigs[subject] = {}; 
+            G_SubjectConfigs[subject] = {};
         }
 
         // [!! 核心差异在这里 !!]
@@ -1254,7 +1256,7 @@ function saveSubjectConfigsFromModal() {
             G_SubjectConfigs[subject][type] = parseFloat(input.value);
         }
     });
-    
+
     // 保存到数据库
     localforage.setItem('G_SubjectConfigs', G_SubjectConfigs).then(() => {
         console.log("配置已成功保存至 IndexedDB");
@@ -1645,7 +1647,7 @@ function renderStudent(container, students, stats) {
             let subjectClassRankDiff = 'N/A';
             let subjectGradeRankDiff = 'N/A';
 
-            // --- 1. 原有的进退步计算 (保持不变) ---
+            // 1. 计算原始分/排名的进退步
             if (oldStudent && oldStudent.scores) {
                 const oldScore = oldStudent.scores[subject] || 0;
                 const newScore = student.scores[subject] || 0;
@@ -1668,25 +1670,36 @@ function renderStudent(container, students, stats) {
                 }
             }
 
-            // --- 2. [核心修改] 计算福建赋分 ---
+            // 2. 计算赋分 (保持不变)
             const config = G_SubjectConfigs[subject] || {};
-            const isAssignedSubject = config.isAssigned === true; // 检查是否开启赋分
+            const isAssignedSubject = config.isAssigned === true;
             let rankBasedScoreDisplay = '';
-
             if (isAssignedSubject) {
-                // (A) 获取该科目所有学生的原始成绩数组 (用于计算 Y1, Y2)
                 const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
-
-                // (B) 调用福建算法
                 const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
-
                 rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
             } else {
                 rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
             }
 
-            // --- 3. 获取 T-Score (保持不变) ---
+            // 3. [!! 核心修复 !!] 获取本次 T 分 & 计算 T 分变化
             const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
+            let tScoreDiffHtml = '';
+
+            // 尝试获取上次 T 分
+            if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
+                const oldTScore = oldStudent.tScores[subject];
+                if (tScore !== 'N/A') {
+                    const diff = tScore - oldTScore;
+                    const diffAbs = Math.abs(diff).toFixed(1);
+                    // 根据正负生成箭头
+                    if (diff > 0) {
+                        tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
+                    } else if (diff < 0) {
+                        tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
+                    }
+                }
+            }
 
             return `
         <tr>
@@ -1696,7 +1709,9 @@ function renderStudent(container, students, stats) {
                     ${student.scores[subject] || 0}
                     ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
                 </div>
-                <div style="font-size:0.8em; color:#666; margin-top:4px;">T分: ${tScore}</div>
+                <div style="font-size:0.8em; color:#666; margin-top:4px;">
+                    T分: <strong>${tScore}</strong> ${tScoreDiffHtml}
+                </div>
             </td>
             <td>
                 ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
@@ -1707,9 +1722,7 @@ function renderStudent(container, students, stats) {
                     ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
                     ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
                 </div>
-                
                 ${rankBasedScoreDisplay}
-                
             </td>
         </tr>
         `;
@@ -4508,7 +4521,7 @@ function renderDifficultyScatter(elementId, stats) {
 
         const fullMark = G_SubjectConfigs[subject]?.full || 100;
         // 气泡大小缩放逻辑
-        const bubbleSize = Math.sqrt(fullMark) * 2.5; 
+        const bubbleSize = Math.sqrt(fullMark) * 2.5;
 
         return {
             name: subject,
@@ -4520,7 +4533,7 @@ function renderDifficultyScatter(elementId, stats) {
             ],
             // [!!] 给气泡加个颜色，语数英深一点
             itemStyle: {
-                color: (['语文','数学','英语'].includes(subject)) ? '#007bff' : '#6cb2eb',
+                color: (['语文', '数学', '英语'].includes(subject)) ? '#007bff' : '#6cb2eb',
                 opacity: 0.8
             }
         };
@@ -4587,16 +4600,16 @@ function renderDifficultyScatter(elementId, stats) {
                 },
                 data: [
                     // 1. 垂直线 (X轴平均值 - 平均难度)
-                    { 
-                        type: 'average', 
-                        valueDim: 'x', 
+                    {
+                        type: 'average',
+                        valueDim: 'x',
                         name: '平均难度',
                         label: { position: 'start', formatter: '平均难度\n{c}' }
                     },
                     // 2. 水平线 (Y轴平均值 - 平均区分度)
-                    { 
-                        type: 'average', 
-                        valueDim: 'y', 
+                    {
+                        type: 'average',
+                        valueDim: 'y',
                         name: '平均区分度',
                         label: { position: 'end', formatter: '平均区分度 {c}' }
                     }
@@ -8833,7 +8846,8 @@ async function startPrintJob(studentIds) {
  */
 /**
  * 2. [打印引擎-辅助] 为单个学生生成报告的 HTML
- * [!! 修正版 !!] 同步了屏幕显示的逻辑：包含赋分、T分、进退步颜色
+ * [!! 最终同步版 !!] 
+ * - 包含：赋分计算、T分显示、T分进退步对比、原始分进退步
  */
 function generateStudentReportHTML(student) {
     if (!student) return '';
@@ -8848,7 +8862,7 @@ function generateStudentReportHTML(student) {
 
     if (oldStudent) {
         scoreDiff = (student.totalScore - oldStudent.totalScore).toFixed(2);
-        rankDiff = oldStudent.rank - student.rank;
+        rankDiff = oldStudent.rank - student.rank; // 排名减法：旧-新，正数为进步
         gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 'N/A';
     }
 
@@ -8881,13 +8895,13 @@ function generateStudentReportHTML(student) {
         </div>
     `;
 
-    // 3. [!! 核心修改 !!] 生成表格行 HTML (加入赋分逻辑)
+    // 3. [!! 核心 !!] 生成表格行 HTML (同步所有逻辑)
     const tableRowsHtml = G_DynamicSubjectList.map(subject => {
         let subjectScoreDiff = 'N/A';
         let subjectClassRankDiff = 'N/A';
         let subjectGradeRankDiff = 'N/A';
 
-        // (A) 计算进退步
+        // (A) 计算原始分/排名的进退步
         if (oldStudent && oldStudent.scores) {
             const oldScore = oldStudent.scores[subject] || 0;
             const newScore = student.scores[subject] || 0;
@@ -8910,23 +8924,37 @@ function generateStudentReportHTML(student) {
             }
         }
 
-        // (B) [新增] 获取 T分
-        const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
-
-        // (C) [新增] 计算赋分 (与屏幕显示逻辑一致)
+        // (B) 计算赋分 (福建模式)
         const config = G_SubjectConfigs[subject] || {};
         const isAssignedSubject = config.isAssigned === true;
         let rankBasedScoreDisplay = '';
 
         if (isAssignedSubject) {
-            // 获取该科目全体分数
+            // 获取该科目全体原始分，用于计算赋分
             const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
-            // 调用福建算法
             const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
-            
             rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
         } else {
             rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
+        }
+
+        // (C) 获取 T分 & 计算 T分进退步
+        const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
+        let tScoreDiffHtml = '';
+
+        if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
+            const oldTScore = oldStudent.tScores[subject];
+            // 确保两个 T 分都有效
+            if (tScore !== 'N/A' && oldTScore !== undefined && oldTScore !== null) {
+                const diff = tScore - oldTScore;
+                const diffAbs = Math.abs(diff).toFixed(1);
+                
+                if (diff > 0) {
+                    tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
+                } else if (diff < 0) {
+                    tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
+                }
+            }
         }
 
         return `
@@ -8937,7 +8965,9 @@ function generateStudentReportHTML(student) {
                         ${student.scores[subject] || 0}
                         ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
                     </div>
-                    <div style="font-size:0.8em; color:#666; margin-top:4px;">T分: <strong>${tScore}</strong></div>
+                    <div style="font-size:0.8em; color:#666; margin-top:4px;">
+                        T分: <strong>${tScore}</strong> ${tScoreDiffHtml}
+                    </div>
                 </td>
                 <td>
                     ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
