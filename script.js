@@ -2732,7 +2732,7 @@ function renderMultiExam(container) {
 
     // 1. 渲染模块 HTML
     container.innerHTML = `
-        <h2>模块十二：考试系统中心和多次数据分析</h2>
+        <h2>考试系统中心和多次数据分析</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
             在此模块上传的成绩将被浏览器永久保存（直到您手动清除）。
         </p>
@@ -6333,7 +6333,7 @@ function renderItemAnalysis(container) {
 
     // 1. 渲染基础HTML
     container.innerHTML = `
-        <h2>模块十三：学科小题分析</h2>
+        <h2>模块十二：学科小题分析</h2>
         
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
             请导入“小题分明细”Excel文件。系统将自动解析所有工作表(Sheet)，每个工作表代表一个科目。
