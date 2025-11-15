@@ -12805,71 +12805,64 @@ if (graphDef) {
 
 
 
-// =====================================================================
-// [NEW] 模块十五：考场座位编排
-// =====================================================================
-
-// =====================================================================
-// [NEW] 模块十五：考场座位编排 (支持自定义考号前缀)
-// =====================================================================
-
 function renderExamArrangement(container) {
     const studentCount = G_StudentsData.length;
 
     container.innerHTML = `
         <h2>🧘 模块十五：考场座位编排 & 考号生成</h2>
         
-        <div class="main-card-wrapper" style="border-left: 5px solid var(--color-cyan); margin-bottom: 20px;">
-            <h4 style="margin-top:0;">🛠️ 编排配置</h4>
-            <div class="controls-bar" style="background:transparent; padding:0; box-shadow:none; flex-wrap:wrap; gap: 15px;">
+        <div class="main-card-wrapper" style="border-left: 5px solid var(--color-cyan); margin-bottom: 20px; padding-bottom: 30px;">
+            <h4 style="margin-top:0; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px;">🛠️ 编排配置参数</h4>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 25px; align-items: end;">
                 
-                <div style="min-width: 220px;">
-                    <label>1. 考生排序策略:</label>
-                    <select id="exam-sort-strategy" class="sidebar-select" style="font-weight:bold; color:var(--primary-color);">
-                        <option value="class_balanced">⚖️ 班级均衡 (分层穿插+组内随机)</option>
+                <div>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">1. 考生排序策略:</label>
+                    <select id="exam-sort-strategy" class="sidebar-select" style="font-weight:bold; color:var(--primary-color); width:100%; padding: 10px;">
+                        <option value="class_balanced">⚖️ 班级均衡 (分层穿插)</option>
                         <option value="score_desc">🏆 按总分高到低 (优生在前)</option>
                         <option value="score_asc">📉 按总分低到高</option>
                         <option value="random">🎲 完全随机打乱</option>
                     </select>
                 </div>
 
-                <div style="min-width: 120px;">
-                    <label>2. 单场人数:</label>
-                    <input type="number" id="exam-room-capacity" class="sidebar-select" value="40" min="1">
+                <div>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">2. 单场人数:</label>
+                    <input type="number" id="exam-room-capacity" class="sidebar-select" value="40" min="1" style="width:100%; padding: 10px;">
                 </div>
 
-                <div style="min-width: 120px;">
-                    <label>3. 列数:</label>
-                    <input type="number" id="exam-room-columns" class="sidebar-select" value="5" min="1" placeholder="5列">
+                <div>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">3. 座位列数 (Columns):</label>
+                    <input type="number" id="exam-room-columns" class="sidebar-select" value="5" min="1" style="width:100%; padding: 10px;">
                 </div>
 
-                <div style="min-width: 180px;">
-                    <label>4. 座位填充:</label>
-                    <select id="exam-seat-pattern" class="sidebar-select">
-                        <option value="s_shape">🐍 S型 (蛇形)</option>
-                        <option value="z_shape">➡️ Z型 (常规)</option>
+                <div>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">4. 座位填充模式:</label>
+                    <select id="exam-seat-pattern" class="sidebar-select" style="width:100%; padding: 10px;">
+                        <option value="s_shape">🐍 S型 (蛇形/弓字形)</option>
+                        <option value="z_shape">➡️ Z型 (从左到右)</option>
                     </select>
                 </div>
 
-                <div style="min-width: 320px; display: flex; gap: 10px;">
-                    <div style="flex: 1;">
-                        <label>5. 考号生成模式:</label>
-                        <select id="exam-id-mode" class="sidebar-select">
-                            <option value="use_existing">保持现有</option>
-                            <option value="auto_generate">自动生成</option>
-                        </select>
-                    </div>
-                    <div style="width: 120px;">
-                        <label>前缀 (可选):</label>
-                        <input type="text" id="exam-id-prefix" class="sidebar-select" placeholder="例: 2025">
-                    </div>
+                <div>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">5. 考号生成:</label>
+                    <select id="exam-id-mode" class="sidebar-select" style="width:100%; padding: 10px;">
+                        <option value="use_existing">保持现有 (Excel原数据)</option>
+                        <option value="auto_generate">自动生成 (考场+座位)</option>
+                        
+                    </select>
+                </div>
+                
+                <div>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#666;">前缀 (可选):</label>
+                    <input type="text" id="exam-id-prefix" class="sidebar-select" placeholder="例: 2025H1" style="width:100%; padding: 10px;">
                 </div>
 
             </div>
             
-            <div style="margin-top: 15px; text-align: right; border-top: 1px solid #eee; padding-top: 15px;">
-                <span style="color: #666; margin-right: 15px;">待编排人数: <strong>${studentCount}</strong> 人</span>
-                <button id="exam-generate-btn" class="sidebar-button" style="background-color: var(--color-cyan);">⚙️ 开始编排 & 预览</button>
+            <div style="margin-top: 30px; text-align: right; border-top: 1px solid #eee; padding-top: 20px;">
+                <span style="color: #666; margin-right: 20px; font-size: 1.1em;">待编排学生总数: <strong style="color: var(--primary-color); font-size: 1.2em;">${studentCount}</strong> 人</span>
+                <button id="exam-generate-btn" class="sidebar-button" style="background-color: var(--color-cyan); padding: 10px 25px; font-size: 1em;">⚙️ 开始编排 & 预览</button>
             </div>
         </div>
 
@@ -12895,7 +12888,7 @@ function renderExamArrangement(container) {
             cols: parseInt(document.getElementById('exam-room-columns').value) || 8,
             pattern: document.getElementById('exam-seat-pattern').value,
             idMode: document.getElementById('exam-id-mode').value,
-            idPrefix: document.getElementById('exam-id-prefix').value.trim() // [NEW] 获取前缀
+            idPrefix: document.getElementById('exam-id-prefix').value.trim()
         };
         generatedRooms = calculateExamArrangement(G_StudentsData, config);
         renderExamPreview(generatedRooms, config.cols);
@@ -13082,12 +13075,19 @@ function renderRoomGrid(room, cols, container) {
 }
 
 /**
- * [导出] 生成 Excel
+ * [升级版 V2] 导出 Excel (新增：从右往左的组别标识行)
  */
 function exportExamToExcel(rooms) {
+    if (!rooms || rooms.length === 0) {
+        alert("暂无考场数据");
+        return;
+    }
+
     const wb = XLSX.utils.book_new();
     
-    // 1. 总表 (List View)
+    // ==========================================
+    // Sheet 1: 考场总名单 (List View)
+    // ==========================================
     const allData = [];
     rooms.forEach(r => {
         r.students.forEach(s => {
@@ -13101,13 +13101,69 @@ function exportExamToExcel(rooms) {
             });
         });
     });
-    const wsAll = XLSX.utils.json_to_sheet(allData);
-    XLSX.utils.book_append_sheet(wb, wsAll, "考场总名单");
+    const wsList = XLSX.utils.json_to_sheet(allData);
+    wsList['!cols'] = [{wch:10}, {wch:8}, {wch:12}, {wch:10}, {wch:12}, {wch:8}];
+    XLSX.utils.book_append_sheet(wb, wsList, "考场总名单");
 
-    // 2. 考场门贴 (按考场分组)
-    // 简单实现：每个考场一个 Sheet，或者在一个 Sheet 里分隔
-    // 这里为了方便，我们在总表里已经很清晰了。
-    // 如果要做“座位矩阵表”，逻辑比较复杂，这里先只导出清单。
-    
+    // ==========================================
+    // Sheet 2: 考场座位布局图 (Matrix View)
+    // ==========================================
+    const layoutData = []; 
+
+    rooms.forEach(r => {
+        // 1. 考场标题行
+        layoutData.push([`=== ${r.name} (共${r.students.length}人) ===`]);
+        
+        // 2. 讲台指示行
+        layoutData.push(["【 讲台 / 黑板 】"]);
+
+        // 3. 计算该考场的最大行列数
+        let maxRow = 0;
+        let maxCol = 0;
+        r.students.forEach(s => {
+            if (s.gridRow > maxRow) maxRow = s.gridRow;
+            if (s.gridCol > maxCol) maxCol = s.gridCol;
+        });
+
+        // [NEW] 4. 新增“组别”标识行 (从右往左数)
+        // 逻辑：最右边(maxCol)是第1组，最左边(0)是第N组
+        const groupRow = [];
+        for (let c = 0; c <= maxCol; c++) {
+            const groupNum = maxCol - c + 1; // 计算组号
+            groupRow.push(`第${groupNum}组`);
+        }
+        layoutData.push(groupRow);
+
+        // 5. 初始化该考场的网格
+        const grid = [];
+        for (let i = 0; i <= maxRow; i++) {
+            const rowArr = new Array(maxCol + 1).fill(null); 
+            grid.push(rowArr);
+        }
+
+        // 6. 填充学生信息
+        r.students.forEach(s => {
+            const cellText = `${s.name}`;
+            grid[s.gridRow][s.gridCol] = cellText;
+        });
+
+        // 7. 将该考场的 Grid 追加到总 layoutData
+        layoutData.push(...grid);
+
+        // 8. 考场之间增加空行
+        layoutData.push([]); 
+        layoutData.push([]); 
+    });
+
+    const wsLayout = XLSX.utils.aoa_to_sheet(layoutData);
+
+    // 设置布局 Sheet 的列宽 (防止文字挤压)
+    const colWidths = [];
+    for(let i=0; i<20; i++) colWidths.push({ wch: 16 }); 
+    wsLayout['!cols'] = colWidths;
+
+    XLSX.utils.book_append_sheet(wb, wsLayout, "考场座位布局");
+
+    // 导出文件
     XLSX.writeFile(wb, `考场编排表_${new Date().toLocaleDateString()}.xlsx`);
 }
