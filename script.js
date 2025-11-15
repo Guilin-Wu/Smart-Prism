@@ -1,6 +1,13 @@
-/* eslint-disable no-undef */ // 告诉编辑器 ECharts 和 XLSX 是全局变量
-
+/* eslint-disable no-undef */
 'use strict';
+
+// --- [新增] IndexedDB 配置 ---
+// 1. 全局配置与状态
+localforage.config({
+    name: 'SmartPrismDB',
+    storeName: 'app_data',
+    description: '存储学生成绩、小题分析及考试归档数据'
+});
 
 // ---------------------------------
 // 1. 全局配置与状态
@@ -82,7 +89,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始化 UI
     initializeUI();
     initializeSubjectConfigs(); // 初始化科目配置
-    loadDataFromStorage();
+    loadDataFromStorage().catch(console.error);
+
+
     initAIModule();
     // 初始化历史记录 UI
     initAIHistoryUI();
@@ -133,15 +142,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // [!!] (新增) 导入模态框：从存储
-    importModalFromStorageBtn.addEventListener('click', () => {
+    importModalFromStorageBtn.addEventListener('click', async () => {
         const selectedId = importModalSelect.value;
         if (!selectedId) {
             alert('请选择一个已存的成绩单！');
             return;
         }
 
-        const allData = loadMultiExamData();
+        // [修改 2] 在调用前加 await，确保拿到的是数组
+        const allData = await loadMultiExamData();
+
+        // 现在 allData 是数组了，.find() 可以正常工作
         const selectedExam = allData.find(e => String(e.id) === selectedId);
+
         if (!selectedExam) {
             alert('未找到所选数据，请刷新重试。');
             return;
@@ -322,6 +335,30 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+
+
+    // --- 暗黑模式逻辑 ---
+    const themeBtn = document.getElementById('theme-toggle-btn');
+    const currentTheme = localStorage.getItem('app_theme') || 'light';
+
+    // 初始化主题
+    if (currentTheme === 'dark') {
+        document.body.setAttribute('data-theme', 'dark');
+    }
+
+    themeBtn.addEventListener('click', () => {
+        const isDark = document.body.getAttribute('data-theme') === 'dark';
+        if (isDark) {
+            document.body.removeAttribute('data-theme');
+            localStorage.setItem('app_theme', 'light');
+        } else {
+            document.body.setAttribute('data-theme', 'dark');
+            localStorage.setItem('app_theme', 'dark');
+        }
+
+        // [可选] 如果需要 ECharts 也切换深色主题，这里需要调用 runAnalysisAndRender() 重绘
+        runAnalysisAndRender();
+    });
 });
 
 /**
@@ -343,63 +380,78 @@ function initializeUI() {
 }
 
 /**
- * 5. 核心功能：文件处理
- * @param {Event} event - 文件上传事件
- * @param {'main' | 'compare'} type - 加载的数据类型
+ * [终极稳定版] 文件处理函数 (包含写入验证)
  */
 async function handleFileData(event, type) {
     const file = event.target.files[0];
     if (!file) return;
 
-    const label = (type === 'main') ? fileUploader.previousElementSibling : document.getElementById('import-compare-btn');
-    label.innerHTML = "🔄 正在解析...";
+    const label = (type === 'main') ?
+        document.getElementById('import-main-btn') :
+        document.getElementById('import-compare-btn');
+    const statusLabel = label || event.target.previousElementSibling;
+    if (statusLabel) statusLabel.innerHTML = "🔄 正在解析...";
 
     try {
-        // 1. [!!] 接收解析器返回的两个值
+        // 1. 解析
         const { processedData, dynamicSubjectList } = await loadExcelData(file);
 
+        // 2. 预处理
         if (type === 'main') {
-            // 2. [!!] 如果是主文件, 更新全局科目列表和配置
-            // (这必须在 'addSubjectRanksToData' 之前完成)
             G_DynamicSubjectList = dynamicSubjectList;
             initializeSubjectConfigs();
+            // 保存配置
+            await localforage.setItem('G_SubjectConfigs', G_SubjectConfigs);
         }
-
-        // 3. [!!] (移出) 在 IF/ELSE 外部计算排名
-        // 这样 'rankedData' 在后续两个分支中都可用
         const rankedData = addSubjectRanksToData(processedData);
 
-        // 4. [!!] (重构) 根据类型分配数据
-        if (type === 'main') {
-            G_StudentsData = rankedData;
-            localStorage.setItem('G_StudentsData', JSON.stringify(G_StudentsData));
-            localStorage.setItem('G_MainFileName', file.name);
-            // 填充班级筛选
-            populateClassFilter(G_StudentsData);
+        // 3. 保存到 IndexedDB
+        const key = (type === 'main') ? 'G_StudentsData' : 'G_CompareData';
+        const fileKey = (type === 'main') ? 'G_MainFileName' : 'G_CompareFileName';
 
-            // 解锁 UI
-            welcomeScreen.style.display = 'none';
+        // 更新内存
+        if (type === 'main') G_StudentsData = rankedData;
+        else G_CompareData = rankedData;
+
+        console.log(`正在保存 ${key} (${rankedData.length}条数据)...`);
+
+        // [!! 核心修改 !!] 尝试直接保存
+        try {
+            await localforage.setItem(key, rankedData);
+            await localforage.setItem(fileKey, file.name);
+        } catch (saveErr) {
+            console.warn("直接保存失败，尝试转换为 JSON 字符串保存...", saveErr);
+            // 降级方案：转字符串存 (牺牲一点性能换取成功率)
+            await localforage.setItem(key, JSON.stringify(rankedData));
+            await localforage.setItem(fileKey, file.name);
+        }
+
+        // 4. 立即读取验证
+        const check = await localforage.getItem(key);
+        if (!check || (typeof check !== 'string' && check.length !== rankedData.length)) {
+            throw new Error("严重错误：数据写入校验失败！请检查浏览器磁盘空间。");
+        }
+        console.log("✅ 数据写入并校验成功！");
+
+        // 5. UI 刷新逻辑
+        if (type === 'main') {
+            populateClassFilter(G_StudentsData);
+            if (welcomeScreen) welcomeScreen.style.display = 'none';
             document.getElementById('import-compare-btn').classList.remove('disabled');
             navLinks.forEach(l => l.classList.remove('disabled'));
             classFilterContainer.style.display = 'block';
             classFilterHr.style.display = 'block';
-
-            // 运行分析
             runAnalysisAndRender();
-        } else {
-            // (现在 'rankedData' 在此作用域中可用)
-            G_CompareData = rankedData;
-            localStorage.setItem('G_CompareData', JSON.stringify(G_CompareData));
-            localStorage.setItem('G_CompareFileName', file.name);
         }
 
-        label.innerHTML = `✅ ${file.name} (已加载)`;
+        if (statusLabel) statusLabel.innerHTML = `✅ ${file.name} (已加载)`;
+        event.target.value = '';
 
     } catch (err) {
         console.error(err);
-        label.innerHTML = `❌ 加载失败 (点击重试)`;
-        alert(`数据加载失败：\n${err.message}`);
-        //event.target.value = null;
+        if (statusLabel) statusLabel.innerHTML = `❌ 失败`;
+        alert(`保存失败：${err.message}\n建议：如果是超大文件，请尝试拆分或使用模块12导入。`);
+        event.target.value = '';
     }
 }
 
@@ -981,7 +1033,9 @@ function saveSubjectConfigsFromModal() {
             G_SubjectConfigs[subject][type] = value;
         }
     });
-    localStorage.setItem('G_SubjectConfigs', JSON.stringify(G_SubjectConfigs));
+    localforage.setItem('G_SubjectConfigs', G_SubjectConfigs).then(() => {
+        console.log("配置已保存至 IndexedDB");
+    });
 }
 
 
@@ -2510,8 +2564,8 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
             oldGradeRank: oldStudent.gradeRank || 0,
             // [!!] 确保这里能取到数据，即使是空对象
             oldScores: oldStudent.scores || {},
-            oldClassRanks: oldStudent.classRanks || {}, 
-            oldGradeRanks: oldStudent.gradeRanks || {}  
+            oldClassRanks: oldStudent.classRanks || {},
+            oldGradeRanks: oldStudent.gradeRanks || {}
         };
     }).filter(s => s !== null);
 
@@ -2535,7 +2589,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
     // 5. 桑基图逻辑
     const sankeySubjectSelect = document.getElementById('dist-sankey-subject-select');
     const total = currentData.length;
-    
+
     // 分层规则
     const rankTiers = [
         { name: 'Top 10%', min: 1, max: Math.ceil(total * 0.1) },
@@ -2577,7 +2631,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                 const isTotal = (subject === 'totalScore');
                 const useGradeRank = (currentFilter === 'ALL');
                 const { dataType, data } = params;
-                
+
                 // 动态获取排名和分数
                 const getRanks = (s) => {
                     if (isTotal) {
@@ -2626,7 +2680,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                 if (students.length > 0) {
                     resultsWrapper.style.display = 'block';
                     resultsTitle.innerText = `${title} - ${isTotal ? '总分' : subject}`;
-                    
+
                     const scoreLabel = isTotal ? '总分' : subject;
                     const rankLabel = useGradeRank ? '年排' : '班排';
 
@@ -2642,14 +2696,14 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                                 </thead>
                                 <tbody>
                                     ${students.map(s => {
-                                        const r = getRanks(s);
-                                        const tierOld = rankTiers.findIndex(t => t.name === getRankCategory(r.old));
-                                        const tierNew = rankTiers.findIndex(t => t.name === getRankCategory(r.new));
-                                        let rowClass = '';
-                                        if (tierOld > tierNew) rowClass = 'progress';
-                                        else if (tierOld < tierNew) rowClass = 'regress';
+                        const r = getRanks(s);
+                        const tierOld = rankTiers.findIndex(t => t.name === getRankCategory(r.old));
+                        const tierNew = rankTiers.findIndex(t => t.name === getRankCategory(r.new));
+                        let rowClass = '';
+                        if (tierOld > tierNew) rowClass = 'progress';
+                        else if (tierOld < tierNew) rowClass = 'regress';
 
-                                        return `
+                        return `
                                         <tr class="${rowClass}">
                                             <td>${s.name}</td><td>${s.class}</td>
                                             <td><strong>${r.newScore ?? '-'}</strong></td>
@@ -2657,7 +2711,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                                             <td>${r.oldScore ?? '-'}</td>
                                             <td>${r.old}</td>
                                         </tr>`;
-                                    }).join('')}
+                    }).join('')}
                                 </tbody>
                             </table>
                         </div>
@@ -2781,7 +2835,7 @@ function renderMultiExam(container) {
         </div>
     `;
 
-    
+
 
     // 2. 绑定 DOM 和事件
     const multiUploader = document.getElementById('multi-file-uploader');
@@ -2797,7 +2851,7 @@ function renderMultiExam(container) {
         if (!files || files.length === 0) return;
 
         statusLabel.innerText = `🔄 正在解析 ${files.length} 个文件...`;
-        let loadedData = loadMultiExamData();
+        let loadedData = await loadMultiExamData();
 
         try {
             for (const file of files) {
@@ -2946,9 +3000,10 @@ function renderMultiExam(container) {
     });
 
     // 3. 初始化数据
-    const initialData = loadMultiExamData();
-    renderMultiExamList(initialData);
-    initializeStudentSearch(initialData);
+    loadMultiExamData().then(initialData => {
+        renderMultiExamList(initialData);
+        initializeStudentSearch(initialData);
+    });
 
     // ------------------------------------------------------------------
     // [!! 核心修复 !!] 在这里绑定“排名类型”和“复选框”的监听器
@@ -3159,7 +3214,8 @@ function renderHistogram(elementId, students, scoreKey, fullScore, title, binSiz
     if (echartsInstances[elementId]) {
         echartsInstances[elementId].dispose();
     }
-    echartsInstances[elementId] = echarts.init(chartDom);
+    const myChart = echarts.init(chartDom); // 改用 myChart 变量方便绑定事件
+    echartsInstances[elementId] = myChart;
 
     // 检查是否有有效分数
     if (!students || students.length === 0) {
@@ -3299,6 +3355,72 @@ function renderHistogram(elementId, students, scoreKey, fullScore, title, binSiz
         }
     };
     echartsInstances[elementId].setOption(option);
+
+    myChart.setOption(option);
+
+    // [新增] 6. 绑定点击事件 (Drill-down)
+    myChart.on('click', function (params) {
+        // params.name 是 X 轴的标签，例如 "60-70" 或 "150"
+        const label = params.name;
+
+        let drilledStudents = [];
+
+        if (label.includes('-')) {
+            // 范围解析 (例如 "60-70")
+            const parts = label.split('-');
+            const min = parseFloat(parts[0]);
+            const max = parseFloat(parts[1]); // 注意：这里的 max 在显示逻辑里通常是开区间或闭区间，要看你的分箱逻辑
+
+            drilledStudents = students.filter(s => {
+                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
+                // 这里的逻辑要和你的分箱逻辑完全一致
+                // 通常是: score >= min && score < max
+                // 除非是最后一个区间或者最高分
+                if (typeof score !== 'number') return false;
+
+                // 特殊处理满分 (如果你的分箱逻辑把满分单独放或者放在最后一段)
+                // 简单的范围判断:
+                return score >= min && score < max;
+            });
+
+            // 补丁：如果你的分箱逻辑是 [min, max)，那么最高分可能漏掉。
+            // 如果点击的是最后一个柱子，应该包含等于 endBinLimit 的值
+            // 或者我们可以简化：利用你之前 bins 逻辑里存的 name 来匹配 (更准确)
+
+            // [更精准的方案]：利用之前计算好的 bins (如果你存了 ID)
+            // 但为了不重构所有代码，我们这里用简单的“再筛选”：
+            // 你的 fillBins 逻辑里：
+            // if (score === fullScore) -> lastLabel
+            // else -> [min, min+binSize)
+
+            // 修正筛选逻辑：
+            drilledStudents = students.filter(s => {
+                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
+                if (typeof score !== 'number') return false;
+
+                // 满分单独处理 (假设 label 是 "140-150" 且满分是 150)
+                if (score === fullScore && label.endsWith('-' + fullScore)) {
+                    return true;
+                }
+                return score >= min && score < max;
+            });
+
+        } else {
+            // 单值 (例如标签就是 "150" 或者某种分类)
+            // 如果你的直方图有纯数字标签
+            const val = parseFloat(label);
+            drilledStudents = students.filter(s => {
+                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
+                return Math.abs(score - val) < 0.01; // 浮点数相等判断
+            });
+        }
+
+        // 调用通用模态框
+        const subjectName = (scoreKey === 'totalScore') ? '总分' : scoreKey;
+        showDrillDownModal(`"${subjectName}" 分数段 [${label}] 学生名单`, drilledStudents, scoreKey);
+    });
+
+
 }
 
 /**
@@ -4921,8 +5043,8 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
         } else {
             fullScore = G_SubjectConfigs[subjectName]?.full || 100;
         }
-        return { 
-            avg: parseFloat(avg.toFixed(1)), 
+        return {
+            avg: parseFloat(avg.toFixed(1)),
             difficulty: parseFloat((avg / fullScore).toFixed(2)),
             full: fullScore
         };
@@ -4941,7 +5063,7 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
     const binSize = Math.max(5, Math.round(fullScore / 20)); // 稍微细一点的分箱
 
     // 优化 X 轴起点，使其看起来更整齐 (比如 55 变成 50)
-    const startBin = Math.floor(min / binSize) * binSize; 
+    const startBin = Math.floor(min / binSize) * binSize;
     const endBinLimit = Math.ceil((max + 0.01) / binSize) * binSize;
 
     const labels = [];
@@ -4959,8 +5081,8 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
     const fillBins = (scores, bins) => {
         scores.forEach(score => {
             if (score >= endBinLimit) { // 处理满分边界
-                 const lastLabel = labels[labels.length - 1];
-                 if(lastLabel) bins[lastLabel]++;
+                const lastLabel = labels[labels.length - 1];
+                if (lastLabel) bins[lastLabel]++;
             } else {
                 const binIndex = Math.floor((score - startBin) / binSize);
                 const label = labels[binIndex];
@@ -5011,8 +5133,8 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
                 markLine: {
                     symbol: 'none',
                     data: [
-                        { 
-                            name: '上次平均分', 
+                        {
+                            name: '上次平均分',
                             xAxis: (compStats.avg - startBin) / binSize, // 计算平均分在 X 轴的位置
                             lineStyle: { color: '#999', type: 'dashed', width: 2 },
                             label: { formatter: '上次均分\n{c}', position: 'start' },
@@ -5031,8 +5153,8 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
                 markLine: {
                     symbol: 'none',
                     data: [
-                        { 
-                            name: '本次平均分', 
+                        {
+                            name: '本次平均分',
                             xAxis: (currStats.avg - startBin) / binSize,
                             lineStyle: { color: '#4285f4', type: 'dashed', width: 2 },
                             label: { formatter: '本次均分\n{c}', position: 'end' },
@@ -5471,20 +5593,20 @@ function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, 
 
     // 2. ECharts Nodes
     const nodes = [];
-    
+
     // [!!] 修复：在生成节点时分配颜色
     rankTiers.forEach((tier, index) => {
         const color = tierColors[index % tierColors.length]; // 按顺序取色
-        nodes.push({ 
-            name: `上次: ${tier.name}`, 
+        nodes.push({
+            name: `上次: ${tier.name}`,
             itemStyle: { color: color } // 设定颜色
         });
     });
-    
+
     rankTiers.forEach((tier, index) => {
         const color = tierColors[index % tierColors.length];
-        nodes.push({ 
-            name: `本次: ${tier.name}`, 
+        nodes.push({
+            name: `本次: ${tier.name}`,
             itemStyle: { color: color } // 设定颜色
         });
     });
@@ -5569,7 +5691,7 @@ function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, 
     };
 
     echartsInstances[elementId].setOption(option, { notMerge: true });
-    
+
     return echartsInstances[elementId];
 }
 
@@ -5677,112 +5799,116 @@ function renderMultiExamLineChart(elementId, title, examNames, seriesData, yAxis
 }
 
 /**
- * (新增) 11. 启动时从 localStorage 加载数据
- * [!!] (完整修复版 - 2025-11-10) 
- * [!!] (核心) 修复了从存储加载时, G_DynamicSubjectList 无法更新的 Bug
+ * [修改版] 11. 启动时从 IndexedDB 加载数据
+ * 修复了读取字符串可能导致崩溃的问题
  */
-function loadDataFromStorage() {
-    // 1. 尝试读取已存储的数据
-    const storedData = localStorage.getItem('G_StudentsData');
-    const storedCompareData = localStorage.getItem('G_CompareData');
-    const storedConfigs = localStorage.getItem('G_SubjectConfigs');
+async function loadDataFromStorage() {
+    console.log("🚀 系统启动：正在连接 IndexedDB 加载数据...");
 
-    const storedMainFile = localStorage.getItem('G_MainFileName');
-    const storedCompareFile = localStorage.getItem('G_CompareFileName');
+    try {
+        // 并行读取数据
+        const [
+            storedData,
+            storedCompareData,
+            storedConfigs,
+            storedMainFile,
+            storedCompareFile
+        ] = await Promise.all([
+            localforage.getItem('G_StudentsData'),
+            localforage.getItem('G_CompareData'),
+            localforage.getItem('G_SubjectConfigs'),
+            localforage.getItem('G_MainFileName'),
+            localforage.getItem('G_CompareFileName')
+        ]);
 
-    // 2. 如果没有“本次成绩”，则什么也不做
-    if (!storedData) {
-        console.log("未找到本地存储的数据。");
-        // [!!] (修改) 即使没有数据，也要确保“多次考试”模块的科目配置是可用的
-        // (这会运行一次, 使用 DEFAULT_SUBJECT_LIST)
-        initializeSubjectConfigs();
-        return;
-    }
+        // 2. 如果没有“本次成绩”，则什么也不做
+        if (!storedData) {
+            console.log("📭 本地存储为空，等待用户导入...");
+            initializeSubjectConfigs();
+            return;
+        }
 
-    console.log("发现本地存储数据，正在加载...");
+        // [!! 核心修复 !!] 检查数据类型，如果是字符串(降级保存的结果)，必须解析
+        // -----------------------------------------------------------
+        if (typeof storedData === 'string') {
+            console.log("⚠️ 检测到字符串格式的本次成绩，正在解析...");
+            G_StudentsData = JSON.parse(storedData);
+        } else {
+            G_StudentsData = storedData;
+        }
 
-    // 3. 恢复数据到全局变量
-    G_StudentsData = JSON.parse(storedData);
+        // 同样检查对比数据
+        if (storedCompareData) {
+            if (typeof storedCompareData === 'string') {
+                console.log("⚠️ 检测到字符串格式的对比成绩，正在解析...");
+                G_CompareData = JSON.parse(storedCompareData);
+            } else {
+                G_CompareData = storedCompareData;
+            }
+        }
+        // -----------------------------------------------------------
 
-    // 4. [!!] (核心修复) 
-    // 根据加载的 G_StudentsData 重建 G_DynamicSubjectList
-    if (G_StudentsData.length > 0) {
-        const allSubjects = new Set();
-        G_StudentsData.forEach(student => {
-            if (student.scores) {
-                // 遍历 scores 对象的所有 key (即所有科目)
-                Object.keys(student.scores).forEach(subject => allSubjects.add(subject));
+        console.log(`✅ 成功加载本次成绩：${G_StudentsData.length} 条记录`);
+
+        // 4. 重建 G_DynamicSubjectList (确保科目列表正确)
+        if (G_StudentsData.length > 0) {
+            const allSubjects = new Set();
+            G_StudentsData.forEach(student => {
+                if (student.scores) {
+                    Object.keys(student.scores).forEach(subject => allSubjects.add(subject));
+                }
+            });
+            if (allSubjects.size > 0) {
+                G_DynamicSubjectList = Array.from(allSubjects);
+            }
+        }
+
+        // 5. 加载配置
+        if (storedConfigs) {
+            G_SubjectConfigs = storedConfigs;
+        } else {
+            initializeSubjectConfigs();
+        }
+
+        // 6. 健壮性检查：确保所有科目都有配置
+        G_DynamicSubjectList.forEach(subject => {
+            if (!G_SubjectConfigs[subject]) {
+                const isY_S_W = ['语文', '数学', '英语'].includes(subject);
+                G_SubjectConfigs[subject] = {
+                    full: isY_S_W ? 150 : 100,
+                    excel: isY_S_W ? 120 : 85,
+                    good: isY_S_W ? (isY_S_W ? 105 : 75) : (100 + 60) / 2,
+                    pass: isY_S_W ? 90 : 60,
+                };
             }
         });
 
-        if (allSubjects.size > 0) {
-            G_DynamicSubjectList = Array.from(allSubjects);
+        // 7. UI 更新
+        populateClassFilter(G_StudentsData);
+        if (welcomeScreen) welcomeScreen.style.display = 'none';
+
+        const compareBtnEl = document.getElementById('import-compare-btn');
+        if (compareBtnEl) compareBtnEl.classList.remove('disabled');
+
+        navLinks.forEach(l => l.classList.remove('disabled'));
+        if (classFilterContainer) classFilterContainer.style.display = 'block';
+        if (classFilterHr) classFilterHr.style.display = 'block';
+
+        if (storedMainFile) {
+            const mainBtn = document.getElementById('import-main-btn');
+            if (mainBtn) mainBtn.innerHTML = `✅ ${storedMainFile} (已加载)`;
         }
-        // (如果 G_StudentsData 有, 但 scores 为空, G_DynamicSubjectList 将保留默认值)
-    }
-
-    if (storedCompareData) {
-        G_CompareData = JSON.parse(storedCompareData);
-    }
-
-    // 5. [!!] (修改) 先加载存储的配置
-    if (storedConfigs) {
-        G_SubjectConfigs = JSON.parse(storedConfigs);
-    } else {
-        // 如果没有存储的配置，则根据刚生成的 G_DynamicSubjectList 初始化
-        initializeSubjectConfigs();
-    }
-
-    // 6. [!!] (新增) 健壮性检查：
-    // 确保 G_SubjectConfigs 中包含了所有 G_DynamicSubjectList 中的科目
-    // (这会为 "道德与法治" 这种新科目添加默认配置，以防 G_SubjectConfigs 丢失)
-    G_DynamicSubjectList.forEach(subject => {
-        if (!G_SubjectConfigs[subject]) {
-            console.warn(`未找到科目 ${subject} 的配置, 正在创建默认值。`);
-            const isY_S_W = ['语文', '数学', '英语'].includes(subject);
-            const full = isY_S_W ? 150 : 100;
-            const pass = isY_S_W ? 90 : 60;
-            const excel = isY_S_W ? 120 : 85;
-
-            G_SubjectConfigs[subject] = {
-                full: full,
-                excel: excel,
-                good: (pass + excel) / 2,
-                pass: pass,
-            };
-        }
-    });
-
-    // 7. (不变) 运行所有启动程序
-    populateClassFilter(G_StudentsData);
-
-    // (解锁) 解锁 UI
-    welcomeScreen.style.display = 'none';
-
-    const compareBtnEl = document.getElementById('import-compare-btn');
-    if (compareBtnEl) {
-        compareBtnEl.classList.remove('disabled');
-    }
-
-    navLinks.forEach(l => l.classList.remove('disabled'));
-    classFilterContainer.style.display = 'block';
-    classFilterHr.style.display = 'block';
-
-    // 8. (不变) 恢复上传标签的提示文字
-    if (storedMainFile) {
-        const mainBtn = document.getElementById('import-main-btn');
-        if (mainBtn) {
-            mainBtn.innerHTML = `✅ ${storedMainFile} (已加载)`;
-        }
-    }
-    if (storedCompareFile) {
-        if (compareBtnEl) {
+        if (storedCompareFile && compareBtnEl) {
             compareBtnEl.innerHTML = `✅ ${storedCompareFile} (已加载)`;
         }
-    }
 
-    // 9. (运行) 运行分析
-    runAnalysisAndRender();
+        // 9. 运行分析
+        runAnalysisAndRender();
+
+    } catch (err) {
+        console.error("❌ IndexedDB 读取严重失败:", err);
+        alert("读取缓存数据出错。如果问题持续，请点击左下角的“清除所有导入数据”按钮重置系统。");
+    }
 }
 
 /**
@@ -5820,32 +5946,32 @@ function renderMultiExamList(multiExamData) {
 /**
  * [修改版] 保存考试数据到当前选中的列表
  */
-function saveMultiExamData(examArray) {
+async function saveMultiExamData(examArray) {
     // 1. 读取所有集合
-    const collections = getCollections();
-    
+    const collections = await getCollections();
+
     // 2. 更新当前集合的 exams
     if (collections[G_CurrentCollectionId]) {
         collections[G_CurrentCollectionId].exams = examArray;
-        
+
         // 3. 保存回 LocalStorage
-        saveCollections(collections);
-        
+        await saveCollections(collections);
+
         // 4. 顺便更新一下下拉框显示的考试数量
-        renderCollectionSelect();
+        await renderCollectionSelect();
     }
 }
 
 /**
  * [修改版] 从当前选中的列表中加载考试数据
  */
-function loadMultiExamData() {
+async function loadMultiExamData() {
     // 1. 确保数据结构存在
-    ensureCollectionsExist(); 
-    
+    await ensureCollectionsExist();
+
     // 2. 读取所有集合
-    const collections = getCollections();
-    
+    const collections = await getCollections();
+
     // 3. 返回当前集合的 exams 数组
     // (增加容错：如果当前ID不对，默认返回空数组)
     if (collections[G_CurrentCollectionId]) {
@@ -6163,13 +6289,13 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
 /**
  * (新增) 11.7. 打开“导入来源”模态框
  */
-function openImportModal() {
+async function openImportModal() {
     const importModal = document.getElementById('import-modal');
     const importModalSelect = document.getElementById('import-modal-select');
     const importModalFromStorageBtn = document.getElementById('import-modal-from-storage');
 
     // 1. (复用) 加载“模块十二”的数据
-    const multiData = loadMultiExamData();
+    const multiData = await loadMultiExamData();
 
     // 2. 填充下拉框
     if (multiData.length > 0) {
@@ -6385,9 +6511,10 @@ function renderItemAnalysis(container) {
         try {
             const itemData = await loadItemAnalysisExcel(file);
             G_ItemAnalysisData = itemData;
-            localStorage.setItem('G_ItemAnalysisData', JSON.stringify(itemData));
-            // [!! 新增 !!] 保存文件名
-            localStorage.setItem('G_ItemAnalysisFileName', file.name);
+
+            // [修改] 保存到 IndexedDB (这是最关键的优化)
+            await localforage.setItem('G_ItemAnalysisData', itemData);
+            await localforage.setItem('G_ItemAnalysisFileName', file.name);
 
             const subjects = Object.keys(itemData);
             if (subjects.length === 0) {
@@ -6511,38 +6638,46 @@ function renderItemAnalysis(container) {
         renderItemAnalysisCharts(); // [!!] 保存配置后重绘所有
     });
 
-    // 12. 模块加载时：尝试从缓存加载
-    try {
-        const storedConfig = localStorage.getItem('G_ItemAnalysisConfig');
-        if (storedConfig) {
-            G_ItemAnalysisConfig = JSON.parse(storedConfig);
-        }
+    // 12. 模块加载时：尝试从缓存加载 (!! 修改：包裹在 async 箭头函数中 !!)
+    (async () => {
+        try {
+            const statusLabel = document.getElementById('item-analysis-status'); // 确保获取到 statusLabel
 
-        const storedData = localStorage.getItem('G_ItemAnalysisData');
-        // [!! 新增 !!] 读取文件名
-        const storedFileName = localStorage.getItem('G_ItemAnalysisFileName');
+            // 并行获取配置和数据
+            const [storedConfig, storedData, storedFileName] = await Promise.all([
+                localforage.getItem('G_ItemAnalysisConfig'),
+                localforage.getItem('G_ItemAnalysisData'),
+                localforage.getItem('G_ItemAnalysisFileName')
+            ]);
 
-        if (storedData) {
-            const itemData = JSON.parse(storedData);
-            G_ItemAnalysisData = itemData;
-
-            // [!! 修改 !!] 如果有文件名，就显示文件名；否则显示默认提示
-            if (storedFileName) {
-                statusLabel.innerText = `✅ 已加载: ${storedFileName}`;
-            } else {
-                statusLabel.innerText = "✅ 已从浏览器缓存加载数据。";
+            if (storedConfig) {
+                G_ItemAnalysisConfig = storedConfig;
             }
 
-            populateItemAnalysisUI(itemData);
-        } else {
-            statusLabel.innerText = "请导入小题分明细 Excel。";
+            if (storedData) {
+                G_ItemAnalysisData = storedData;
+
+                // [!!] 如果有文件名，就显示文件名；否则显示默认提示
+                if (storedFileName) {
+                    statusLabel.innerText = `✅ 已加载: ${storedFileName}`;
+                } else {
+                    statusLabel.innerText = "✅ 已从数据库加载数据。";
+                }
+
+                populateItemAnalysisUI(G_ItemAnalysisData);
+            } else {
+                statusLabel.innerText = "请导入小题分明细 Excel。";
+            }
+        } catch (e) {
+            console.error("加载小题分缓存失败:", e);
+            const statusLabel = document.getElementById('item-analysis-status');
+            if (statusLabel) statusLabel.innerText = "缓存加载失败，请重新导入。";
+
+            // 出错时清理可能损坏的数据
+            localforage.removeItem('G_ItemAnalysisData');
+            localforage.removeItem('G_ItemAnalysisConfig');
         }
-    } catch (e) {
-        console.error("加载小题分缓存失败:", e);
-        statusLabel.innerText = "缓存加载失败，请重新导入。";
-        localStorage.removeItem('G_ItemAnalysisData');
-        localStorage.removeItem('G_ItemAnalysisConfig');
-    }
+    })();
 }
 
 /**
@@ -7110,7 +7245,7 @@ function saveItemAnalysisConfigFromModal() {
 
     allConfigs[subjectName] = subjectConfig;
     G_ItemAnalysisConfig = allConfigs;
-    localStorage.setItem('G_ItemAnalysisConfig', JSON.stringify(allConfigs));
+    localforage.setItem('G_ItemAnalysisConfig', allConfigs);
 
     modal.style.display = 'none';
     renderItemAnalysisCharts();
@@ -7347,7 +7482,7 @@ function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents
             kps.forEach(k => knowledgeSet.add(k));
         }
     }
-    const knowledgePoints = Array.from(knowledgeSet).sort(); 
+    const knowledgePoints = Array.from(knowledgeSet).sort();
 
     if (knowledgePoints.length === 0) {
         return { groupStats: {}, knowledgePoints: [], studentsWithRates: [] };
@@ -7375,13 +7510,13 @@ function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents
         // --- 辅助函数：处理单道题目的分数累加 ---
         const processQuestion = (qName, statsType, scoreType) => {
             const qContent = subjectConfig[qName]?.content || "";
-            
+
             // [!! 修改 !!] 解析该题对应的所有知识点 (同样支持两种分号)
             const qKps = qContent.split(/[;；]/).map(k => k.trim()).filter(k => k);
 
             if (qKps.length > 0) {
-                const stat = recalculatedStats[statsType][qName]; 
-                const score = student[scoreType][qName];          
+                const stat = recalculatedStats[statsType][qName];
+                const score = student[scoreType][qName];
                 const fullScore = stat?.manualFullScore || stat?.maxScore;
 
                 // 如果分数有效且满分>0
@@ -8839,7 +8974,7 @@ function renderSubjectRankChart(containerId, examNames, visibleExamData, student
 
 // 1. 初始化 AI 模块 (Debug 增强版)
 // 1. 初始化 AI 模块 (修复版：解决班级列表初始化问题)
-function initAIModule() {
+async function initAIModule() {
     const apiKeyInput = document.getElementById('ai-api-key');
     const saveKeyBtn = document.getElementById('ai-save-key-btn');
     const analyzeBtn = document.getElementById('ai-analyze-btn');
@@ -8982,8 +9117,9 @@ function initAIModule() {
 
     // 搜索框逻辑 (保持不变)
     const resultsContainer = document.getElementById('ai-student-search-results');
-    const multiData = loadMultiExamData();
+    const multiData = await loadMultiExamData();
     const allStudentsMap = new Map();
+    // 现在 multiData 是数组了，forEach 可以正常工作
     multiData.forEach(exam => exam.students.forEach(s => allStudentsMap.set(s.id, s.name)));
     G_StudentsData.forEach(s => allStudentsMap.set(s.id, s.name));
     const allStudentsList = Array.from(allStudentsMap, ([id, name]) => ({ id, name }));
@@ -9060,8 +9196,8 @@ function initAIModule() {
     });
 }
 
-function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高三", targetSubject = "", targetClass = "ALL") {
-    
+async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高三", targetSubject = "", targetClass = "ALL") {
+
 
     // 1. [!! NEW !!] 智能判断学段 (小学/初中/高中)
     let schoolStage = "高中"; // 默认
@@ -9284,7 +9420,7 @@ function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高
 
     // --- 分支 B: 原有的综合分析 (模块1/12) ---
     // (这部分保持不变)
-    const multiData = loadMultiExamData().filter(e => !e.isHidden);
+    const multiData = (await loadMultiExamData()).filter(e => !e.isHidden);
 
     let prompt = `你是一位经验丰富的**${grade}**班主任兼学科分析专家。现在需要你分析学生 "${studentName}" (${grade}) 的成绩数据。\n`;
     prompt += `请结合**${grade}**的学习特点（例如${grade === '高一' ? '初高中衔接、习惯养成' : grade === '高二' ? '两极分化、难度提升' : '全面复习、高考冲刺'}）给出建议。\n\n`;
@@ -9336,7 +9472,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
     const loadingDiv = document.getElementById('ai-loading');
     const contentDiv = document.getElementById('ai-content');
     const chatHistoryDiv = document.getElementById('ai-chat-history');
-    
+
     // 底部UI元素
     const inputArea = document.getElementById('ai-followup-input-area');
     const floatingStopBtn = document.getElementById('ai-floating-stop-btn');
@@ -9344,10 +9480,10 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
 
     // UI 初始化
     if (typeof marked === 'undefined') { alert("错误：marked.js 未加载！"); return; }
-    
+
     resultContainer.style.display = 'block';
     if (chatHistoryDiv) chatHistoryDiv.innerHTML = ''; // 清空旧的追问记录
-    
+
     // [关键] 确保输入框可见，禁用发送按钮
     if (inputArea) inputArea.style.display = 'flex';
     if (sendBtn) {
@@ -9374,7 +9510,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
 
     // Loading 动画
     loadingDiv.style.display = 'block';
-    
+
     // [关键] 重置当前历史记录 ID (新分析 = 新记录)
     G_CurrentHistoryId = null;
 
@@ -9387,26 +9523,26 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         if (currentAIController) {
             currentAIController.abort();
             currentAIController = null;
-            
+
             // UI 恢复
             if (floatingStopBtn) floatingStopBtn.style.display = 'none';
             if (sendBtn) {
                 sendBtn.disabled = false;
                 sendBtn.innerText = '发送';
             }
-            
+
             answerTextEl.classList.remove('typing-cursor');
             answerTextEl.innerHTML += `<br><br><em style="color: #dc3545;">(用户手动停止了生成)</em>`;
-            
+
             // 触发保存逻辑 (如果已有内容)
             if (fullContent && fullContent.length > 0) {
-                 // 复用标题生成逻辑
-                 const modeEl = document.getElementById('ai-mode-select');
-                 const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
-                 let historyTitle = `${studentName} - ${modeText}`;
-                 if(mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
-                 
-                 saveToAIHistory(historyTitle, `${grade} | ${targetSubject} (未完成)`, G_CurrentHistoryId);
+                // 复用标题生成逻辑
+                const modeEl = document.getElementById('ai-mode-select');
+                const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
+                let historyTitle = `${studentName} - ${modeText}`;
+                if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
+
+                saveToAIHistory(historyTitle, `${grade} | ${targetSubject} (未完成)`, G_CurrentHistoryId);
             }
         }
     };
@@ -9419,15 +9555,15 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
     let fullContent = "";
 
     try {
-        const prompt = generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
+        const prompt = await generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
         // 检查 Prompt 生成是否报错
         if (prompt.startsWith('错误：') || prompt.startsWith('系统错误：')) throw new Error(prompt);
 
         // 初始化对话历史
         const temp = (model === 'deepseek-reasoner') ? 0.6 : 0.7;
         G_AIChatHistory = [
-            {"role": "system", "content": "你是一名专业的中学数据分析师。请使用 Markdown 格式输出。数学公式必须使用 LaTeX 格式 ($...$)。"},
-            {"role": "user", "content": prompt}
+            { "role": "system", "content": "你是一名专业的中学数据分析师。请使用 Markdown 格式输出。数学公式必须使用 LaTeX 格式 ($...$)。" },
+            { "role": "user", "content": prompt }
         ];
 
         const response = await fetch('https://api.deepseek.com/chat/completions', {
@@ -9467,7 +9603,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                                 reasoningBox.style.display = "block";
                             }
                             fullReasoning += delta.reasoning_content;
-                            reasoningTextEl.textContent = fullReasoning; 
+                            reasoningTextEl.textContent = fullReasoning;
                         }
 
                         // B. 处理正文内容
@@ -9478,20 +9614,20 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                                 renderMarkdownWithMath(answerTextEl, fullContent);
                             });
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
             }
         }
 
         // 生成结束
-        G_AIChatHistory.push({"role": "assistant", "content": fullContent}); 
-        
+        G_AIChatHistory.push({ "role": "assistant", "content": fullContent });
+
         // [关键] 自动保存到历史记录 (新建存档)
         const modeEl = document.getElementById('ai-mode-select');
         const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
         let historyTitle = `${studentName} - ${modeText}`;
-        if(mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
-        
+        if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
+
         // 传入 G_CurrentHistoryId (此时为 null)，saveToAIHistory 会返回新生成的 ID
         const newId = saveToAIHistory(historyTitle, `${grade} | ${targetSubject}`, G_CurrentHistoryId);
         G_CurrentHistoryId = newId; // 更新全局 ID，供后续追问使用
@@ -9526,8 +9662,8 @@ async function sendAIFollowUp() {
     const input = document.getElementById('ai-user-input');
     const chatHistoryDiv = document.getElementById('ai-chat-history');
     const apiKey = localStorage.getItem('G_DeepSeekKey');
-    const model = document.getElementById('ai-model-select').value; 
-    
+    const model = document.getElementById('ai-model-select').value;
+
     // 底部UI元素
     const floatingStopBtn = document.getElementById('ai-floating-stop-btn');
     const sendBtn = document.getElementById('ai-send-btn');
@@ -9545,7 +9681,7 @@ async function sendAIFollowUp() {
     // 2. UI: AI 回复容器
     const aiBubble = document.createElement('div');
     aiBubble.style.cssText = "background: #f8f9fa; padding: 15px; border-radius: 0 15px 15px 15px; margin: 10px 0; border: 1px solid #eee; min-height: 40px; position: relative;";
-    
+
     // 注入结构：打印按钮 + 折叠框 + 正文框
     aiBubble.innerHTML = `
         <button class="ai-bubble-print-btn" title="单独打印此条对话">🖨️</button>
@@ -9565,7 +9701,7 @@ async function sendAIFollowUp() {
 
     // 绑定单条打印事件
     printBtn.onclick = () => {
-        const currentReasoning = reasoningContentEl.innerText; 
+        const currentReasoning = reasoningContentEl.innerText;
         const currentAnswer = answerContentEl.innerHTML;
         printSingleChatTurn(userText, currentAnswer, currentReasoning);
     };
@@ -9576,7 +9712,7 @@ async function sendAIFollowUp() {
         sendBtn.disabled = true;
         sendBtn.innerText = '生成中...';
     }
-    
+
     G_AIChatHistory.push({ "role": "user", "content": userText });
 
     // AbortController
@@ -9588,17 +9724,17 @@ async function sendAIFollowUp() {
         if (currentAIController) {
             currentAIController.abort();
             currentAIController = null;
-            
+
             // UI 恢复
             if (floatingStopBtn) floatingStopBtn.style.display = 'none';
             if (sendBtn) {
                 sendBtn.disabled = false;
                 sendBtn.innerText = '发送';
             }
-            
+
             answerContentEl.classList.remove('typing-cursor');
             answerContentEl.innerHTML += `<br><em style="color: #dc3545;">(已停止)</em>`;
-            
+
             // 手动停止时，更新历史记录
             if (G_CurrentHistoryId) {
                 saveToAIHistory(null, null, G_CurrentHistoryId);
@@ -9624,7 +9760,7 @@ async function sendAIFollowUp() {
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
-        
+
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -9652,7 +9788,7 @@ async function sendAIFollowUp() {
                                 renderMarkdownWithMath(answerContentEl, fullContent);
                             });
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
             }
         }
@@ -10203,14 +10339,14 @@ function printRangeReport(rangeStr) {
         nodes.forEach(node => {
             // 识别用户气泡 (浅蓝背景)
             if (node.style.backgroundColor === 'rgb(227, 242, 253)' || node.style.background.includes('e3f2fd')) {
-                if (hasUser) { 
+                if (hasUser) {
                     // 如果已经有一个用户问题但没AI回答(异常情况)，先封包
                     rounds.push({ type: 'followup', html: buildFollowUpHtml(currentRound.user, currentRound.ai) });
                     currentRound = { type: 'followup', user: '', ai: '' };
                 }
                 currentRound.user = node.innerHTML; // 拿取内容
                 hasUser = true;
-            } 
+            }
             // 识别 AI 气泡 (灰白背景)
             else if (node.style.backgroundColor === 'rgb(248, 249, 250)' || node.style.background.includes('f8f9fa')) {
                 currentRound.ai = node.innerHTML; // 拿取内容
@@ -10275,7 +10411,7 @@ function printRangeReport(rangeStr) {
     // 获取表头信息
     const studentSearch = document.getElementById('ai-student-search');
     const studentName = studentSearch.dataset.selectedName || "学生";
-    
+
     const printPage = `
         <html>
         <head>
@@ -10341,144 +10477,157 @@ function buildFollowUpHtml(userHtml, aiHtml) {
 let G_CurrentCollectionId = 'default';
 const COLLECTIONS_KEY = 'G_MultiExam_Collections_V2';
 
-/**
- * 初始化多列表管理器 (在 renderMultiExam 中调用)
- */
-function initMultiCollectionManager() {
+async function initMultiCollectionManager() {
     const select = document.getElementById('multi-collection-select');
     const btnNew = document.getElementById('btn-new-collection');
     const btnRename = document.getElementById('btn-rename-collection');
     const btnDelete = document.getElementById('btn-delete-collection');
 
-    // 1. 数据迁移与加载
-    ensureCollectionsExist();
-    
-    // 2. 渲染下拉框
-    renderCollectionSelect();
+    try {
+        // 1. 数据迁移与加载
+        await ensureCollectionsExist();
 
-    // 3. 绑定事件
-    // 切换列表
-    select.onchange = () => {
-        G_CurrentCollectionId = select.value;
-        localStorage.setItem('G_MultiExam_ActiveId', G_CurrentCollectionId);
-        // 刷新列表显示
-        const data = loadMultiExamData(); // 现在这个函数会读取当前ID的数据
-        renderMultiExamList(data);
-        initializeStudentSearch(data);
-        document.getElementById('multi-student-report').style.display = 'none';
-    };
+        // 2. 渲染下拉框
+        await renderCollectionSelect();
+    } catch (err) {
+        console.error("初始化列表管理器失败:", err);
+    }
 
-    // 新建列表
-    btnNew.onclick = () => {
-        const name = prompt("请输入新列表名称 (例如：高二下学期):");
-        if (!name) return;
-        
-        const collections = getCollections();
-        const newId = 'col_' + Date.now();
-        collections[newId] = {
-            name: name,
-            exams: [] // 空列表
+    // 3. 绑定事件 (全部都要改为 async)
+    if (select) {
+        select.onchange = async () => {
+            G_CurrentCollectionId = select.value;
+            localStorage.setItem('G_MultiExam_ActiveId', G_CurrentCollectionId);
+
+            // 刷新列表显示
+            const data = await loadMultiExamData(); // [修改] await
+            renderMultiExamList(data);
+            initializeStudentSearch(data);
+
+            // 隐藏报表
+            const report = document.getElementById('multi-student-report');
+            if (report) report.style.display = 'none';
         };
-        saveCollections(collections);
-        
-        // 切换到新列表
-        G_CurrentCollectionId = newId;
-        localStorage.setItem('G_MultiExam_ActiveId', newId);
-        
-        renderCollectionSelect();
-        
-        // 刷新界面
-        renderMultiExamList([]);
-        initializeStudentSearch([]);
-        document.getElementById('multi-student-report').style.display = 'none';
-    };
+    }
 
-    // 重命名列表
-    btnRename.onclick = () => {
-        const collections = getCollections();
-        const current = collections[G_CurrentCollectionId];
-        const newName = prompt("重命名列表:", current.name);
-        if (newName && newName !== current.name) {
-            current.name = newName;
-            saveCollections(collections);
-            renderCollectionSelect();
-        }
-    };
+    if (btnNew) {
+        btnNew.onclick = async () => {
+            const name = prompt("请输入新列表名称 (例如：高二下学期):");
+            if (!name) return;
 
-    // 删除列表
-    btnDelete.onclick = () => {
-        const collections = getCollections();
-        const keys = Object.keys(collections);
-        if (keys.length <= 1) {
-            alert("这是最后一个列表，无法删除！");
-            return;
-        }
-        if (!confirm(`确定要删除列表【${collections[G_CurrentCollectionId].name}】及其包含的所有考试数据吗？此操作不可恢复！`)) {
-            return;
-        }
+            const collections = await getCollections(); // [修改] await
+            const newId = 'col_' + Date.now();
+            collections[newId] = {
+                name: name,
+                exams: []
+            };
+            await saveCollections(collections); // [修改] await
 
-        delete collections[G_CurrentCollectionId];
-        saveCollections(collections);
+            // 切换到新列表
+            G_CurrentCollectionId = newId;
+            localStorage.setItem('G_MultiExam_ActiveId', newId);
 
-        // 切换回第一个可用列表
-        G_CurrentCollectionId = Object.keys(collections)[0];
-        localStorage.setItem('G_MultiExam_ActiveId', G_CurrentCollectionId);
-        
-        renderCollectionSelect();
-        
-        // 刷新界面
-        const data = loadMultiExamData();
-        renderMultiExamList(data);
-        initializeStudentSearch(data);
-        document.getElementById('multi-student-report').style.display = 'none';
-    };
+            await renderCollectionSelect(); // [修改] await
 
-// ... (之前的列表管理逻辑) ...
+            // 刷新界面
+            renderMultiExamList([]);
+            initializeStudentSearch([]);
+            const report = document.getElementById('multi-student-report');
+            if (report) report.style.display = 'none';
+        };
+    }
 
-    // [!! NEW !!] 侧边栏 UI 控制逻辑
+    if (btnRename) {
+        btnRename.onclick = async () => {
+            const collections = await getCollections(); // [修改] await
+            const current = collections[G_CurrentCollectionId];
+            if (!current) return;
+
+            const newName = prompt("重命名列表:", current.name);
+            if (newName && newName !== current.name) {
+                current.name = newName;
+                await saveCollections(collections); // [修改] await
+                await renderCollectionSelect(); // [修改] await
+            }
+        };
+    }
+
+    if (btnDelete) {
+        btnDelete.onclick = async () => {
+            const collections = await getCollections(); // [修改] await
+            const keys = Object.keys(collections);
+            if (keys.length <= 1) {
+                alert("这是最后一个列表，无法删除！");
+                return;
+            }
+            if (!confirm(`确定要删除列表【${collections[G_CurrentCollectionId].name}】及其包含的所有考试数据吗？此操作不可恢复！`)) {
+                return;
+            }
+
+            delete collections[G_CurrentCollectionId];
+            await saveCollections(collections); // [修改] await
+
+            // 切换回第一个可用列表
+            G_CurrentCollectionId = Object.keys(collections)[0];
+            localStorage.setItem('G_MultiExam_ActiveId', G_CurrentCollectionId);
+
+            await renderCollectionSelect(); // [修改] await
+
+            // 刷新界面
+            const data = await loadMultiExamData(); // [修改] await
+            renderMultiExamList(data);
+            initializeStudentSearch(data);
+            const report = document.getElementById('multi-student-report');
+            if (report) report.style.display = 'none';
+        };
+    }
+
+    // 侧边栏 UI 控制逻辑 (保持不变)
     const drawer = document.getElementById('multi-collection-drawer');
     const toggleBtn = document.getElementById('multi-collection-toggle-btn');
     const closeBtn = document.getElementById('multi-collection-close-btn');
 
     if (toggleBtn && drawer) {
-        // 打开
-        toggleBtn.onclick = () => {
-            drawer.classList.add('open');
-        };
-        
-        // 关闭
-        closeBtn.onclick = () => {
-            drawer.classList.remove('open');
-        };
-        
-        // 点击列表项切换后，自动关闭侧边栏 (可选，根据体验决定)
-        select.addEventListener('change', () => {
-            setTimeout(() => drawer.classList.remove('open'), 300);
-        });
-        
+        toggleBtn.onclick = () => { drawer.classList.add('open'); };
+        closeBtn.onclick = () => { drawer.classList.remove('open'); };
+        if (select) {
+            select.addEventListener('change', () => {
+                setTimeout(() => drawer.classList.remove('open'), 300);
+            });
+        }
     }
 }
 
 // --- 辅助函数 ---
-
-function getCollections() {
-    const json = localStorage.getItem(COLLECTIONS_KEY);
-    return json ? JSON.parse(json) : {};
+async function getCollections() {
+    // [修改] 增加 await
+    const json = await localforage.getItem(COLLECTIONS_KEY);
+    // localforage 存的是对象，不需要再 JSON.parse，除非你手动 stringify 过
+    // 为了兼容旧逻辑，如果你存的时候用了 JSON.stringify，这里就要 parse
+    // 建议统一：存对象，取对象。LocalForage 会自动处理。
+    if (typeof json === 'string') {
+        try { return JSON.parse(json); } catch (e) { return {}; }
+    }
+    return json || {};
 }
 
-function saveCollections(data) {
-    localStorage.setItem(COLLECTIONS_KEY, JSON.stringify(data));
+async function saveCollections(data) {
+    // [修改] 增加 await，直接存对象
+    await localforage.setItem(COLLECTIONS_KEY, data);
 }
 
-function ensureCollectionsExist() {
-    let collections = getCollections();
-    
+async function ensureCollectionsExist() {
+    let collections = await getCollections(); // [修改] await
+
     // 如果是第一次运行新版，或者没有数据
-    if (Object.keys(collections).length === 0) {
+    if (!collections || Object.keys(collections).length === 0) {
+        console.log("检测到新环境，正在迁移旧数据...");
+
         // 尝试迁移旧版数据 (G_MultiExamData)
+        // localStorage 是同步的，这里不需要 await
         const oldDataJson = localStorage.getItem('G_MultiExamData');
         const oldData = oldDataJson ? JSON.parse(oldDataJson) : [];
-        
+
         // 创建默认列表
         collections = {
             'default': {
@@ -10486,7 +10635,7 @@ function ensureCollectionsExist() {
                 exams: oldData
             }
         };
-        saveCollections(collections);
+        await saveCollections(collections); // [修改] await
     }
 
     // 恢复上次选中的ID
@@ -10494,18 +10643,103 @@ function ensureCollectionsExist() {
     if (savedId && collections[savedId]) {
         G_CurrentCollectionId = savedId;
     } else {
+        // 默认选中第一个
         G_CurrentCollectionId = Object.keys(collections)[0];
     }
 }
 
-function renderCollectionSelect() {
+async function renderCollectionSelect() {
     const select = document.getElementById('multi-collection-select');
-    const collections = getCollections();
-    
+    if (!select) return;
+
+    // [修改] 必须加 await，否则 collections 是 Promise，无法遍历
+    const collections = await getCollections();
+
     let html = '';
     for (const id in collections) {
         const selected = (id === G_CurrentCollectionId) ? 'selected' : '';
-        html += `<option value="${id}" ${selected}>${collections[id].name} (${collections[id].exams.length}次考试)</option>`;
+        // 防止 exams 为 undefined
+        const count = collections[id].exams ? collections[id].exams.length : 0;
+        html += `<option value="${id}" ${selected}>${collections[id].name} (${count}次考试)</option>`;
     }
     select.innerHTML = html;
+}
+
+// script.js
+
+/**
+ * [通用] 显示下钻模态框
+ * @param {string} title - 标题 (例如 "不及格学生名单")
+ * @param {Array} students - 学生对象数组
+ * @param {string} subject - 当前分析的科目 (用于显示分数)
+ */
+function showDrillDownModal(title, students, subject = 'totalScore') {
+    const modal = document.getElementById('drill-down-modal');
+    const titleEl = document.getElementById('drill-down-title');
+    const subtitleEl = document.getElementById('drill-down-subtitle');
+    const container = document.getElementById('drill-down-table-container');
+    const closeBtn = document.getElementById('drill-down-close-btn');
+    const exportBtn = document.getElementById('drill-down-export-btn');
+
+    // 1. 设置基本信息
+    titleEl.innerText = title;
+    subtitleEl.innerText = `共 ${students.length} 人`;
+
+    // 2. 渲染表格
+    if (students.length === 0) {
+        container.innerHTML = '<p style="text-align:center; padding:20px;">无数据</p>';
+    } else {
+        const isTotal = (subject === 'totalScore');
+        container.innerHTML = `
+            <table>
+                <thead>
+                    <tr>
+                        <th>姓名</th>
+                        <th>班级</th>
+                        <th>考号</th>
+                        <th>${isTotal ? '总分' : subject}</th>
+                        <th>班排</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${students.map(s => `
+                        <tr>
+                            <td>${s.name}</td>
+                            <td>${s.class}</td>
+                            <td>${s.id}</td>
+                            <td><strong>${isTotal ? s.totalScore : (s.scores[subject] || 0)}</strong></td>
+                            <td>${s.rank}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
+    // 3. 绑定导出按钮
+    exportBtn.onclick = () => {
+        if (students.length === 0) return;
+        // 准备导出数据
+        const sheetData = students.map(s => ({
+            "姓名": s.name,
+            "班级": s.class,
+            "考号": s.id,
+            "分数": (subject === 'totalScore') ? s.totalScore : (s.scores[subject] || 0),
+            "班排": s.rank
+        }));
+        const ws = XLSX.utils.json_to_sheet(sheetData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "名单");
+        XLSX.writeFile(wb, `${title}.xlsx`);
+    };
+
+    // 4. 显示模态框
+    modal.style.display = 'flex';
+
+    // 5. 绑定关闭
+    closeBtn.onclick = () => { modal.style.display = 'none'; };
+    // 点击遮罩关闭
+    window.onclick = (event) => {
+        if (event.target == modal) modal.style.display = 'none';
+    };
 }
