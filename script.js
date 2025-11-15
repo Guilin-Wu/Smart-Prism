@@ -1318,7 +1318,7 @@ function renderDashboard(container, stats, activeData) {
 
     // 1. 渲染 KPI 卡片 (已修改)
     container.innerHTML = `
-        <h2>模块一：班级整体分析 (当前筛选: ${G_CurrentClassFilter})</h2>
+        <h2>模块一：整体成绩分析 (当前筛选: ${G_CurrentClassFilter})</h2>
         <div class="kpi-grid">
             <div class="kpi-card"><h3>总人数</h3><div class="value">${totalStudentCount}</div></div>
             <div class="kpi-card"><h3>考试人数</h3><div class="value">${participantCount}</div></div>
