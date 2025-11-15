@@ -6766,6 +6766,8 @@ function renderItemAnalysis(container) {
             </div>
         </div>
 
+        
+
         <div id="item-analysis-results" style="display: none;">
             <div class="main-card-wrapper" style="margin-bottom: 20px;">
                 <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0; margin-bottom: 0; flex-wrap: wrap;">
@@ -6878,6 +6880,16 @@ function renderItemAnalysis(container) {
                     分析学生“总分”与“单题得分”的关系。左上象限 (高总分 - 低题分) 为“短板学生”，值得重点关注。
                 </p>
                 <div class="chart-container" id="item-chart-scatter-quadrant" style="height: 500px;"></div>
+            </div>
+
+            <h3 style="margin-top: 30px;">🕸️ 知识点归因图谱 (Remedial Path)</h3>
+            <div class="main-card-wrapper" style="margin-bottom: 20px;">
+                <p style="color: var(--text-muted); font-size: 0.9em; margin-top: 0;">
+                    <span style="display:inline-block; width:10px; height:10px; background:#dc3545; border-radius:50%;"></span> 红色节点：薄弱知识点 (<60%) &nbsp;&nbsp;
+                    <span style="display:inline-block; width:10px; height:10px; background:#28a745; border-radius:50%;"></span> 绿色节点：掌握良好 (>85%) <br>
+                    <strong>粗红线</strong> 表示“连锁崩塌”路径（前置知识点未掌握导致后继知识点崩塌）。
+                </p>
+                <div class="chart-container" id="item-chart-knowledge-graph" style="height: 600px;"></div>
             </div>
 
         </div>
@@ -7381,6 +7393,7 @@ function renderItemAnalysisCharts() {
         drawItemAnalysisKnowledgeChart();
         drawItemAnalysisOutlierTable();
         drawItemScatterQuadrantChart(); // [!! NEW !!]
+        drawItemKnowledgeGraph();
     }, 0);
 }
 
@@ -7599,6 +7612,10 @@ function populateItemAnalysisConfigModal() {
     // 我们使用一个特殊的 key "_full_paper_context_" 来存储试卷文本
     paperTextarea.value = subjectConfig['_full_paper_context_'] || "";
 
+    // [NEW] 回显图谱定义
+    const graphDefTextarea = document.getElementById('item-config-graph-def');
+    graphDefTextarea.value = subjectConfig['_knowledge_graph_def_'] || "";
+
     let html = '';
     const createRow = (qName, type, stat) => {
         if (!stat) return '';
@@ -7641,6 +7658,10 @@ function saveItemAnalysisConfigFromModal() {
     // [!! NEW !!] 保存试卷文本到特殊字段
     const fullPaperText = document.getElementById('item-config-full-paper').value;
     subjectConfig['_full_paper_context_'] = fullPaperText;
+
+    // [NEW] 保存图谱定义
+    const graphDefText = document.getElementById('item-config-graph-def').value;
+    subjectConfig['_knowledge_graph_def_'] = graphDefText;
 
     // 保存题目配置
     const rows = document.getElementById('item-config-table-body').querySelectorAll('tr');
@@ -12598,4 +12619,181 @@ function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseNa
     win.document.write(html);
     win.document.close();
     setTimeout(() => { win.focus(); win.print(); }, 500);
+}
+
+/**
+ * [NEW] 13.20 绘制知识点归因图谱
+ */
+function drawItemKnowledgeGraph() {
+    const chartDom = document.getElementById('item-chart-knowledge-graph');
+    if (!chartDom) return;
+
+    if (echartsInstances['item-chart-knowledge-graph']) {
+        echartsInstances['item-chart-knowledge-graph'].dispose();
+    }
+    const myChart = echarts.init(chartDom);
+    echartsInstances['item-chart-knowledge-graph'] = myChart;
+
+    // 1. 获取配置与数据
+    const subjectName = document.getElementById('item-subject-select').value;
+    const selectedClass = document.getElementById('item-class-filter').value;
+    
+    if (!G_ItemAnalysisData || !G_ItemAnalysisData[subjectName]) return;
+    const subjectConfig = G_ItemAnalysisConfig[subjectName] || {};
+    const graphDef = subjectConfig['_knowledge_graph_def_'];
+
+    // 2. 解析用户定义的依赖关系
+    const edges = [];
+    const nodesSet = new Set();
+    
+if (graphDef) {
+        const lines = graphDef.split('\n');
+        lines.forEach(line => {
+            if (line.includes('->')) {
+                // 1. 按箭头分割并去除空白
+                const parts = line.split('->').map(s => s.trim()).filter(s => s);
+                
+                // 2. 循环创建链式关系 (A->B, B->C, C->D...)
+                for (let i = 0; i < parts.length - 1; i++) {
+                    const source = parts[i];
+                    const target = parts[i+1];
+                    
+                    // 防止重复添加相同的边（可选优化）
+                    // 但 ECharts Graph 允许重边，这里为了简单直接推入即可
+                    edges.push({ source, target });
+                    nodesSet.add(source);
+                    nodesSet.add(target);
+                }
+            }
+        });
+    }
+
+    // 3. 计算当前筛选群体的知识点得分率
+    // (复用现有逻辑，但针对特定群体)
+    const allStudents = G_ItemAnalysisData[subjectName].students;
+    const filteredStudents = (selectedClass === 'ALL') 
+        ? allStudents 
+        : allStudents.filter(s => s.class === selectedClass);
+
+    // 计算得分率 Map: { "二次函数": 0.65, ... }
+    const kpRates = {};
+    
+    // 获取所有涉及的知识点（包括配置中未定义但在题目中出现的）
+    const recalculatedStats = getRecalculatedItemStats(subjectName);
+    // 遍历所有题目累加分数
+    const aggregates = {}; 
+    
+    const processQ = (qList, scoreType, statsType) => {
+        qList.forEach(qName => {
+            const content = subjectConfig[qName]?.content || "";
+            const kps = content.split(/[;；]/).map(k => k.trim()).filter(k => k);
+            const stat = recalculatedStats[statsType][qName];
+            const full = stat?.manualFullScore || stat?.maxScore || 0;
+
+            if (full > 0 && kps.length > 0) {
+                let totalGot = 0;
+                let count = 0;
+                filteredStudents.forEach(s => {
+                    const v = s[scoreType][qName];
+                    if (typeof v === 'number') { totalGot += v; count++; }
+                });
+                const avgScore = count > 0 ? totalGot / count : 0;
+                
+                kps.forEach(kp => {
+                    if (!aggregates[kp]) aggregates[kp] = { got: 0, full: 0 };
+                    aggregates[kp].got += avgScore;
+                    aggregates[kp].full += full;
+                    nodesSet.add(kp); // 确保图谱包含所有出现的知识点
+                });
+            }
+        });
+    };
+    
+    processQ(G_ItemAnalysisData[subjectName].minorQuestions, 'minorScores', 'minorStats');
+    processQ(G_ItemAnalysisData[subjectName].majorQuestions, 'majorScores', 'majorStats');
+
+    // 生成最终得分率
+    Object.keys(aggregates).forEach(kp => {
+        const agg = aggregates[kp];
+        kpRates[kp] = agg.full > 0 ? (agg.got / agg.full) : 0;
+    });
+
+    if (nodesSet.size === 0) {
+        chartDom.innerHTML = `<p style="text-align:center; padding-top:100px; color:#999;">暂无知识点数据，请在“配置题目”中填写考察内容和层级关系。</p>`;
+        return;
+    }
+
+    // 4. 构建 ECharts Nodes
+    const echartsNodes = Array.from(nodesSet).map(kp => {
+        const rate = kpRates[kp] !== undefined ? kpRates[kp] : 0; // 默认0或者不显示
+        
+        // 颜色逻辑
+        let color = '#007bff'; // 默认蓝
+        if (rate >= 0.85) color = '#28a745'; // 优 (绿)
+        else if (rate < 0.6) color = '#dc3545'; // 差 (红)
+        else color = '#ffc107'; // 中 (黄)
+
+        return {
+            name: kp,
+            value: (rate * 100).toFixed(1), // 显示为百分比
+            itemStyle: { color: color },
+            label: { show: true, color: '#333', position: 'right' },
+            symbolSize: 20 + (rate * 10) // 分数越高点越大? 或者反过来，薄弱点大? 这里随分数变大
+        };
+    });
+
+    // 5. 构建 ECharts Links (归因链逻辑)
+    const echartsLinks = edges.map(edge => {
+        const sourceRate = kpRates[edge.source] || 1;
+        const targetRate = kpRates[edge.target] || 1;
+        
+        // 归因逻辑：如果父子双双挂科 (<0.6)，则为“核心归因链”
+        const isCritical = (sourceRate < 0.6 && targetRate < 0.6);
+
+        return {
+            source: edge.source,
+            target: edge.target,
+            lineStyle: {
+                color: isCritical ? '#dc3545' : '#ccc', // 红色或灰色
+                width: isCritical ? 4 : 1,              // 加粗
+                type: isCritical ? 'solid' : 'solid',
+                curveness: 0.2
+            },
+            symbol: ['none', 'arrow']
+        };
+    });
+
+    // 6. 渲染图表
+    const option = {
+        title: { text: '知识点关联图谱', left: 'center' },
+        tooltip: {
+            formatter: (params) => {
+                if (params.dataType === 'node') {
+                    return `<strong>${params.name}</strong><br/>得分率: ${params.value}%`;
+                }
+                if (params.dataType === 'edge') {
+                    return `${params.data.source} -> ${params.data.target}`;
+                }
+            }
+        },
+        series: [{
+            type: 'graph',
+            layout: 'force', // 力引导布局
+            data: echartsNodes,
+            links: echartsLinks,
+            roam: true,
+            label: { show: true, position: 'bottom' },
+            force: {
+                repulsion: 500,
+                edgeLength: 100
+            },
+            lineStyle: {
+                opacity: 0.9,
+                width: 2,
+                curveness: 0
+            }
+        }]
+    };
+
+    myChart.setOption(option);
 }

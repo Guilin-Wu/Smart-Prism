@@ -347,27 +347,40 @@
     </div>
 
     <div id="item-analysis-config-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content" style="max-width: 800px;">
-            <div class="modal-header">
-                <h3 id="item-config-modal-title">配置题目详情 (科目: -)</h3>
+        <div class="modal-content" style="max-width: 800px; max-height: 90vh; display: flex; flex-direction: column; padding: 0;">
+            
+            <div class="modal-header" style="padding: 15px 20px; border-bottom: 1px solid #dee2e6;">
+                <h3 id="item-config-modal-title" style="margin:0;">配置题目详情 (科目: -)</h3>
                 <span id="item-config-modal-close-btn" class="modal-close-btn">&times;</span>
             </div>
-            <div class="modal-body">
-                <div style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 20px;">
+            
+            <div class="modal-body" style="overflow-y: auto; flex: 1; padding: 20px;">
+                
+                <div style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 20px;">
                     <label for="item-config-full-paper" style="display:block; font-weight:600; margin-bottom:8px;">
                         📄 粘贴完整试卷文本 (AI 分析核心参考):
                     </label>
                     <textarea id="item-config-full-paper" rows="6" class="sidebar-select"
-                        placeholder="请在此处粘贴整张试卷的文字内容（包括题干、选项等）。&#10;AI 将结合具体题目内容，给出更精准的归因分析和教学建议。"
+                        placeholder="请在此处粘贴整张试卷的文字内容..."
                         style="width: 100%; resize: vertical; font-family: monospace; line-height: 1.5;"></textarea>
                 </div>
 
-                <p>
-                    “满分”：留空则使用自动检测的满分 (见灰色提示文字)。手动填写数字将覆盖自动检测，并用于重新计算得分率。
-                    <br>
-                    “考察内容”：填写本题的知识点，方便后续分析。(ps:一个题目有多个知识点请用“；”或者符号隔开，如：加速度；牛顿第二定律)
+                <div style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 20px;">
+                    <label for="item-config-graph-def" style="display:block; font-weight:600; margin-bottom:8px;">
+                        🕸️ 定义知识点层级关系 (格式：前置 -> 后继):
+                    </label>
+                    <textarea id="item-config-graph-def" rows="4" class="sidebar-select" 
+                        placeholder="在此定义知识点的依赖路径，每行一条。例如：&#10;一元二次方程 -> 二次函数&#10;二次函数 -> 二次函数图像性质"
+                        style="width: 100%; resize: vertical; font-family: monospace; line-height: 1.5;"></textarea>
+                    <p style="font-size:0.8em; color:#666; margin-top:5px;">* 系统将根据此关系生成归因图谱。请确保“知识点名称”与下方表格中的“考察内容”一致。</p>
+                </div>
+
+                <p style="color:#666; font-size:0.9em;">
+                    “满分”：留空则使用自动检测的满分。手动填写数字将覆盖自动检测。<br>
+                    “考察内容”：填写本题知识点，用“；”隔开。
                 </p>
-                <div class="table-container" style="max-height: 50vh; overflow-y: auto;">
+                
+                <div class="table-container">
                     <table id="item-config-table">
                         <thead>
                             <tr>
@@ -381,7 +394,8 @@
                     </table>
                 </div>
             </div>
-            <div class="modal-footer">
+
+            <div class="modal-footer" style="padding: 15px 20px; border-top: 1px solid #dee2e6;">
                 <button id="item-config-modal-save-btn" class="sidebar-button">保存并重新分析</button>
             </div>
         </div>
