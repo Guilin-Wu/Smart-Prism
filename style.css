@@ -1418,3 +1418,23 @@ details.ai-reasoning-box:not([open]) summary::after {
     color: white !important;
     border-color: var(--primary-color) !important;
 }
+
+/* 考场编排模块 */
+#exam-room-tabs::-webkit-scrollbar {
+    height: 6px;
+}
+#exam-room-tabs::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 3px;
+}
+.room-tab-btn {
+    transition: all 0.2s;
+}
+.room-tab-btn:hover {
+    background-color: #e9ecef !important;
+    color: #000 !important;
+}
+.room-tab-btn.active-tab:hover {
+    background-color: var(--primary-color-dark) !important;
+    color: #fff !important;
+}

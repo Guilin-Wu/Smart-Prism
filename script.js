@@ -1165,6 +1165,11 @@ function renderModule(moduleName, activeData, activeCompareData) {
         case 'goal-setting':
             renderGoalSetting(container, activeData, G_Statistics);
             break;
+        
+            // [!! 在这里插入这一段 !!]
+        case 'exam-arrangement':
+            renderExamArrangement(container);
+            break;
 
         default:
             container.innerHTML = `<h2>模块 ${moduleName} (待开发)</h2>`;
@@ -12796,4 +12801,313 @@ if (graphDef) {
     };
 
     myChart.setOption(option);
+}
+
+
+
+// =====================================================================
+// [NEW] 模块十五：考场座位编排
+// =====================================================================
+
+// =====================================================================
+// [NEW] 模块十五：考场座位编排 (支持自定义考号前缀)
+// =====================================================================
+
+function renderExamArrangement(container) {
+    const studentCount = G_StudentsData.length;
+
+    container.innerHTML = `
+        <h2>🧘 模块十五：考场座位编排 & 考号生成</h2>
+        
+        <div class="main-card-wrapper" style="border-left: 5px solid var(--color-cyan); margin-bottom: 20px;">
+            <h4 style="margin-top:0;">🛠️ 编排配置</h4>
+            <div class="controls-bar" style="background:transparent; padding:0; box-shadow:none; flex-wrap:wrap; gap: 15px;">
+                
+                <div style="min-width: 220px;">
+                    <label>1. 考生排序策略:</label>
+                    <select id="exam-sort-strategy" class="sidebar-select" style="font-weight:bold; color:var(--primary-color);">
+                        <option value="class_balanced">⚖️ 班级均衡 (分层穿插+组内随机)</option>
+                        <option value="score_desc">🏆 按总分高到低 (优生在前)</option>
+                        <option value="score_asc">📉 按总分低到高</option>
+                        <option value="random">🎲 完全随机打乱</option>
+                    </select>
+                </div>
+
+                <div style="min-width: 120px;">
+                    <label>2. 单场人数:</label>
+                    <input type="number" id="exam-room-capacity" class="sidebar-select" value="40" min="1">
+                </div>
+
+                <div style="min-width: 120px;">
+                    <label>3. 列数:</label>
+                    <input type="number" id="exam-room-columns" class="sidebar-select" value="5" min="1" placeholder="5列">
+                </div>
+
+                <div style="min-width: 180px;">
+                    <label>4. 座位填充:</label>
+                    <select id="exam-seat-pattern" class="sidebar-select">
+                        <option value="s_shape">🐍 S型 (蛇形)</option>
+                        <option value="z_shape">➡️ Z型 (常规)</option>
+                    </select>
+                </div>
+
+                <div style="min-width: 320px; display: flex; gap: 10px;">
+                    <div style="flex: 1;">
+                        <label>5. 考号生成模式:</label>
+                        <select id="exam-id-mode" class="sidebar-select">
+                            <option value="use_existing">保持现有</option>
+                            <option value="auto_generate">自动生成</option>
+                        </select>
+                    </div>
+                    <div style="width: 120px;">
+                        <label>前缀 (可选):</label>
+                        <input type="text" id="exam-id-prefix" class="sidebar-select" placeholder="例: 2025">
+                    </div>
+                </div>
+
+            </div>
+            
+            <div style="margin-top: 15px; text-align: right; border-top: 1px solid #eee; padding-top: 15px;">
+                <span style="color: #666; margin-right: 15px;">待编排人数: <strong>${studentCount}</strong> 人</span>
+                <button id="exam-generate-btn" class="sidebar-button" style="background-color: var(--color-cyan);">⚙️ 开始编排 & 预览</button>
+            </div>
+        </div>
+
+        <div id="exam-result-area" style="display: none;">
+            <div class="main-card-wrapper">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3 style="margin:0;">📋 编排结果预览</h3>
+                    <button id="exam-export-btn" class="sidebar-button" style="background-color: var(--color-green);">📥 导出座位表 (Excel)</button>
+                </div>
+                
+                <div id="exam-room-tabs" style="display:flex; gap:5px; overflow-x:auto; padding-bottom:10px; margin-bottom:10px; border-bottom:1px solid #eee;"></div>
+                <div id="exam-room-preview" style="min-height: 300px;"></div>
+            </div>
+        </div>
+    `;
+
+    let generatedRooms = [];
+
+    document.getElementById('exam-generate-btn').addEventListener('click', () => {
+        const config = {
+            sort: document.getElementById('exam-sort-strategy').value,
+            capacity: parseInt(document.getElementById('exam-room-capacity').value) || 30,
+            cols: parseInt(document.getElementById('exam-room-columns').value) || 8,
+            pattern: document.getElementById('exam-seat-pattern').value,
+            idMode: document.getElementById('exam-id-mode').value,
+            idPrefix: document.getElementById('exam-id-prefix').value.trim() // [NEW] 获取前缀
+        };
+        generatedRooms = calculateExamArrangement(G_StudentsData, config);
+        renderExamPreview(generatedRooms, config.cols);
+    });
+
+    document.getElementById('exam-export-btn').addEventListener('click', () => {
+        if(generatedRooms.length > 0) exportExamToExcel(generatedRooms);
+    });
+}
+
+/**
+ * [核心算法] 计算考场编排 (含自定义前缀)
+ */
+function calculateExamArrangement(students, config) {
+    let sortedStudents = [];
+
+    // --- 第一步：根据策略生成“总名单” ---
+    if (config.sort === 'class_balanced') {
+        // 班级均衡策略
+        const classMap = {};
+        students.forEach(s => {
+            if (!classMap[s.class]) classMap[s.class] = [];
+            classMap[s.class].push(s);
+        });
+        const queues = [];
+        Object.keys(classMap).sort().forEach(cls => {
+            classMap[cls].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0));
+            queues.push(classMap[cls]);
+        });
+        let hasStudent = true;
+        let i = 0;
+        while (hasStudent) {
+            hasStudent = false;
+            for (let q of queues) {
+                if (i < q.length) {
+                    sortedStudents.push(q[i]);
+                    hasStudent = true;
+                }
+            }
+            i++;
+        }
+    } else if (config.sort === 'score_desc') {
+        sortedStudents = [...students].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0));
+    } else if (config.sort === 'score_asc') {
+        sortedStudents = [...students].sort((a, b) => (a.totalScore || 0) - (b.totalScore || 0));
+    } else {
+        sortedStudents = [...students].sort(() => Math.random() - 0.5);
+    }
+
+    // --- 第二步：切分考场 & 组内处理 ---
+    const rooms = [];
+    const totalStudents = sortedStudents.length;
+    let currentStudentIdx = 0;
+    let roomNum = 1;
+
+    while (currentStudentIdx < totalStudents) {
+        const endIdx = Math.min(currentStudentIdx + config.capacity, totalStudents);
+        let roomStudents = sortedStudents.slice(currentStudentIdx, endIdx);
+
+        // 组内随机打乱
+        if (config.sort !== 'random') {
+             roomStudents.sort(() => Math.random() - 0.5);
+        }
+
+        // 3. 分配座位号 & 考号
+        const processedStudents = roomStudents.map((student, indexInRoom) => {
+            const seatNo = indexInRoom + 1;
+            
+            // [NEW] 生成考号逻辑
+            let examId = student.id;
+            if (config.idMode === 'auto_generate') {
+                // 格式: 前缀 + 考场号(2位) + 座位号(2位)
+                const rStr = String(roomNum).padStart(2, '0');
+                const sStr = String(seatNo).padStart(2, '0');
+                // 如果用户输入了前缀，直接拼在前面
+                const prefix = config.idPrefix || ""; 
+                examId = `${prefix}${rStr}${sStr}`;
+            }
+
+            // 计算坐标 (S型/Z型)
+            const row = Math.floor(indexInRoom / config.cols);
+            let col = indexInRoom % config.cols;
+            if (config.pattern === 's_shape' && row % 2 !== 0) {
+                col = config.cols - 1 - col;
+            }
+
+            return {
+                ...student,
+                tempExamId: examId,
+                roomNum: roomNum,
+                seatNo: seatNo,
+                gridRow: row,
+                gridCol: col
+            };
+        });
+
+        rooms.push({
+            id: roomNum,
+            name: `第 ${roomNum} 考场`,
+            students: processedStudents
+        });
+
+        currentStudentIdx += config.capacity;
+        roomNum++;
+    }
+
+    return rooms;
+}
+
+/**
+ * [渲染] 考场预览 (座位网格)
+ */
+function renderExamPreview(rooms, cols) {
+    const resultArea = document.getElementById('exam-result-area');
+    const tabContainer = document.getElementById('exam-room-tabs');
+    const previewContainer = document.getElementById('exam-room-preview');
+    
+    resultArea.style.display = 'block';
+    
+    // 1. 生成 Tabs
+    tabContainer.innerHTML = rooms.map((r, idx) => `
+        <button class="sidebar-button room-tab-btn ${idx === 0 ? 'active-tab' : ''}" 
+            onclick="switchExamRoom(${idx})" 
+            style="background-color: ${idx === 0 ? 'var(--primary-color)' : '#fff'}; color: ${idx === 0 ? '#fff' : '#333'}; border: 1px solid #ccc; white-space: nowrap;">
+            ${r.name} (${r.students.length}人)
+        </button>
+    `).join('');
+
+    // 挂载全局切换函数
+    window.currentExamRooms = rooms; // 临时存储
+    window.switchExamRoom = (roomIdx) => {
+        // 更新 Tab 样式
+        document.querySelectorAll('.room-tab-btn').forEach((btn, i) => {
+            btn.style.backgroundColor = (i === roomIdx) ? 'var(--primary-color)' : '#fff';
+            btn.style.color = (i === roomIdx) ? '#fff' : '#333';
+        });
+        // 渲染网格
+        renderRoomGrid(rooms[roomIdx], cols, previewContainer);
+    };
+
+    // 默认显示第1个
+    renderRoomGrid(rooms[0], cols, previewContainer);
+}
+
+function renderRoomGrid(room, cols, container) {
+    // 计算最大行数
+    const maxRow = Math.max(...room.students.map(s => s.gridRow)) + 1;
+    
+    let html = `<div style="display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 10px; max-width: 1000px; margin: 0 auto;">`;
+    
+    // 创建一个矩阵来映射位置
+    const gridMap = Array(maxRow).fill(null).map(() => Array(cols).fill(null));
+    room.students.forEach(s => {
+        gridMap[s.gridRow][s.gridCol] = s;
+    });
+
+    // 遍历矩阵生成 HTML
+    for (let r = 0; r < maxRow; r++) {
+        for (let c = 0; c < cols; c++) {
+            const student = gridMap[r][c];
+            if (student) {
+                html += `
+                    <div style="border: 1px solid #ddd; padding: 10px; border-radius: 6px; background: #f9f9f9; text-align: center; font-size: 0.85em; min-height: 60px; display: flex; flex-direction: column; justify-content: center;">
+                        <div style="font-weight: bold; color: var(--primary-color); margin-bottom: 4px;">${student.name}</div>
+                        <div style="color: #666;">座:${student.seatNo}</div>
+                        <div style="color: #999; font-size: 0.8em;">${student.tempExamId}</div>
+                    </div>
+                `;
+            } else {
+                // 空座位
+                html += `<div style="border: 1px dashed #eee; border-radius: 6px;"></div>`;
+            }
+        }
+    }
+    html += `</div>`;
+    
+    // 添加讲台指示
+    container.innerHTML = `
+        <div style="text-align: center; margin-bottom: 20px; background: #eee; padding: 5px; border-radius: 4px; font-weight: bold; color: #555;">
+            📺 讲台 / 黑板
+        </div>
+        ${html}
+    `;
+}
+
+/**
+ * [导出] 生成 Excel
+ */
+function exportExamToExcel(rooms) {
+    const wb = XLSX.utils.book_new();
+    
+    // 1. 总表 (List View)
+    const allData = [];
+    rooms.forEach(r => {
+        r.students.forEach(s => {
+            allData.push({
+                "考场": r.name,
+                "座位号": s.seatNo,
+                "准考证号": s.tempExamId,
+                "姓名": s.name,
+                "班级": s.class,
+                "总分": s.totalScore || 0
+            });
+        });
+    });
+    const wsAll = XLSX.utils.json_to_sheet(allData);
+    XLSX.utils.book_append_sheet(wb, wsAll, "考场总名单");
+
+    // 2. 考场门贴 (按考场分组)
+    // 简单实现：每个考场一个 Sheet，或者在一个 Sheet 里分隔
+    // 这里为了方便，我们在总表里已经很清晰了。
+    // 如果要做“座位矩阵表”，逻辑比较复杂，这里先只导出清单。
+    
+    XLSX.writeFile(wb, `考场编排表_${new Date().toLocaleDateString()}.xlsx`);
 }
