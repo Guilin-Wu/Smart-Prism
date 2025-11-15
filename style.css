@@ -1365,3 +1365,56 @@ details.ai-reasoning-box:not([open]) summary::after {
 /* 强调色 */
 .text-purple { color: #6f42c1; }
 .bg-purple-light { background-color: #f3e5f5; }
+
+
+/* 目标管理模块 Tab 样式 */
+.tab-btn {
+    font-size: 1.1em;
+    transition: all 0.3s;
+    opacity: 0.7;
+}
+.tab-btn:hover {
+    opacity: 1;
+    background-color: rgba(0,0,0,0.02);
+}
+.tab-btn.active {
+    opacity: 1;
+}
+
+/* 规划列表样式微调 */
+#goal-archive-list .multi-exam-item {
+    padding: 15px;
+    border: 1px solid #eee;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    background: #fff;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+#goal-archive-list .multi-exam-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border-color: var(--primary-color);
+}
+
+/* 学生选择按钮矩阵 */
+.goal-student-btn {
+    transition: all 0.2s;
+    padding: 8px 5px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+.goal-student-btn:hover {
+    border-color: var(--primary-color) !important;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* 选中状态 */
+.goal-student-btn.active {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
