@@ -141,7 +141,8 @@ document.addEventListener('DOMContentLoaded', () => {
         importModal.style.display = 'none';
     });
 
-    // [!!] (新增) 导入模态框：从存储
+    // [!! 核心修复 !!] 导入模态框：从存储
+    // 修复了数据仅写入 localStorage 而非 localforage (IndexedDB) 导致刷新丢失的问题
     importModalFromStorageBtn.addEventListener('click', async () => {
         const selectedId = importModalSelect.value;
         if (!selectedId) {
@@ -149,10 +150,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // [修改 2] 在调用前加 await，确保拿到的是数组
+        // 1. 加载数据源
         const allData = await loadMultiExamData();
-
-        // 现在 allData 是数组了，.find() 可以正常工作
         const selectedExam = allData.find(e => String(e.id) === selectedId);
 
         if (!selectedExam) {
@@ -160,15 +159,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // (复用 handleFileData 的核心逻辑)
         const labelText = `✅ ${selectedExam.label} (来自存储)`;
 
+        // 2. 区分导入类型
         if (G_CurrentImportType === 'main') {
+            // --- 导入到【本次成绩】 ---
             G_StudentsData = selectedExam.students;
 
-            // [!!] (核心修复) 
-            // 导入时, 必须根据这份数据重建 G_DynamicSubjectList
-            // (这段逻辑复制自 loadDataFromStorage)
+            // (A) 重建科目列表
             if (G_StudentsData.length > 0) {
                 const allSubjects = new Set();
                 G_StudentsData.forEach(student => {
@@ -176,44 +174,42 @@ document.addEventListener('DOMContentLoaded', () => {
                         Object.keys(student.scores).forEach(subject => allSubjects.add(subject));
                     }
                 });
-
                 if (allSubjects.size > 0) {
                     G_DynamicSubjectList = Array.from(allSubjects);
                 }
             }
 
-            // [!!] (核心修复) 
-            // 导入时, 必须重新初始化科目配置
-            // (会保留 localStorage 中的配置, 并为新科目添加默认值)
-            const storedConfigs = localStorage.getItem('G_SubjectConfigs');
-            if (storedConfigs) {
-                G_SubjectConfigs = JSON.parse(storedConfigs);
-            } else {
-                G_SubjectConfigs = {}; // 如果没有, 确保是空对象
-            }
+            // (B) 重建科目配置 (保留旧配置，添加新默认值)
+            // [!!] 这里也需要改为从 localforage 读取，以防万一
+            let storedConfigs = await localforage.getItem('G_SubjectConfigs');
+            if (!storedConfigs) storedConfigs = {};
+            
+            G_SubjectConfigs = storedConfigs; // 更新内存
 
-            // (为新科目添加默认配置)
             G_DynamicSubjectList.forEach(subject => {
                 if (!G_SubjectConfigs[subject]) {
                     const isY_S_W = ['语文', '数学', '英语'].includes(subject);
-                    const full = isY_S_W ? 150 : 100;
-                    const pass = isY_S_W ? 90 : 60;
-                    const excel = isY_S_W ? 120 : 85;
-
                     G_SubjectConfigs[subject] = {
-                        full: full,
-                        excel: excel,
-                        good: (pass + excel) / 2,
-                        pass: pass,
+                        full: isY_S_W ? 150 : 100,
+                        superExcel: isY_S_W ? 135 : 90,
+                        excel: isY_S_W ? 120 : 85,
+                        good: isY_S_W ? 105 : 75,
+                        pass: isY_S_W ? 90 : 60,
+                        low: isY_S_W ? 45 : 30,
+                        isAssigned: false
                     };
                 }
             });
 
-            localStorage.setItem('G_StudentsData', JSON.stringify(G_StudentsData));
-            localStorage.setItem('G_MainFileName', selectedExam.label);
+            // (C) [关键修复] 保存到 IndexedDB (localforage)
+            // 之前是 localStorage，导致刷新后读取不到
+            console.log("正在将导入数据写入 IndexedDB...");
+            await localforage.setItem('G_StudentsData', G_StudentsData);
+            await localforage.setItem('G_MainFileName', selectedExam.label);
+            await localforage.setItem('G_SubjectConfigs', G_SubjectConfigs); // 保存更新后的配置
 
+            // (D) UI 刷新
             populateClassFilter(G_StudentsData);
-            // 解锁 UI
             welcomeScreen.style.display = 'none';
             document.getElementById('import-compare-btn').classList.remove('disabled');
             navLinks.forEach(l => l.classList.remove('disabled'));
@@ -222,10 +218,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (importMainBtn) importMainBtn.innerHTML = labelText;
 
-        } else { // 'compare'
+        } else { 
+            // --- 导入到【对比成绩】 ---
             G_CompareData = selectedExam.students;
-            localStorage.setItem('G_CompareData', JSON.stringify(G_CompareData));
-            localStorage.setItem('G_CompareFileName', selectedExam.label);
+            
+            // [关键修复] 保存到 IndexedDB
+            await localforage.setItem('G_CompareData', G_CompareData);
+            await localforage.setItem('G_CompareFileName', selectedExam.label);
 
             const compareBtn = document.getElementById('import-compare-btn');
             if (compareBtn) compareBtn.innerHTML = labelText;
@@ -233,6 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         runAnalysisAndRender();
         importModal.style.display = 'none';
+        alert(`成功导入：${selectedExam.label}`);
     });
 
     // [!!] (新增) 监听“清除所有数据”按钮
@@ -270,17 +270,49 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-    clearAllBtn.addEventListener('click', () => {
-        if (confirm("您确定要清除所有已导入的“本次成绩”和“对比成绩”吗？\n\n(此操作不会清除“模块十二”中保存的数据)")) {
-            // 1. 清除 localStorage
-            localStorage.removeItem('G_StudentsData');
-            localStorage.removeItem('G_CompareData');
-            localStorage.removeItem('G_MainFileName');
-            localStorage.removeItem('G_CompareFileName');
-            localStorage.removeItem('G_SubjectConfigs');
+// [!! 核心修复 !!] “清除所有数据”按钮逻辑升级
+    // 必须同时清除 localStorage (旧) 和 localforage (新数据库)
+    clearAllBtn.addEventListener('click', async () => {
+        if (confirm("⚠️ 高能预警\n\n您确定要清除所有已导入的“本次成绩”和“对比成绩”吗？\n此操作不可恢复！\n\n(注意：此操作【不会】清除“模块十二”中的历史存档)")) {
+            
+            // 给按钮一点反馈
+            const originalText = clearAllBtn.innerHTML;
+            clearAllBtn.innerText = "🧹 正在强力清理...";
+            clearAllBtn.disabled = true;
 
-            // 2. 刷新页面
-            location.reload();
+            try {
+                // 1. [关键] 清除 IndexedDB 中的核心数据
+                await Promise.all([
+                    localforage.removeItem('G_StudentsData'),
+                    localforage.removeItem('G_CompareData'),
+                    localforage.removeItem('G_MainFileName'),
+                    localforage.removeItem('G_CompareFileName'),
+                    localforage.removeItem('G_SubjectConfigs'),
+                    // 建议同时也清除小题分析的缓存，防止数据不匹配
+                    localforage.removeItem('G_ItemAnalysisData'),
+                    localforage.removeItem('G_ItemAnalysisConfig'),
+                    localforage.removeItem('G_ItemAnalysisFileName')
+                ]);
+
+                // 2. 清除 localStorage (清理旧的残留数据)
+                localStorage.removeItem('G_StudentsData');
+                localStorage.removeItem('G_CompareData');
+                localStorage.removeItem('G_MainFileName');
+                localStorage.removeItem('G_CompareFileName');
+                localStorage.removeItem('G_SubjectConfigs');
+                localStorage.removeItem('G_ItemAnalysisData');
+                localStorage.removeItem('G_ItemAnalysisConfig');
+
+                // 3. 刷新页面
+                alert("✅ 数据已彻底清除，系统即将重启。");
+                location.reload();
+
+            } catch (err) {
+                console.error("清除失败:", err);
+                alert("❌ 清除过程中出现错误，请尝试手动清除浏览器缓存。");
+                clearAllBtn.innerText = originalText;
+                clearAllBtn.disabled = false;
+            }
         }
     });
 
