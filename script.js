@@ -749,7 +749,15 @@ function calculateAllStatistics(studentsData) {
             .sort((a, b) => a - b);
 
         // [!!] (修改) 传入 config.good
-        stats[subjectName] = calculateStatsForScores(subjectScores, config.full, config.pass, config.excel, config.good);
+        stats[subjectName] = calculateStatsForScores(
+            subjectScores,
+            config.full,
+            config.pass,
+            config.excel,
+            config.good,
+            config.superExcel || (config.full * 0.9), // 传入特优
+            config.low || (config.full * 0.3)         // 传入低分
+        );
         stats[subjectName].name = subjectName;
 
         // 累加总分配置
@@ -768,15 +776,144 @@ function calculateAllStatistics(studentsData) {
     return stats;
 }
 
+
+/**
+ * [新增] 1. 计算标准分 (Z-Score / T-Score)
+ * Z = (分数 - 平均分) / 标准差
+ * T = 50 + 10 * Z (标准 T 分，平均50，标准差10)
+ * 同时注入到学生对象中：student.zScores 和 student.tScores
+ */
+function calculateStandardScores(students, stats) {
+    students.forEach(student => {
+        student.tScores = {}; // 存储 T 分
+        student.zScores = {}; // 存储 Z 分
+
+        G_DynamicSubjectList.forEach(subject => {
+            const stat = stats[subject];
+            const score = student.scores[subject];
+
+            if (stat && stat.stdDev > 0 && typeof score === 'number') {
+                const z = (score - stat.average) / stat.stdDev;
+                const t = 50 + (10 * z);
+
+                student.zScores[subject] = parseFloat(z.toFixed(2));
+                student.tScores[subject] = parseFloat(t.toFixed(1)); // T分通常保留1位
+            } else {
+                student.zScores[subject] = 0;
+                student.tScores[subject] = 50; // 默认平均水平
+            }
+        });
+    });
+}
+
+/**
+ * [新增] 2. 新高考赋分制预估 (简易版 - 21等级赋分)
+ * 基于排位百分比映射到 100-30 分
+ */
+function calculateAssignedScore(rank, totalCount) {
+    if (!totalCount) return 0;
+    const percentage = (rank / totalCount) * 100;
+
+    // 典型新高考赋分区间 (可根据省份政策调整)
+    // 前1% -> 100, 1-3% -> 97 ... 
+    if (percentage <= 1) return 100;
+    if (percentage <= 3) return 97;
+    if (percentage <= 6) return 94;
+    if (percentage <= 10) return 91;
+    if (percentage <= 15) return 88;
+    if (percentage <= 21) return 85;
+    if (percentage <= 28) return 82;
+    if (percentage <= 36) return 79;
+    if (percentage <= 45) return 76;
+    if (percentage <= 55) return 73;
+    if (percentage <= 66) return 70;
+    if (percentage <= 78) return 67;
+    if (percentage <= 91) return 64;
+    if (percentage <= 97) return 61;
+    if (percentage <= 99) return 58; // E等级区间
+    return 40; // 最低保底
+}
+
+/**
+ * [新增] 福建省新高考赋分算法 (3+1+2模式 - 再选科目)
+ * 规则：
+ * A等级: 15%, 100-86
+ * B等级: 35%, 85-71
+ * C等级: 35%, 70-56
+ * D等级: 13%, 55-41
+ * E等级: 2%,  40-30
+ * 公式: (Y2-Y)/(Y-Y1) = (T2-X)/(X-T1)  =>  X = ( (Y-Y1)/(Y2-Y1) ) * (T2-T1) + T1
+ */
+function calculateFujianAssignedScore(studentScore, allScores) {
+    // 1. 数据清洗与排序 (从高到低)
+    const validScores = allScores.filter(s => typeof s === 'number' && !isNaN(s)).sort((a, b) => b - a);
+    const total = validScores.length;
+
+    if (total === 0 || typeof studentScore !== 'number') return 'N/A';
+
+    // 2. 确定各个等级的人数截止位次 (向下取整)
+    // 注意：这里简化处理，严格场景下如同分需扩展区间
+    const idxA = Math.floor(total * 0.15);          // A等级截止索引
+    const idxB = Math.floor(total * (0.15 + 0.35)); // B等级截止索引 (50%)
+    const idxC = Math.floor(total * (0.50 + 0.35)); // C等级截止索引 (85%)
+    const idxD = Math.floor(total * (0.85 + 0.13)); // D等级截止索引 (98%)
+    // 剩余为 E等级
+
+    // 3. 确定考生所在的等级区间
+    const myRankIdx = validScores.indexOf(studentScore); // 获取该分数的最高排名索引
+
+    let T1, T2, Y1, Y2;
+    let subset = [];
+
+    if (myRankIdx < idxA) {
+        // A等级
+        T2 = 100; T1 = 86;
+        subset = validScores.slice(0, idxA);
+    } else if (myRankIdx < idxB) {
+        // B等级
+        T2 = 85; T1 = 71;
+        subset = validScores.slice(idxA, idxB);
+    } else if (myRankIdx < idxC) {
+        // C等级
+        T2 = 70; T1 = 56;
+        subset = validScores.slice(idxB, idxC);
+    } else if (myRankIdx < idxD) {
+        // D等级
+        T2 = 55; T1 = 41;
+        subset = validScores.slice(idxC, idxD);
+    } else {
+        // E等级
+        T2 = 40; T1 = 30;
+        subset = validScores.slice(idxD);
+    }
+
+    // 4. 获取该等级原始分的最高值(Y2)和最低值(Y1)
+    if (subset.length === 0) return studentScore; // 异常保护
+    Y2 = subset[0]; // 区间最高原始分
+    Y1 = subset[subset.length - 1]; // 区间最低原始分
+
+    // 5. 代入公式计算
+    // 特殊情况：如果该区间只有一个分数(Y1=Y2)，直接给满分或平均分？通常给 T2
+    if (Y2 === Y1) return T2;
+
+    // 线性插值公式
+    const assignedScore = ((studentScore - Y1) / (Y2 - Y1)) * (T2 - T1) + T1;
+
+    return Math.round(assignedScore); // 四舍五入取整
+}
+
 /**
  * (重构) 6.4. 辅助函数：计算单个分数数组的统计值
- * [!!] 已新增 "difficulty" 字段
+ * [!!] (修改) 增加了 superExcelLine (特优线) 和 lowLine (低分线) 参数
  */
-// [!!] (修改) 增加 goodLine 参数
-function calculateStatsForScores(scores, fullMark, passLine, excellentLine, goodLine) {
+function calculateStatsForScores(scores, fullMark, passLine, excellentLine, goodLine, superExcelLine, lowLine) {
     const count = scores.length;
-    // [!!] (修改) 增加 goodRate 和 failRate
-    if (count === 0) return { average: 0, max: 0, min: 0, median: 0, passRate: 0, excellentRate: 0, goodRate: 0, failRate: 0, count: 0, variance: 0, stdDev: 0, difficulty: 0, scores: [] };
+
+    // [!!] 默认值保护：如果未定义，给一个默认值防止报错
+    if (superExcelLine === undefined) superExcelLine = fullMark * 0.9;
+    if (lowLine === undefined) lowLine = passLine * 0.5;
+
+    if (count === 0) return { average: 0, max: 0, min: 0, median: 0, passRate: 0, excellentRate: 0, goodRate: 0, failRate: 0, superRate: 0, lowRate: 0, count: 0, variance: 0, stdDev: 0, difficulty: 0, scores: [] };
 
     const total = scores.reduce((acc, score) => acc + score, 0);
     const average = total / count;
@@ -794,21 +931,27 @@ function calculateStatsForScores(scores, fullMark, passLine, excellentLine, good
     const passCount = scores.filter(s => s >= passLine).length;
     const excellentCount = scores.filter(s => s >= excellentLine).length;
 
-    // [!!] (新增) 良好率 (B) 和 不及格率 (D)
     // (B) - B (良好) = [goodLine, excelLine)
     const countB = scores.filter(s => s >= goodLine && s < excellentLine).length;
     // (D) - D (不及格) = < passLine
     const countD = scores.filter(s => s < passLine).length;
 
-    // [!!] (新增) C级率 (C)
     // (C) - C (及格) = [passLine, goodLine)
     const countC = scores.filter(s => s >= passLine && s < goodLine).length;
     const cRate = (count > 0) ? (countC / count) * 100 : 0;
 
-    // [!!] (新增) 良好率 (B级率)
+    // 良好率 (B级率)
     const goodRate = (count > 0) ? (countB / count) * 100 : 0;
-    // [!!] (新增) 不及格率 (D级率)
+    // 不及格率 (D级率)
     const failRate = (count > 0) ? (countD / count) * 100 : 0;
+
+    // [!!] (新增) 特优率 (Super Excellent)
+    const countSuper = scores.filter(s => s >= superExcelLine).length;
+    const superRate = (count > 0) ? (countSuper / count) * 100 : 0;
+
+    // [!!] (新增) 低分率 (Low Score)
+    const countLow = scores.filter(s => s < lowLine).length;
+    const lowRate = (count > 0) ? (countLow / count) * 100 : 0;
 
     return {
         count: count,
@@ -818,14 +961,18 @@ function calculateStatsForScores(scores, fullMark, passLine, excellentLine, good
         median: median,
         passRate: parseFloat(((passCount / count) * 100).toFixed(2)),
         excellentRate: parseFloat(((excellentCount / count) * 100).toFixed(2)),
-        // [!!] (新增)
         goodRate: parseFloat(goodRate.toFixed(2)),
-        cRate: parseFloat(cRate.toFixed(2)), // [!!] (新增)
+        cRate: parseFloat(cRate.toFixed(2)),
         failRate: parseFloat(failRate.toFixed(2)),
+
+        // [!!] 新增返回指标
+        superRate: parseFloat(superRate.toFixed(2)),
+        lowRate: parseFloat(lowRate.toFixed(2)),
+
         variance: parseFloat(variance.toFixed(2)),
         stdDev: parseFloat(stdDev.toFixed(2)),
         difficulty: difficulty,
-        scores: scores // 保留原始数组，用于直方图
+        scores: scores
     };
 }
 
@@ -875,6 +1022,7 @@ function runAnalysisAndRender() {
 
     // 5. (重构) 重新计算统计数据
     G_Statistics = calculateAllStatistics(activeData);
+    calculateStandardScores(activeData, G_Statistics);
     if (activeCompareData.length > 0) {
         G_CompareStatistics = calculateAllStatistics(activeCompareData);
     }
@@ -977,64 +1125,108 @@ function populateClassFilter(students) {
 
 /**
  * (新增) 8.1. 初始化 G_SubjectConfigs
- * [!!] 已新增 'good' 默认值
  */
 function initializeSubjectConfigs() {
     G_SubjectConfigs = {};
     G_DynamicSubjectList.forEach(subject => {
-        // 默认 语数英 150，其他 100
         const isY_S_W = ['语文', '数学', '英语'].includes(subject);
 
-        // (旧值)
-        const full = isY_S_W ? 150 : 100;
-        const pass = isY_S_W ? 90 : 60;
-        const excel = isY_S_W ? 120 : 85;
-
         G_SubjectConfigs[subject] = {
-            full: full,
-            excel: excel,
-            good: (pass + excel) / 2, // [!!] (新增) 默认值设为及格和优秀的中点
-            pass: pass,
+            full: isY_S_W ? 150 : 100,
+            superExcel: isY_S_W ? 135 : 90,
+            excel: isY_S_W ? 120 : 85,
+            good: isY_S_W ? 105 : 75,
+            pass: isY_S_W ? 90 : 60,
+            low: isY_S_W ? 45 : 30,
+            isAssigned: false // [!! 新增 !!] 默认为不赋分
         };
     });
 }
 
 /**
+ * (新增) 8.2. 用 G_SubjectConfigs 填充模态窗口 (修复版：自动补全默认值)
+ */
+
+
+/**
  * (新增) 8.2. 用 G_SubjectConfigs 填充模态窗口
- * [!!] 已新增 'good' 输入框
+ * [!! 修正版 3 !!] 增加“是否赋分”列
  */
 function populateSubjectConfigModal() {
     let html = '';
     G_DynamicSubjectList.forEach(subject => {
         const config = G_SubjectConfigs[subject];
+
+        const valSuper = config.superExcel !== undefined ? config.superExcel : (config.full * 0.9);
+        const valLow = config.low !== undefined ? config.low : (config.full * 0.3);
+
+        // [!! 新增 !!] 读取是否赋分 (默认 false)
+        const isAssigned = config.isAssigned === true;
+
         html += `
             <tr>
                 <td><strong>${subject}</strong></td>
-                <td><input type="number" data-subject="${subject}" data-type="full" value="${config.full}"></td>
-                <td><input type="number" data-subject="${subject}" data-type="excel" value="${config.excel}"></td>
-                <td><input type="number" data-subject="${subject}" data-type="good" value="${config.good}"></td> <td><input type="number" data-subject="${subject}" data-type="pass" value="${config.pass}"></td>
+                <td style="text-align:center;">
+                    <input type="checkbox" data-subject="${subject}" data-type="isAssigned" ${isAssigned ? 'checked' : ''} style="width:auto;">
+                </td>
+                <td><input type="number" data-subject="${subject}" data-type="full" value="${config.full}" style="width:50px"></td>
+                <td><input type="number" data-subject="${subject}" data-type="superExcel" value="${valSuper}" style="width:50px; color:#6f42c1; font-weight:bold;"></td>
+                <td><input type="number" data-subject="${subject}" data-type="excel" value="${config.excel}" style="width:50px"></td>
+                <td><input type="number" data-subject="${subject}" data-type="good" value="${config.good}" style="width:50px"></td>
+                <td><input type="number" data-subject="${subject}" data-type="pass" value="${config.pass}" style="width:50px"></td>
+                <td><input type="number" data-subject="${subject}" data-type="low" value="${valLow}" style="width:50px; color:#dc3545;"></td>
             </tr>
         `;
     });
+
+    const tableHead = document.querySelector('#subject-config-table thead');
+    tableHead.innerHTML = `
+        <tr>
+            <th>科目</th>
+            <th>赋分?</th> <th>满分</th>
+            <th style="color:#6f42c1">特优线</th>
+            <th>优秀线</th>
+            <th>良好线</th>
+            <th>及格线</th>
+            <th style="color:#dc3545">低分线</th>
+        </tr>
+    `;
+
     subjectConfigTableBody.innerHTML = html;
 }
 
 /**
- * (新增) 8.3. 从模态窗口保存配置到 G_SubjectConfigs
+ * (新增) 8.3. 从模态窗口保存配置
+ * [!! 终极修复版 !!] 专门处理 Checkbox 的保存逻辑
  */
 function saveSubjectConfigsFromModal() {
+    // 获取表格里所有的 input 标签
     const inputs = subjectConfigTableBody.querySelectorAll('input');
+    
     inputs.forEach(input => {
         const subject = input.dataset.subject;
-        const type = input.dataset.type;
-        const value = parseFloat(input.value);
+        const type = input.dataset.type; // 例如 'full', 'excel', 'isAssigned'
+        
+        // 确保配置对象存在
+        if (!G_SubjectConfigs[subject]) {
+            G_SubjectConfigs[subject] = {}; 
+        }
 
-        if (G_SubjectConfigs[subject]) {
-            G_SubjectConfigs[subject][type] = value;
+        // [!! 核心差异在这里 !!]
+        if (input.type === 'checkbox') {
+            // 如果是勾选框，我们要存的是 true/false (checked属性)
+            G_SubjectConfigs[subject][type] = input.checked;
+            console.log(`更新 ${subject} 的赋分状态: ${input.checked}`); // 调试日志
+        } else {
+            // 如果是数字框，我们要存的是数字 (value属性)
+            G_SubjectConfigs[subject][type] = parseFloat(input.value);
         }
     });
+    
+    // 保存到数据库
     localforage.setItem('G_SubjectConfigs', G_SubjectConfigs).then(() => {
-        console.log("配置已保存至 IndexedDB");
+        console.log("配置已成功保存至 IndexedDB");
+        alert("配置已保存！"); // [提示] 加个弹窗确认保存成功
     });
 }
 
@@ -1181,6 +1373,13 @@ function renderDashboard(container, stats, activeData) {
                 <div class="chart-container" id="stacked-bar-chart" style="height: 350px;"></div>
             </div>
 
+            <div class="main-card-wrapper" style="grid-column: span 2;"> <div class="controls-bar chart-controls">
+                    <h4 style="margin:0;">各科对总分差距的贡献度分析 (Contribution)</h4>
+                    <span style="font-size: 0.8em; color: var(--text-muted);">(正值表示该科均分高于年级，拉高了总分；负值表示拉低了总分)</span>
+                  </div>
+                 <div class="chart-container" id="contribution-chart" style="height: 400px;"></div>
+            </div>
+
         </div>
     `;
 
@@ -1227,6 +1426,38 @@ function renderDashboard(container, stats, activeData) {
         const ySubject = scatterYSelect.value;
         renderCorrelationScatterPlot('correlation-scatter-chart', activeData, xSubject, ySubject);
     };
+
+
+    // [!! 新增 !!] 绘制贡献度图表
+    const drawContributionChart = () => {
+        if (G_CurrentClassFilter === 'ALL') {
+            document.getElementById('contribution-chart').innerHTML =
+                `<p style="text-align:center; padding-top:50px; color:#999;">请选择具体班级以查看贡献度分析。</p>`;
+            return;
+        }
+
+        // 计算贡献度： (班级均分 - 年级均分)
+        // 注意：这里需要重新计算一下"年级"的统计数据作为基准
+        // 简单起见，如果当前 G_Statistics 是班级的，我们需要全校数据。
+        // 比较好的做法是：runAnalysisAndRender 里应该始终保留一份 G_GlobalStatistics (全校)。
+
+        // 这里做一个临时计算全校均分的补丁：
+        const globalStats = calculateAllStatistics(G_StudentsData); // 计算全校数据
+
+        const subjects = G_DynamicSubjectList;
+        const contributionData = subjects.map(sub => {
+            const classAvg = stats[sub] ? stats[sub].average : 0;
+            const gradeAvg = globalStats[sub] ? globalStats[sub].average : 0;
+            return parseFloat((classAvg - gradeAvg).toFixed(2));
+        });
+
+        // 计算总分差距
+        const totalDiff = contributionData.reduce((a, b) => a + b, 0).toFixed(2);
+
+        renderContributionChart('contribution-chart', subjects, contributionData, totalDiff);
+    };
+
+    drawContributionChart(); // 调用绘图
 
     // 6. 绑定事件
     document.getElementById('histogram-redraw-btn').addEventListener('click', drawHistogram);
@@ -1332,7 +1563,8 @@ function renderStudent(container, students, stats) {
             rankDiff = oldStudent.rank - student.rank; // 排名：旧-新，正数为进步
             gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 'N/A';
         }
-
+        // 1. 在 map 循环之前，获取年级总人数 (用于计算赋分)
+        const totalStudentCount = G_StudentsData.length;
         // [!!] (美化) 核心修改点：在 student-card 的 div 上添加了 sc-xxx 类
         contentEl.innerHTML = `
             <div class="student-card">
@@ -1376,18 +1608,18 @@ function renderStudent(container, students, stats) {
                             </thead>
                             <tbody>
 
-                                ${G_DynamicSubjectList.map(subject => {
+           ${G_DynamicSubjectList.map(subject => {
             let subjectScoreDiff = 'N/A';
             let subjectClassRankDiff = 'N/A';
             let subjectGradeRankDiff = 'N/A';
 
+            // --- 1. 原有的进退步计算 (保持不变) ---
             if (oldStudent && oldStudent.scores) {
                 const oldScore = oldStudent.scores[subject] || 0;
                 const newScore = student.scores[subject] || 0;
                 if (oldScore !== 0 || newScore !== 0) {
                     subjectScoreDiff = (newScore - oldScore).toFixed(2);
                 }
-
                 if (oldStudent.classRanks && student.classRanks) {
                     const oldClassRank = oldStudent.classRanks[subject] || 0;
                     const newClassRank = student.classRanks[subject] || 0;
@@ -1395,7 +1627,6 @@ function renderStudent(container, students, stats) {
                         subjectClassRankDiff = oldClassRank - newClassRank;
                     }
                 }
-
                 if (oldStudent.gradeRanks && student.gradeRanks) {
                     const oldGradeRank = oldStudent.gradeRanks[subject] || 0;
                     const newGradeRank = student.gradeRanks[subject] || 0;
@@ -1405,23 +1636,51 @@ function renderStudent(container, students, stats) {
                 }
             }
 
+            // --- 2. [核心修改] 计算福建赋分 ---
+            const config = G_SubjectConfigs[subject] || {};
+            const isAssignedSubject = config.isAssigned === true; // 检查是否开启赋分
+            let rankBasedScoreDisplay = '';
+
+            if (isAssignedSubject) {
+                // (A) 获取该科目所有学生的原始成绩数组 (用于计算 Y1, Y2)
+                const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
+
+                // (B) 调用福建算法
+                const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
+
+                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
+            } else {
+                rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
+            }
+
+            // --- 3. 获取 T-Score (保持不变) ---
+            const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
+
             return `
-                                    <tr>
-                                        <td>${subject}</td>
-                                        <td>
-                                            ${student.scores[subject] || 0}
-                                            ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
-                                        </td>
-                                        <td>
-                                            ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
-                                            ${(oldStudent && subjectClassRankDiff !== 'N/A') ? `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>` : ''}
-                                        </td>
-                                        <td>
-                                            ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
-                                            ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
-                                        </td>
-                                    </tr>
-                                    `;
+        <tr>
+            <td>${subject}</td>
+            <td>
+                <div>
+                    ${student.scores[subject] || 0}
+                    ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
+                </div>
+                <div style="font-size:0.8em; color:#666; margin-top:4px;">T分: ${tScore}</div>
+            </td>
+            <td>
+                ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
+                ${(oldStudent && subjectClassRankDiff !== 'N/A') ? `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>` : ''}
+            </td>
+            <td>
+                <div>
+                    ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
+                    ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
+                </div>
+                
+                ${rankBasedScoreDisplay}
+                
+            </td>
+        </tr>
+        `;
         }).join('')}
                     </tbody>
                 </table>
@@ -1532,9 +1791,31 @@ function renderPaper(container, stats, activeData) {
             <div class="chart-container" id="discrimination-chart" style="width: 100%; height: 500px;"></div>
         </div>
 
-        <div class="main-card-wrapper"> <div class="controls-bar chart-controls">
-                <h4 style="margin:0;">难度-区分度 散点图</h4>
-            </div>
+        <div class="main-card-wrapper">
+            <div class="controls-bar chart-controls" style="display: block;"> <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h4 style="margin:0;">难度-区分度 散点图</h4>
+                </div>
+                
+                <div style="background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 10px 15px; font-size: 0.85em; color: #555;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div>
+                            <strong style="color: #fd7e14;">↖ 左上 (难 + 拉分)</strong>：<strong>胜负手</strong>。题目难且能拉开差距，决定尖子生排名。
+                        </div>
+                        <div>
+                            <strong style="color: #28a745;">↗ 右上 (易 + 拉分)</strong>：<strong>黄金区</strong>。题目适中，既照顾基础又能选拔人才。
+                        </div>
+                        <div>
+                            <strong style="color: #dc3545;">↙ 左下 (难 + 不拉分)</strong>：<strong>无效难</strong>。太难了大家都不会，无法区分水平。
+                        </div>
+                        <div>
+                            <strong style="color: #007bff;">↘ 右下 (易 + 不拉分)</strong>：<strong>福利局</strong>。题目简单，大家分都高，不论英雄。
+                        </div>
+                    </div>
+                    <div style="margin-top: 8px; border-top: 1px dashed #dee2e6; padding-top: 5px; color: #888;">
+                        * 气泡大小代表科目满分权重 (如语数英气泡更大)。
+                    </div>
+                </div>
+                </div>
             <div class="chart-container" id="difficulty-scatter-chart" style="width: 100%; height: 500px;"></div>
         </div>
     `;
@@ -4175,6 +4456,10 @@ function renderStudentRadar(elementId, student, stats) {
  * @param {string} elementId - DOM 元素 ID
  * @param {Object} stats - G_Statistics
  */
+/**
+ * (新增) 10.9. 渲染 难度-区分度 散点图 (修复版：带十字象限线)
+ * [!!] 新增 markLine 功能，自动画出平均线，形成四个象限
+ */
 function renderDifficultyScatter(elementId, stats) {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
@@ -4184,23 +4469,32 @@ function renderDifficultyScatter(elementId, stats) {
     }
     echartsInstances[elementId] = echarts.init(chartDom);
 
-    // 1. 准备数据: [ [难度, 区分度, 满分(用于气泡大小), '科目名'], ... ]
+    // 1. 准备数据
     const scatterData = G_DynamicSubjectList.map(subject => {
         const s = stats[subject];
         if (!s) return null;
 
-        // 气泡大小: 满分越高，气泡越大 (做一点缩放)
         const fullMark = G_SubjectConfigs[subject]?.full || 100;
-        const bubbleSize = Math.sqrt(fullMark) * 1.5; // 基础大小
+        // 气泡大小缩放逻辑
+        const bubbleSize = Math.sqrt(fullMark) * 2.5; 
 
-        return [
-            s.difficulty,  // X 轴
-            s.stdDev,      // Y 轴
-            bubbleSize,    // Z 轴 (气泡大小)
-            subject        // 标签
-        ];
+        return {
+            name: subject,
+            value: [
+                s.difficulty,  // X: 难度
+                s.stdDev,      // Y: 区分度
+                bubbleSize,    // Size
+                subject        // Name
+            ],
+            // [!!] 给气泡加个颜色，语数英深一点
+            itemStyle: {
+                color: (['语文','数学','英语'].includes(subject)) ? '#007bff' : '#6cb2eb',
+                opacity: 0.8
+            }
+        };
     }).filter(d => d !== null);
 
+    // 2. 渲染图表
     const option = {
         title: {
             text: '难度 (X) vs 区分度 (Y)',
@@ -4209,51 +4503,94 @@ function renderDifficultyScatter(elementId, stats) {
         },
         tooltip: {
             trigger: 'item',
+            backgroundColor: 'rgba(255,255,255,0.9)',
             formatter: (params) => {
                 const data = params.data;
-                return `<strong>${data[3]}</strong><br/>` +
-                    `难度 (越小越难): ${data[0]}<br/>` +
-                    `区分度 (标准差): ${data[1]}`;
+                // params.value: [难度, 区分度, 大小, 科目]
+                return `<strong>${data.value[3]}</strong><br/>` +
+                    `难度系数: <strong>${data.value[0]}</strong> (越右越简单)<br/>` +
+                    `区分度: <strong>${data.value[1]}</strong> (越上越拉分)`;
             }
         },
         grid: { left: '10%', right: '10%', bottom: '15%', top: '15%' },
         xAxis: {
             type: 'value',
-            name: '难度系数 (越小越难)',
+            name: '难度 (简单 →)',
+            nameLocation: 'end',
             min: 0,
             max: 1.0,
-            splitLine: { show: true },
-            nameLocation: 'middle',
-            nameGap: 30
+            splitLine: { show: false } // 隐藏默认网格，为了看清十字线
         },
         yAxis: {
             type: 'value',
-            name: '区分度 (标准差)',
-            splitLine: { show: true },
-            nameLocation: 'middle',
-            nameGap: 50 // (为Y轴留出更多空间)
+            name: '区分度 (拉分 ↑)',
+            nameLocation: 'end',
+            splitLine: { show: false } // 隐藏默认网格
         },
         series: [{
             name: '科目',
-            type: 'scatter', // (气泡图本质上是散点图)
+            type: 'scatter',
             data: scatterData,
-            symbolSize: (data) => data[2] * 2, // 动态气泡大小
-            label: { // (在点上显示科目名)
+            symbolSize: (data) => data[2],
+            label: {
                 show: true,
-                formatter: (params) => params.data[3],
-                position: 'bottom',
-                fontSize: 12
+                formatter: (param) => param.data.name,
+                position: 'top',
+                color: '#333',
+                fontWeight: 'bold'
             },
-            itemStyle: {
-                opacity: 0.7,
-                color: '#007bff'
+            // [!! 核心修改 !!] 添加十字辅助线 (MarkLine)
+            markLine: {
+                silent: true, // 鼠标放上去不触发效果
+                symbol: 'none', // 不要箭头
+                lineStyle: {
+                    type: 'dashed',
+                    color: '#999',
+                    width: 1.5
+                },
+                label: {
+                    show: true,
+                    position: 'end', // 文字显示在线的末端
+                    formatter: '{b}: {c}'
+                },
+                data: [
+                    // 1. 垂直线 (X轴平均值 - 平均难度)
+                    { 
+                        type: 'average', 
+                        valueDim: 'x', 
+                        name: '平均难度',
+                        label: { position: 'start', formatter: '平均难度\n{c}' }
+                    },
+                    // 2. 水平线 (Y轴平均值 - 平均区分度)
+                    { 
+                        type: 'average', 
+                        valueDim: 'y', 
+                        name: '平均区分度',
+                        label: { position: 'end', formatter: '平均区分度 {c}' }
+                    }
+                ]
+            },
+            // [!! 可选 !!] 添加四个象限的背景色 (让分区更明显)
+            markArea: {
+                silent: true,
+                itemStyle: { opacity: 0.05 }, // 非常淡的背景
+                data: [
+                    // 左上 (难+拉分) - 红色警示
+                    [
+                        { xAxis: 0, yAxis: 'average', itemStyle: { color: '#ff0000' } },
+                        { xAxis: 'average', yAxis: 100 } // 100是Y轴无限大
+                    ],
+                    // 右上 (易+拉分) - 绿色理想
+                    [
+                        { xAxis: 'average', yAxis: 'average', itemStyle: { color: '#008000' } },
+                        { xAxis: 1, yAxis: 100 }
+                    ]
+                ]
             }
         }],
         toolbox: {
             show: true,
-            feature: {
-                saveAsImage: { show: true, title: '保存为图片' }
-            }
+            feature: { saveAsImage: { show: true, title: '保存' } }
         }
     };
     echartsInstances[elementId].setOption(option);
@@ -8264,24 +8601,25 @@ function drawItemScatterQuadrantChart() {
 // =====================================================================
 
 /**
- * 1. [打印引擎-核心] 启动打印作业
- * * [!! 修正版 22 (布局最终修复) !!]
- * - (修复1 - 采纳用户建议) 移除了 "print-header-fixed"，
- * -   移除了 body 的 "padding-top"，
- * -   并设置 "print-header-preview" 在打印时可见 (display: block)，
- * -   这样页眉只在学生报告开头出现一次，而不是在每页固定。
- * - (修复2 - 上次建议) 强制 .student-card 使用 "grid-template-columns: repeat(5, 1fr)"，
- * -   以解决A4窄页上的 3+2 换行问题。
+ * 1. [打印引擎-核心] 启动打印作业 (修复版)
+ * * [!! 修正版 23 (数据读取修复) !!]
+ * - (新增) 改为 async 函数，优先从 localforage 读取文件名，解决文件上传后打印显示 N/A 的问题。
+ * - (保留) 所有的布局样式修复 (修正版 22)。
  */
-function startPrintJob(studentIds) {
+async function startPrintJob(studentIds) {
     if (!studentIds || studentIds.length === 0) {
         alert("没有可打印的学生。");
         return;
     }
 
-    // 1. 获取考试信息
-    const mainFile = localStorage.getItem('G_MainFileName') || 'N/A';
-    const compareFile = localStorage.getItem('G_CompareFileName') || 'N/A';
+    // 1. [!! 核心修复 !!] 获取考试信息
+    // 优先从 localforage (IndexedDB) 读取，如果为空则降级读取 localStorage
+    // 这样无论是“文件上传”还是“列表导入”，都能正确显示文件名
+    let mainFile = await localforage.getItem('G_MainFileName');
+    if (!mainFile) mainFile = localStorage.getItem('G_MainFileName') || '本次成绩';
+
+    let compareFile = await localforage.getItem('G_CompareFileName');
+    if (!compareFile) compareFile = localStorage.getItem('G_CompareFileName') || 'N/A';
 
     // (页眉的 HTML 内容)
     const headerHtml = `
@@ -8290,8 +8628,7 @@ function startPrintJob(studentIds) {
         <p style="text-align: left; margin: 5px 0;"><strong>对比成绩:</strong> ${compareFile}</p>
     `;
 
-
-    // 2. [核心] 生成打印页面的完整 HTML
+    // 2. [核心] 生成打印页面的完整 HTML (样式保持您的修正版 22 不变)
     let html = `
         <html>
         <head>
@@ -8462,10 +8799,14 @@ function startPrintJob(studentIds) {
  * @param {Object} student - 要打印的学生对象
  * @returns {string} - 该学生报告的 HTML
  */
+/**
+ * 2. [打印引擎-辅助] 为单个学生生成报告的 HTML
+ * [!! 修正版 !!] 同步了屏幕显示的逻辑：包含赋分、T分、进退步颜色
+ */
 function generateStudentReportHTML(student) {
     if (!student) return '';
 
-    // 1. 查找对比数据
+    // 1. 查找对比数据 (用于计算总分进退步)
     let oldStudent = null;
     let scoreDiff = 'N/A', rankDiff = 'N/A', gradeRankDiff = 'N/A';
 
@@ -8479,7 +8820,7 @@ function generateStudentReportHTML(student) {
         gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 'N/A';
     }
 
-    // 2. 生成学生卡片 HTML
+    // 2. 生成学生卡片 HTML (保持不变)
     const cardHtml = `
         <div class="student-card">
             <div class="sc-name"><span>姓名</span><strong>${student.name}</strong></div>
@@ -8508,12 +8849,13 @@ function generateStudentReportHTML(student) {
         </div>
     `;
 
-    // 3. 生成表格行 HTML
+    // 3. [!! 核心修改 !!] 生成表格行 HTML (加入赋分逻辑)
     const tableRowsHtml = G_DynamicSubjectList.map(subject => {
         let subjectScoreDiff = 'N/A';
         let subjectClassRankDiff = 'N/A';
         let subjectGradeRankDiff = 'N/A';
 
+        // (A) 计算进退步
         if (oldStudent && oldStudent.scores) {
             const oldScore = oldStudent.scores[subject] || 0;
             const newScore = student.scores[subject] || 0;
@@ -8535,20 +8877,46 @@ function generateStudentReportHTML(student) {
                 }
             }
         }
+
+        // (B) [新增] 获取 T分
+        const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
+
+        // (C) [新增] 计算赋分 (与屏幕显示逻辑一致)
+        const config = G_SubjectConfigs[subject] || {};
+        const isAssignedSubject = config.isAssigned === true;
+        let rankBasedScoreDisplay = '';
+
+        if (isAssignedSubject) {
+            // 获取该科目全体分数
+            const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
+            // 调用福建算法
+            const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
+            
+            rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
+        } else {
+            rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
+        }
+
         return `
             <tr>
                 <td>${subject}</td>
                 <td>
-                    ${student.scores[subject] || 0}
-                    ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
+                    <div>
+                        ${student.scores[subject] || 0}
+                        ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
+                    </div>
+                    <div style="font-size:0.8em; color:#666; margin-top:4px;">T分: <strong>${tScore}</strong></div>
                 </td>
                 <td>
                     ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
-                    ${(oldStudent && subjectClassRankDiff !== 'N/A') ? `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>` : ''}
+                    ${(oldStudent && subjectClassRankDiff !== 'N/A') ? `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>` : ''}
                 </td>
                 <td>
-                    ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
-                    ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
+                    <div>
+                        ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
+                        ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
+                    </div>
+                    ${rankBasedScoreDisplay}
                 </td>
             </tr>
         `;
@@ -8573,7 +8941,6 @@ function generateStudentReportHTML(student) {
         </div>
     `;
 
-    // (注意：打印时我们不包含 ECharts 雷达图，因为它无法被渲染为字符串)
     return cardHtml + tableHtml;
 }
 
@@ -10742,4 +11109,52 @@ function showDrillDownModal(title, students, subject = 'totalScore') {
     window.onclick = (event) => {
         if (event.target == modal) modal.style.display = 'none';
     };
+}
+
+
+/**
+ * [新增] 渲染贡献度分析图 (正负条形图)
+ */
+function renderContributionChart(elementId, subjects, data, totalDiff) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    const myChart = echarts.init(chartDom);
+
+    const option = {
+        title: {
+            text: `总分与年级均分差距: ${totalDiff > 0 ? '+' : ''}${totalDiff} 分`,
+            left: 'center',
+            textStyle: { color: totalDiff >= 0 ? '#28a745' : '#dc3545' }
+        },
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            formatter: '{b}: {c} 分'
+        },
+        grid: { top: 50, bottom: 30 },
+        xAxis: {
+            type: 'category',
+            data: subjects,
+            axisLabel: { rotate: 0 },
+            splitLine: { show: false }
+        },
+        yAxis: {
+            type: 'value',
+            name: '贡献分值',
+            axisLabel: { formatter: '{value}' }
+        },
+        series: [{
+            name: '贡献值',
+            type: 'bar',
+            data: data,
+            label: { show: true, position: 'top' },
+            itemStyle: {
+                color: function (params) {
+                    return params.value >= 0 ? '#28a745' : '#dc3545';
+                }
+            }
+        }]
+    };
+    myChart.setOption(option);
+    echartsInstances[elementId] = myChart;
 }
