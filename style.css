@@ -1348,3 +1348,20 @@ details.ai-reasoning-box:not([open]) summary::after {
     padding: 20px;
     flex-grow: 1;
 }
+
+
+/* 在 style.css 末尾添加 */
+
+/* 目标设定模块样式 */
+#goal-strategy-table td {
+    vertical-align: middle;
+}
+
+/* 搜索组合框微调 */
+#goal-student-search-results {
+    width: 300px; /* 搜索结果框宽一点 */
+}
+
+/* 强调色 */
+.text-purple { color: #6f42c1; }
+.bg-purple-light { background-color: #f3e5f5; }

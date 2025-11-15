@@ -1135,6 +1135,10 @@ function renderModule(moduleName, activeData, activeCompareData) {
             }
             break;
 
+        case 'goal-setting':
+            renderGoalSetting(container, activeData, G_Statistics);
+            break;
+
         default:
             container.innerHTML = `<h2>模块 ${moduleName} (待开发)</h2>`;
     }
@@ -8948,7 +8952,7 @@ function generateStudentReportHTML(student) {
             if (tScore !== 'N/A' && oldTScore !== undefined && oldTScore !== null) {
                 const diff = tScore - oldTScore;
                 const diffAbs = Math.abs(diff).toFixed(1);
-                
+
                 if (diff > 0) {
                     tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
                 } else if (diff < 0) {
@@ -9406,7 +9410,7 @@ function renderSubjectRankChart(containerId, examNames, visibleExamData, student
 async function initAIModule() {
 
     initPromptManager();
-    
+
     const apiKeyInput = document.getElementById('ai-api-key');
     const saveKeyBtn = document.getElementById('ai-save-key-btn');
     const analyzeBtn = document.getElementById('ai-analyze-btn');
@@ -9633,7 +9637,7 @@ async function initAIModule() {
  * 逻辑：准备数据上下文 (dataContextStr) -> 读取用户模板 -> 替换变量
  */
 async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade = "高三", targetSubject = "", targetClass = "ALL") {
-    
+
     // 1. 加载模板 (如果读取失败则使用默认)
     // 确保 DEFAULT_PROMPTS 已经在全局定义过 (见下文补充)
     const prompts = JSON.parse(localStorage.getItem('G_AI_Prompts')) || DEFAULT_PROMPTS;
@@ -9660,10 +9664,10 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
         if (!window.G_ItemAnalysisData || !window.G_ItemAnalysisData[targetSubject]) {
             return { system: template.system, user: "错误：没有找到该科目的小题数据，请先导入模块13。" };
         }
-        
+
         const itemData = window.G_ItemAnalysisData[targetSubject];
         const itemConfig = window.G_ItemAnalysisConfig ? (window.G_ItemAnalysisConfig[targetSubject] || {}) : {};
-        
+
         // 筛选学生
         let targetStudents = itemData.students;
         let scopeName = "全年段";
@@ -9671,7 +9675,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
             targetStudents = itemData.students.filter(s => s.class === targetClass);
             scopeName = targetClass;
         }
-        
+
         dataContextStr += `【分析范围】：${scopeName} (共${targetStudents.length}人)\n`;
         dataContextStr += `【分析任务】：请分析该群体的得分率数据，找出共性薄弱点。\n\n`;
         dataContextStr += `【详细得分率数据】：\n`;
@@ -9682,11 +9686,11 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
             qList.forEach(qName => {
                 const gradeStat = statsObj[qName];
                 if (!gradeStat) return;
-                
+
                 const config = itemConfig[qName] || {};
                 const fullScore = config.fullScore || gradeStat.maxScore;
                 const content = config.content || "未标记";
-                
+
                 if (fullScore > 0) {
                     let total = 0, count = 0;
                     targetStudents.forEach(s => {
@@ -9699,32 +9703,32 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
                 }
             });
         };
-        
+
         appendRates(itemData.minorQuestions, 'minorScores', itemData.minorStats);
         appendRates(itemData.majorQuestions, 'majorScores', itemData.majorStats);
-    } 
-    
+    }
+
     // ============================================================
     // 场景 B: 学生小题深度诊断 (个人视角)
     // ============================================================
     else if (mode === 'item_diagnosis') {
         if (!window.G_ItemAnalysisData || !window.G_ItemAnalysisData[targetSubject]) {
-             return { system: template.system, user: "错误：没有找到该科目的小题数据。" };
+            return { system: template.system, user: "错误：没有找到该科目的小题数据。" };
         }
         const itemData = window.G_ItemAnalysisData[targetSubject];
         const itemConfig = window.G_ItemAnalysisConfig ? (window.G_ItemAnalysisConfig[targetSubject] || {}) : {};
-        
+
         // 查找学生
         let studentDetails = itemData.students.find(s => String(s.id) === String(studentId));
         if (!studentDetails) studentDetails = itemData.students.find(s => s.name === studentName);
-        
+
         if (!studentDetails) {
             return { system: template.system, user: `错误：未在科目【${targetSubject}】中找到该学生数据。` };
         }
 
         dataContextStr += `【试卷总分】：${studentDetails.totalScore}\n`;
         dataContextStr += `【小题得分详情】(题号 | 知识点 | 得分/满分 | 班级均分 | 个人得分率)：\n`;
-        
+
         const processQuestions = (qList, scoreObj, statsObj) => {
             qList.forEach(qName => {
                 const score = scoreObj[qName];
@@ -9732,7 +9736,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
                 const config = itemConfig[qName] || {};
                 const fullScore = config.fullScore || stat.maxScore;
                 const content = config.content || "未标记";
-                
+
                 if (typeof score === 'number') {
                     const ratio = (fullScore > 0) ? (score / fullScore).toFixed(2) : 0;
                     // 只列出得分率低于 0.8 的题目，或者是大题，避免数据过长
@@ -9747,7 +9751,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
         dataContextStr += `--- 主观题 ---\n`;
         processQuestions(itemData.majorQuestions, studentDetails.majorScores, itemData.majorStats);
     }
-    
+
     // ============================================================
     // 场景 C: 综合趋势 / 偏科 / 出题 (通用数据)
     // ============================================================
@@ -9755,7 +9759,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
         // 1. 获取历史数据
         const multiData = (await loadMultiExamData()).filter(e => !e.isHidden);
         dataContextStr += `【历史考试数据】：\n`;
-        
+
         if (multiData.length === 0) {
             dataContextStr += `(暂无历史数据)\n`;
         } else {
@@ -9765,7 +9769,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
                     dataContextStr += `- ${exam.label}: 总分${s.totalScore} (班排${s.rank}, 年排${s.gradeRank || '-'}); `;
                     // 简略各科
                     const scores = [];
-                    for(let k in s.scores) scores.push(`${k}:${s.scores[k]}`);
+                    for (let k in s.scores) scores.push(`${k}:${s.scores[k]}`);
                     dataContextStr += scores.join(', ') + "\n";
                 }
             });
@@ -9777,7 +9781,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
             dataContextStr += `\n【本次考试详情】：\n`;
             dataContextStr += `总分: ${currentStudent.totalScore}, 班排: ${currentStudent.rank}\n`;
             dataContextStr += `各科明细 (科目: 分数 | 班排 | 年排 | T分):\n`;
-            
+
             G_DynamicSubjectList.forEach(sub => {
                 const score = currentStudent.scores[sub];
                 if (score !== undefined) {
@@ -9809,9 +9813,9 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
         .replace(/{{data_context}}/g, fullDataContext);
 
     // 返回符合 API 格式的对象
-    return { 
-        system: template.system, 
-        user: finalUserPrompt 
+    return {
+        system: template.system,
+        user: finalUserPrompt
     };
 }
 
@@ -9838,7 +9842,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
 
     // 显示区域，清空旧历史
     resultContainer.style.display = 'block';
-    if (chatHistoryDiv) chatHistoryDiv.innerHTML = ''; 
+    if (chatHistoryDiv) chatHistoryDiv.innerHTML = '';
 
     // [关键] 确保输入框可见，禁用发送按钮
     if (inputArea) inputArea.style.display = 'flex';
@@ -9900,7 +9904,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                 const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
                 let historyTitle = `${studentName} - ${modeText}`;
                 if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
-                
+
                 // 保存未完成的记录
                 saveToAIHistory(historyTitle, `${grade} | ${targetSubject} (未完成)`, G_CurrentHistoryId);
             }
@@ -9914,7 +9918,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         // 2. 生成 Prompt (使用模板)
         // 注意：generateAIPrompt 现在返回对象 { system: "...", user: "..." }
         const promptData = await generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
-        
+
         // 检查 Prompt 生成是否报错 (字符串形式的错误)
         if (promptData.user && (promptData.user.startsWith('错误：') || promptData.user.startsWith('系统错误：'))) {
             throw new Error(promptData.user);
@@ -9948,15 +9952,15 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         // [!! 核心优化 !!] 节流渲染变量
         let lastRenderTime = 0;
         const RENDER_INTERVAL = 100; // 每 100ms 渲染一次 Markdown，防止页面闪烁
-        
+
         // [!! 核心优化 !!] 智能滚屏检测
         // 我们监听窗口滚动，只有当用户本来就在最底部时，AI生成内容才自动滚动
         // 如果用户往上翻看历史，AI生成时不会强制把用户拉回底部
-        let isUserAtBottom = true; 
+        let isUserAtBottom = true;
         const checkScroll = () => {
             const threshold = 100; // 容差
             // 使用 document.documentElement (整个页面) 或 main-content
-            const el = document.documentElement; 
+            const el = document.documentElement;
             isUserAtBottom = (el.scrollHeight - el.scrollTop - el.clientHeight) <= threshold;
         };
         window.addEventListener('scroll', checkScroll);
@@ -9964,7 +9968,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            
+
             const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split('\n');
 
@@ -9990,13 +9994,13 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                         // B. 处理正文内容 - 节流渲染 Markdown
                         if (delta.content) {
                             fullContent += delta.content;
-                            
+
                             const now = Date.now();
                             // 只有间隔超过 100ms 才重新解析 Markdown 并渲染 DOM
                             if (now - lastRenderTime > RENDER_INTERVAL) {
                                 renderMarkdownWithMath(answerTextEl, fullContent);
                                 lastRenderTime = now;
-                                
+
                                 // 智能滚动：仅当用户在底部时滚动
                                 if (isUserAtBottom) {
                                     // 滚动整个窗口到底部
@@ -11234,7 +11238,7 @@ function initPromptManager() {
 
     const loadTemplate = (key) => {
         const t = prompts[key];
-        if(t) {
+        if (t) {
             nameInput.value = t.name;
             sysInput.value = t.system;
             userInput.value = t.user;
@@ -11265,7 +11269,590 @@ function initPromptManager() {
         localStorage.setItem('G_AI_ActivePromptId', key);
         alert("模板已保存");
     };
-    
+
     // 初始化
     renderSelect();
+}
+
+/**
+ * [NEW] 模块：目标设定与规划
+ */
+/**
+ * [NEW] 模块：目标设定与规划 (包含打印功能)
+ */
+function renderGoalSetting(container, activeData, stats) {
+    // 1. 定义局部变量，用于暂存计算结果供打印使用
+    let currentStudent = null;
+    let currentTargetRank = 0;
+    let currentTargetScore = 0;
+    let currentStrategy = null;
+
+    container.innerHTML = `
+        <h2>🎯 目标设定与规划 (Goal Setting)</h2>
+        <p style="color: var(--text-muted);">设定目标名次或分数，系统将根据学科难度和提分空间，智能规划提分路径。</p>
+
+        <div class="main-card-wrapper" style="margin-bottom: 20px;">
+            <div class="controls-bar" style="background: transparent; padding: 0; box-shadow: none; flex-wrap: wrap;">
+                
+                <div class="search-combobox" style="margin-right: 20px;">
+                    <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">1. 选择学生</label>
+                    <input type="text" id="goal-student-search" placeholder="输入姓名或考号..." autocomplete="off" class="sidebar-select" style="width: 200px;">
+                    <div class="search-results" id="goal-student-search-results"></div>
+                </div>
+
+                <div style="margin-right: 20px;">
+                    <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">2. 设定目标类型</label>
+                    <select id="goal-type-select" class="sidebar-select">
+                        <option value="rank">目标年级排名 (名次)</option>
+                        <option value="score">目标总分 (分数)</option>
+                    </select>
+                </div>
+
+                <div style="margin-right: 20px;">
+                    <label style="display:block; font-size:0.9em; color:#666; margin-bottom:5px;">3. 输入目标值</label>
+                    <input type="number" id="goal-target-value" class="sidebar-select" style="width: 100px;" placeholder="例如: 50">
+                </div>
+
+                <div style="align-self: flex-end; display: flex; gap: 10px;">
+                    <button id="goal-calc-btn" class="sidebar-button" style="background-color: var(--color-purple);">🚀 智能规划</button>
+                    <button id="goal-print-btn" class="sidebar-button" style="background-color: var(--color-blue);" disabled>🖨️ 打印规划书</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="goal-result-container" style="display: none;">
+            <div class="kpi-grid" id="goal-kpi-cards"></div>
+            <div class="dashboard-chart-grid-2x2">
+                <div class="main-card-wrapper" style="grid-column: span 2;">
+                    <h4 style="margin:0 0 15px 0;">📚 智能提分策略表</h4>
+                    <div class="table-container" id="goal-strategy-table"></div>
+                </div>
+                <div class="main-card-wrapper">
+                    <h4 style="margin:0;">📈 提分路径瀑布图</h4>
+                    <div class="chart-container" id="goal-waterfall-chart" style="height: 400px;"></div>
+                </div>
+                <div class="main-card-wrapper">
+                    <h4 style="margin:0;">🕸️ 能力现状 vs 目标模型</h4>
+                    <div class="chart-container" id="goal-radar-chart" style="height: 400px;"></div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // --- 绑定事件 ---
+    const searchInput = document.getElementById('goal-student-search');
+    const resultsContainer = document.getElementById('goal-student-search-results');
+    const calcBtn = document.getElementById('goal-calc-btn');
+    const printBtn = document.getElementById('goal-print-btn'); // [新增]
+
+    // 搜索逻辑 (不变)
+    searchInput.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        if (term.length < 1) { resultsContainer.style.display = 'none'; return; }
+        const matches = activeData.filter(s => s.name.toLowerCase().includes(term) || String(s.id).includes(term)).slice(0, 10);
+        resultsContainer.innerHTML = matches.map(s => `<div class="result-item" data-id="${s.id}" data-name="${s.name}">${s.name} (${s.id}) - 年排: ${s.gradeRank || '-'}</div>`).join('');
+        resultsContainer.style.display = 'block';
+    });
+
+    resultsContainer.addEventListener('click', (e) => {
+        const item = e.target.closest('.result-item');
+        if (item) {
+            searchInput.value = `${item.dataset.name} (${item.dataset.id})`;
+            searchInput.dataset.sid = item.dataset.id;
+            resultsContainer.style.display = 'none';
+            printBtn.disabled = true; // 重选人后禁用打印，直到重新计算
+        }
+    });
+
+    // 计算逻辑
+    calcBtn.addEventListener('click', () => {
+        const studentId = searchInput.dataset.sid;
+        const goalType = document.getElementById('goal-type-select').value;
+        const targetVal = parseFloat(document.getElementById('goal-target-value').value);
+
+        if (!studentId) { alert("请先选择一名学生！"); return; }
+        if (!targetVal) { alert("请输入目标值！"); return; }
+
+        const student = activeData.find(s => String(s.id) === String(studentId));
+        if (!student) return;
+
+        // 计算目标分数
+        let targetScore = 0;
+        let targetRank = 0;
+
+        if (goalType === 'score') {
+            targetScore = targetVal;
+            const sorted = [...activeData].sort((a, b) => b.totalScore - a.totalScore);
+            const neighbor = sorted.find(s => s.totalScore <= targetScore);
+            targetRank = neighbor ? neighbor.gradeRank : 1;
+        } else {
+            targetRank = targetVal;
+            const sorted = [...activeData].sort((a, b) => b.totalScore - a.totalScore);
+            if (targetRank <= 1) targetScore = sorted[0].totalScore;
+            else if (targetRank > sorted.length) targetScore = sorted[sorted.length - 1].totalScore;
+            else {
+                const targetIdx = Math.min(targetRank, sorted.length) - 1;
+                targetScore = sorted[targetIdx].totalScore;
+            }
+        }
+
+        // 执行计算
+        const strategy = calculateSmartAllocation(student, targetScore, activeData, stats);
+        
+        // [关键] 更新局部变量，供打印使用
+        currentStudent = student;
+        currentTargetScore = targetScore;
+        currentTargetRank = targetRank;
+        currentStrategy = strategy;
+        
+        // 渲染并启用打印按钮
+        renderGoalResults(student, targetRank, targetScore, strategy);
+        printBtn.disabled = false; // [启用按钮]
+    });
+
+    // [新增] 打印按钮点击事件
+    printBtn.addEventListener('click', () => {
+        if (currentStudent && currentStrategy) {
+            startGoalPrintJob(currentStudent, currentTargetScore, currentTargetRank, currentStrategy);
+        }
+    });
+}
+
+/**
+ * [核心算法] 智能分配提分额度
+ * 逻辑：
+ * 1. 总缺口 = 目标分 - 当前分
+ * 2. 计算每科的“提分潜力权重” (Weight):
+ * - 因子 A (空间): 满分 (或年级最高分) - 学生当前分。 空间越大，权重越大。
+ * - 因子 B (难度): 难度系数 (Average / Full)。 越简单(系数大)，通常越容易提分？
+ * 或者反过来：标准差越大，说明越容易拉开分差。
+ * 这里采用：权重 = (年级最高分 - 个人分) * (该科标准差 / 满分)
+ * (解释：不仅要看还有多少分没拿，还要看这个科目大家的分数是否拉得很开。如果标准差大，说明努力一下容易变动)
+ */
+function calculateSmartAllocation(student, targetTotal, allStudents, stats) {
+    const currentTotal = student.totalScore;
+    const totalDeficit = targetTotal - currentTotal;
+
+    const result = {
+        details: [],
+        totalDeficit: totalDeficit
+    };
+
+    if (totalDeficit <= 0) return result; // 已经达到目标
+
+    let totalWeight = 0;
+    const subjectWeights = [];
+
+    G_DynamicSubjectList.forEach(subject => {
+        const sStat = stats[subject];
+        const currentScore = student.scores[subject] || 0;
+
+        // 1. 确定该科目的“天花板” (使用年级最高分比较合理，或者满分)
+        // 使用配置的满分更稳妥，或者取两者较小值防止异常数据
+        const configFull = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].full : 100;
+        const maxScore = sStat ? sStat.max : configFull;
+        const ceiling = Math.min(configFull, maxScore);
+
+        // 2. 计算提升空间 (Room to Grow)
+        let room = ceiling - currentScore;
+        if (room < 0) room = 0;
+
+        // 3. 计算权重 (Heuristic)
+        // 权重 = 空间 * (1 + 难度系数). 越简单的科目(难度系数高)，在有空间的情况下，越好拿分。
+        // 或者：权重 = 空间 * 归一化的标准差。
+        // 这里用简单模型：空间 * (该科平均分/满分)。 平均分高说明题目相对容易，补分容易。
+        const difficulty = sStat ? (sStat.average / configFull) : 0.6;
+        const weight = room * difficulty; // 简单粗暴但有效
+
+        if (weight > 0) {
+            subjectWeights.push({ subject, weight, room, currentScore, ceiling });
+            totalWeight += weight;
+        } else {
+            subjectWeights.push({ subject, weight: 0, room, currentScore, ceiling });
+        }
+    });
+
+    // 4. 分配分数
+    subjectWeights.forEach(item => {
+        let suggestedGain = 0;
+        if (totalWeight > 0) {
+            suggestedGain = (item.weight / totalWeight) * totalDeficit;
+        }
+
+        // 5. 修正边界：不能超过空间 (虽然权重逻辑已考虑，但按比例分配可能溢出)
+        if (suggestedGain > item.room) suggestedGain = item.room;
+
+        result.details.push({
+            subject: item.subject,
+            current: item.currentScore,
+            target: item.currentScore + suggestedGain,
+            gain: suggestedGain,
+            room: item.room,
+            difficultyText: getDifficultyText(item.room, item.currentScore, item.ceiling) // 获取评语
+        });
+    });
+
+    return result;
+}
+
+// 辅助：生成简单的评语
+function getDifficultyText(room, current, ceiling) {
+    const ratio = current / ceiling;
+    if (ratio > 0.90) return "保持优势 (冲满分)";
+    if (ratio > 0.80) return "重点突破 (冲优秀)";
+    if (ratio < 0.60) return "基础补强 (抓及格)";
+    return "稳步提升";
+}
+
+/**
+ * [渲染] 展示规划结果
+ */
+function renderGoalResults(student, targetRank, targetScore, strategy) {
+    const container = document.getElementById('goal-result-container');
+    container.style.display = 'block';
+
+    const gap = strategy.totalDeficit;
+    const gapClass = gap > 0 ? 'regress' : 'progress'; // gap>0 意味着还差分(红色)，gap<=0 意味着已达成(绿色)
+    const gapText = gap > 0 ? `还需提升 ${gap.toFixed(1)} 分` : `已超越目标 ${Math.abs(gap).toFixed(1)} 分`;
+
+    // 1. KPI
+    document.getElementById('goal-kpi-cards').innerHTML = `
+        <div class="kpi-card" style="border-left-color: #666;"><h3>当前总分 / 排名</h3><div class="value">${student.totalScore} <span style="font-size:0.5em">(${student.gradeRank}名)</span></div></div>
+        <div class="kpi-card" style="border-left-color: var(--color-purple);"><h3>目标总分 / 排名</h3><div class="value">${targetScore.toFixed(1)} <span style="font-size:0.5em">(${targetRank}名)</span></div></div>
+        <div class="kpi-card" style="border-left-color: ${gap > 0 ? '#dc3545' : '#28a745'};"><h3>差距分析</h3><div class="value" style="font-size:1.5em; color:${gap > 0 ? '#dc3545' : '#28a745'}">${gapText}</div></div>
+    `;
+
+    if (gap <= 0) {
+        document.getElementById('goal-strategy-table').innerHTML = `<p style="padding:20px; text-align:center; color:#28a745; font-weight:bold;">🎉 恭喜！当前成绩已达成设定目标。</p>`;
+        return;
+    }
+
+    // 2. 策略表
+    // 按建议提分值降序排列 (优先展示重点拿分科目)
+    const sortedDetails = [...strategy.details].sort((a, b) => b.gain - a.gain);
+
+    document.getElementById('goal-strategy-table').innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    <th>科目</th>
+                    <th>当前分数</th>
+                    <th style="color:var(--color-purple);">建议提分 (+)</th>
+                    <th>目标分数</th>
+                    <th>提分难度/策略</th>
+                    <th>提升空间余量</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sortedDetails.map(d => `
+                    <tr>
+                        <td><strong>${d.subject}</strong></td>
+                        <td>${d.current}</td>
+                        <td style="color:var(--color-purple); font-weight:bold; background-color:#f3e5f5;">+${d.gain.toFixed(1)}</td>
+                        <td><strong>${d.target.toFixed(1)}</strong></td>
+                        <td>${d.difficultyText}</td>
+                        <td style="color:#999; font-size:0.9em;">${(d.room - d.gain).toFixed(1)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+
+    // 3. 瀑布图 (ECharts)
+    renderGoalWaterfall('goal-waterfall-chart', student.totalScore, targetScore, sortedDetails);
+
+    // 4. 雷达图 (ECharts)
+    renderGoalRadar('goal-radar-chart', student, strategy.details);
+}
+
+/**
+ * [图表] 提分路径瀑布图
+ */
+function renderGoalWaterfall(elementId, currentTotal, targetTotal, details) {
+    const dom = document.getElementById(elementId);
+    const myChart = echarts.init(dom);
+
+    // 过滤掉提分为0的科目，避免图表太长
+    const validDetails = details.filter(d => d.gain > 0.1);
+
+    const xData = ['当前总分', ...validDetails.map(d => d.subject), '目标总分'];
+
+    // 辅助数据构建
+    // 瀑布图原理：透明柱子垫底
+    let currentStack = currentTotal;
+    const placeholders = [0]; // 第一根柱子起点0
+    const values = [currentTotal]; // 第一根柱子高度
+
+    validDetails.forEach(d => {
+        placeholders.push(currentStack); // 垫高
+        values.push(parseFloat(d.gain.toFixed(1))); // 增量
+        currentStack += d.gain;
+    });
+
+    // 最后一根柱子 (目标)
+    placeholders.push(0);
+    values.push(parseFloat(targetTotal.toFixed(1)));
+
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            formatter: function (params) {
+                let tar = params[1]; // 实际显示的柱子
+                return `${tar.name}<br/>${tar.seriesName} : ${tar.value}`;
+            }
+        },
+        grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+        xAxis: {
+            type: 'category',
+            splitLine: { show: false },
+            data: xData
+        },
+        yAxis: {
+            type: 'value',
+            min: Math.floor(currentTotal * 0.9) // Y轴不从0开始，显示差异更明显
+        },
+        series: [
+            {
+                name: '辅助',
+                type: 'bar',
+                stack: '总量',
+                itemStyle: {
+                    barBorderColor: 'rgba(0,0,0,0)',
+                    color: 'rgba(0,0,0,0)'
+                },
+                emphasis: {
+                    itemStyle: {
+                        barBorderColor: 'rgba(0,0,0,0)',
+                        color: 'rgba(0,0,0,0)'
+                    }
+                },
+                data: placeholders
+            },
+            {
+                name: '分数',
+                type: 'bar',
+                stack: '总量',
+                label: {
+                    show: true,
+                    position: 'top'
+                },
+                data: values.map((val, idx) => {
+                    // 第一列和最后一列颜色不同
+                    if (idx === 0) return { value: val, itemStyle: { color: '#6c757d' } };
+                    if (idx === values.length - 1) return { value: val, itemStyle: { color: '#28a745' } };
+                    return { value: val, itemStyle: { color: '#6f42c1' } }; // 增量部分紫色
+                })
+            }
+        ]
+    };
+    myChart.setOption(option);
+    // 注册 resize
+    echartsInstances[elementId] = myChart;
+}
+
+/**
+ * [图表] 现状 vs 目标 雷达图
+ */
+function renderGoalRadar(elementId, student, details) {
+    const dom = document.getElementById(elementId);
+    const myChart = echarts.init(dom);
+
+    const indicators = [];
+    const currentData = [];
+    const targetData = [];
+
+    // 将 details 转为 map 方便查找
+    const detailMap = {};
+    details.forEach(d => detailMap[d.subject] = d);
+
+    G_DynamicSubjectList.forEach(subject => {
+        const config = G_SubjectConfigs[subject] || { full: 100 };
+        indicators.push({ name: subject, max: config.full });
+
+        currentData.push(student.scores[subject] || 0);
+
+        const d = detailMap[subject];
+        targetData.push(d ? parseFloat(d.target.toFixed(1)) : (student.scores[subject] || 0));
+    });
+
+    const option = {
+        tooltip: {},
+        legend: { data: ['当前成绩', '规划目标'], bottom: 0 },
+        radar: {
+            indicator: indicators,
+            radius: '65%'
+        },
+        series: [{
+            name: '当前 vs 目标',
+            type: 'radar',
+            data: [
+                {
+                    value: currentData,
+                    name: '当前成绩',
+                    itemStyle: { color: '#6c757d' },
+                    areaStyle: { opacity: 0.2 }
+                },
+                {
+                    value: targetData,
+                    name: '规划目标',
+                    itemStyle: { color: '#6f42c1' }, // 紫色代表目标
+                    lineStyle: { type: 'dashed' },
+                    areaStyle: { opacity: 0.1, color: '#6f42c1' }
+                }
+            ]
+        }]
+    };
+    myChart.setOption(option);
+    echartsInstances[elementId] = myChart;
+}
+
+
+/**
+ * [NEW] 打印目标规划书 (专门的 A4 格式)
+ */
+function startGoalPrintJob(student, targetScore, targetRank, strategy) {
+    // 1. 获取考试名称 (作为页眉)
+    let examName = localStorage.getItem('G_MainFileName') || '本次考试';
+    
+    // 2. 排序策略数据 (提分多的在前)
+    const sortedDetails = [...strategy.details].sort((a, b) => b.gain - a.gain);
+    
+    // 3. 计算总缺口描述
+    const gap = strategy.totalDeficit;
+    const gapHtml = gap > 0 
+        ? `<span style="color:#dc3545; font-weight:bold;">还需提升 ${gap.toFixed(1)} 分</span>` 
+        : `<span style="color:#28a745; font-weight:bold;">当前已达成目标 (溢出 ${Math.abs(gap).toFixed(1)} 分)</span>`;
+
+    // 4. 构建打印 HTML
+    const printHtml = `
+    <html>
+    <head>
+        <title>学业目标规划书 - ${student.name}</title>
+        <style>
+            body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; padding: 30px; color: #333; line-height: 1.5; }
+            
+            /* 标题区 */
+            .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 20px; }
+            .header h1 { margin: 0; font-size: 24px; letter-spacing: 2px; }
+            .header p { margin: 5px 0 0; color: #666; font-size: 14px; }
+
+            /* 基本信息网格 */
+            .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #eee; }
+            .info-item { display: flex; flex-direction: column; }
+            .info-label { font-size: 12px; color: #666; margin-bottom: 4px; }
+            .info-value { font-size: 18px; font-weight: bold; color: #333; }
+            .highlight { color: #6f42c1; }
+
+            /* 核心表格 */
+            table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+            th, td { border: 1px solid #999; padding: 10px; text-align: center; font-size: 14px; }
+            th { background-color: #f0f0f0; font-weight: bold; color: #333; }
+            tr:nth-child(even) { background-color: #fcfcfc; }
+            
+            /* 提分列高亮 */
+            .gain-cell { background-color: #f3e5f5; font-weight: bold; color: #6f42c1; font-size: 16px; }
+
+            /* 签字区 (底部) */
+            .footer-signatures { margin-top: 50px; display: flex; justify-content: space-between; page-break-inside: avoid; }
+            .sign-box { width: 30%; border-top: 1px solid #333; padding-top: 10px; text-align: center; }
+            .sign-label { display: block; margin-bottom: 40px; font-weight: bold; }
+            
+            /* 备注/口号 */
+            .motto { text-align: center; font-style: italic; color: #666; margin-top: 40px; font-size: 14px; }
+
+            @media print {
+                @page { size: A4 portrait; margin: 1.5cm; }
+                body { -webkit-print-color-adjust: exact; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🎯 个人学业目标规划书</h1>
+            <p>数据来源：${examName} | 生成时间：${new Date().toLocaleDateString()}</p>
+        </div>
+
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">学生姓名 / 考号</span>
+                <span class="info-value">${student.name} <span style="font-size:0.8em; font-weight:normal;">(${student.id})</span></span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">当前班级</span>
+                <span class="info-value">${student.class}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">当前总分 / 年排</span>
+                <span class="info-value">${student.totalScore} 分 / ${student.gradeRank} 名</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">🎯 目标设定</span>
+                <span class="info-value highlight">${targetScore.toFixed(0)} 分 / 前 ${targetRank} 名</span>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 20px; font-size: 16px;">
+            差距分析：${gapHtml}
+        </div>
+
+        <h3>📊 智能提分策略拆解</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>学科</th>
+                    <th>当前分数</th>
+                    <th>目标增量 (+)</th>
+                    <th>目标分数</th>
+                    <th>提分策略建议</th>
+                    <th>剩余空间</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sortedDetails.map(d => `
+                    <tr>
+                        <td style="font-weight:bold;">${d.subject}</td>
+                        <td>${d.current}</td>
+                        <td class="gain-cell">+${d.gain.toFixed(1)}</td>
+                        <td><strong>${d.target.toFixed(1)}</strong></td>
+                        <td style="text-align:left; padding-left:15px;">${d.difficultyText}</td>
+                        <td style="color:#888;">${(d.room - d.gain).toFixed(1)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+
+        <p style="font-size:13px; color:#666;">* <strong>计算逻辑：</strong>系统依据各科当前分数、年级满分空间及学科难度系数，自动将总目标分合理分配至各学科。</p>
+
+        <div class="footer-signatures">
+            <div class="sign-box">
+                <span class="sign-label">学生承诺</span>
+                (签字)
+            </div>
+            <div class="sign-box">
+                <span class="sign-label">家长知情</span>
+                (签字)
+            </div>
+            <div class="sign-box">
+                <span class="sign-label">班主任/导师</span>
+                (签字)
+            </div>
+        </div>
+
+        <div class="motto">
+            "目标不是为了预测未来，而是为了指导今天的行动。"
+        </div>
+
+    </body>
+    </html>
+    `;
+
+    const win = window.open('', '_blank');
+    win.document.write(printHtml);
+    win.document.close();
+
+    setTimeout(() => {
+        win.focus();
+        win.print();
+    }, 500);
 }
