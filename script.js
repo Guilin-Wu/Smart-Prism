@@ -1546,13 +1546,13 @@ function renderDashboard(container, stats, activeData) {
 }
 
 /**
- * 9.2. 模块二：学生个体报告 (已集成“进退步”对比)
- * * [!! 修正版 18 !!] - 2025-11-12
- * - (Feature) 新增“打印报告”按钮和模态框触发器。
+ * (修改后) 9.2. 模块二：学生个体报告 (新增：隐藏排名按钮)
  */
 function renderStudent(container, students, stats) {
+    // 初始化隐藏状态 (如果没有定义过)
+    if (typeof window.G_HideRank === 'undefined') window.G_HideRank = false;
 
-    // 1. (重写) 渲染搜索框 和 结果容器
+    // 1. 渲染搜索框、操作按钮 和 结果容器
     container.innerHTML = `
         <h2>模块二：学生个体报告 (当前筛选: ${G_CurrentClassFilter})</h2>
         <div class="controls-bar">
@@ -1562,7 +1562,11 @@ function renderStudent(container, students, stats) {
                 <div class="search-results" id="student-search-results"></div>
             </div>
             
-            <button id="open-print-modal-btn" class="sidebar-button" style="margin-left: auto; background-color: var(--color-blue);">
+            <button id="toggle-rank-btn" class="sidebar-button" style="margin-left: auto; background-color: ${window.G_HideRank ? '#6c757d' : '#fd7e14'};">
+                ${window.G_HideRank ? '👁️ 显示排名' : '🚫 隐藏排名'}
+            </button>
+
+            <button id="open-print-modal-btn" class="sidebar-button" style="margin-left: 10px; background-color: var(--color-blue);">
                 🖨️ 打印报告
             </button>
         </div>
@@ -1571,19 +1575,33 @@ function renderStudent(container, students, stats) {
         </div>
     `;
 
-    // 2. (重写) 绑定新搜索框的事件
     const searchInput = document.getElementById('student-search');
     const resultsContainer = document.getElementById('student-search-results');
     const contentEl = document.getElementById('student-report-content');
-
-    // [!! NEW (Print Feature) !!] 绑定打印按钮
     const openPrintModalBtn = document.getElementById('open-print-modal-btn');
-    const printModal = document.getElementById('print-modal');
+    const toggleRankBtn = document.getElementById('toggle-rank-btn'); // [新增]
+
+    // [新增] 绑定隐藏排名按钮事件
+    toggleRankBtn.addEventListener('click', () => {
+        window.G_HideRank = !window.G_HideRank; // 切换状态
+        
+        // 更新按钮样式
+        toggleRankBtn.innerHTML = window.G_HideRank ? '👁️ 显示排名' : '🚫 隐藏排名';
+        toggleRankBtn.style.backgroundColor = window.G_HideRank ? '#6c757d' : '#fd7e14';
+        
+        // 如果当前有选中的学生，立即刷新显示
+        const currentStudentId = contentEl.dataset.currentStudentId;
+        if (currentStudentId) {
+            showReport(currentStudentId);
+        }
+    });
+
+    // [打印功能] (保持不变)
     const printBtnCurrent = document.getElementById('print-btn-current');
     const printBtnFilter = document.getElementById('print-btn-filter');
+    const printModal = document.getElementById('print-modal');
 
     openPrintModalBtn.addEventListener('click', () => {
-        // 1. 更新“打印当前学生”按钮的状态
         const currentStudentId = contentEl.dataset.currentStudentId;
         if (currentStudentId) {
             const currentStudentName = contentEl.dataset.currentStudentName;
@@ -1595,17 +1613,12 @@ function renderStudent(container, students, stats) {
             printBtnCurrent.dataset.studentId = '';
             printBtnCurrent.disabled = true;
         }
-
-        // 2. 更新“打印筛选”按钮的状态
         const filterText = (G_CurrentClassFilter === 'ALL') ? '全体年段' : G_CurrentClassFilter;
         printBtnFilter.innerHTML = `🖨️ 打印当前筛选 (${filterText})`;
-
-        // 3. 打开模态框
         printModal.style.display = 'flex';
     });
 
-
-    // 这是一个辅助函数，用于显示学生的详细报告
+    // 内部函数：显示报告
     const showReport = (studentId) => {
         const student = students.find(s => String(s.id) === String(studentId));
         if (!student) {
@@ -1613,29 +1626,27 @@ function renderStudent(container, students, stats) {
             return;
         }
 
-        // [!! NEW (Print Feature) !!] 存储当前学生信息，以便打印
         contentEl.dataset.currentStudentId = student.id;
         contentEl.dataset.currentStudentName = student.name;
 
-        // ======================================================
-        // ▼▼▼ (核心修改) 查找对比数据并计算进退步 ▼▼▼
-        // ======================================================
         let oldStudent = null;
         let scoreDiff = 'N/A', rankDiff = 'N/A', gradeRankDiff = 'N/A';
 
-        // 检查 G_CompareData 是否存在
         if (G_CompareData && G_CompareData.length > 0) {
             oldStudent = G_CompareData.find(s => String(s.id) === String(student.id));
         }
 
         if (oldStudent) {
             scoreDiff = (student.totalScore - oldStudent.totalScore).toFixed(2);
-            rankDiff = oldStudent.rank - student.rank; // 排名：旧-新，正数为进步
+            rankDiff = oldStudent.rank - student.rank;
             gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 'N/A';
         }
-        // 1. 在 map 循环之前，获取年级总人数 (用于计算赋分)
-        const totalStudentCount = G_StudentsData.length;
-        // [!!] (美化) 核心修改点：在 student-card 的 div 上添加了 sc-xxx 类
+        
+        // [新增] 掩码辅助函数
+        const maskRank = (val) => window.G_HideRank ? '***' : val;
+        // 如果隐藏排名，也不显示排名的变化（进退步）
+        const maskDiff = (diffVal, diffText) => window.G_HideRank ? '' : (diffVal !== 'N/A' && oldStudent ? diffText : '');
+
         contentEl.innerHTML = `
             <div class="student-card">
                 <div class="sc-name"><span>姓名</span><strong>${student.name}</strong></div>
@@ -1650,119 +1661,109 @@ function renderStudent(container, students, stats) {
                 </div>
 
                 <div class="sc-rank">
-                    <span>班级排名 (上次: ${oldStudent ? oldStudent.rank : 'N/A'})</span>
+                    <span>班级排名 (上次: ${maskRank(oldStudent ? oldStudent.rank : 'N/A')})</span>
                     <strong class="${rankDiff > 0 ? 'progress' : rankDiff < 0 ? 'regress' : ''}">
-                        ${student.rank}
-                        ${(rankDiff !== 'N/A' && oldStudent) ? `(${rankDiff > 0 ? '▲' : '▼'} ${Math.abs(rankDiff)})` : ''}
+                        ${maskRank(student.rank)}
+                        ${maskDiff(rankDiff, `(${rankDiff > 0 ? '▲' : '▼'} ${Math.abs(rankDiff)})`)}
                     </strong>
                 </div>
 
                 <div class="sc-grade-rank">
-                    <span>年级排名 (上次: ${oldStudent ? (oldStudent.gradeRank || 'N/A') : 'N/A'})</span>
+                    <span>年级排名 (上次: ${maskRank(oldStudent ? (oldStudent.gradeRank || 'N/A') : 'N/A')})</span>
                     <strong class="${gradeRankDiff > 0 ? 'progress' : gradeRankDiff < 0 ? 'regress' : ''}">
-                        ${student.gradeRank || 'N/A'}
-                        ${(gradeRankDiff !== 'N/A' && oldStudent) ? `(${gradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(gradeRankDiff)})` : ''}
+                        ${maskRank(student.gradeRank || 'N/A')}
+                        ${maskDiff(gradeRankDiff, `(${gradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(gradeRankDiff)})`)}
                     </strong>
                 </div>
             </div>
             
-                    <div class="table-container">
-                        <table>
-                            <thead>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>科目</th>
+                            <th>得分 (变化)</th>
+                            <th>班级科目排名 (变化)</th>
+                            <th>年级科目排名 (变化)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${G_DynamicSubjectList.map(subject => {
+                            let subjectScoreDiff = 'N/A';
+                            let subjectClassRankDiff = 'N/A';
+                            let subjectGradeRankDiff = 'N/A';
+
+                            if (oldStudent && oldStudent.scores) {
+                                const oldScore = oldStudent.scores[subject] || 0;
+                                const newScore = student.scores[subject] || 0;
+                                if (oldScore !== 0 || newScore !== 0) {
+                                    subjectScoreDiff = (newScore - oldScore).toFixed(2);
+                                }
+                                if (oldStudent.classRanks && student.classRanks) {
+                                    const oldClassRank = oldStudent.classRanks[subject] || 0;
+                                    const newClassRank = student.classRanks[subject] || 0;
+                                    if (oldClassRank > 0 && newClassRank > 0) {
+                                        subjectClassRankDiff = oldClassRank - newClassRank;
+                                    }
+                                }
+                                if (oldStudent.gradeRanks && student.gradeRanks) {
+                                    const oldGradeRank = oldStudent.gradeRanks[subject] || 0;
+                                    const newGradeRank = student.gradeRanks[subject] || 0;
+                                    if (oldGradeRank > 0 && newGradeRank > 0) {
+                                        subjectGradeRankDiff = oldGradeRank - newGradeRank;
+                                    }
+                                }
+                            }
+
+                            const config = G_SubjectConfigs[subject] || {};
+                            const isAssignedSubject = config.isAssigned === true;
+                            let rankBasedScoreDisplay = '';
+                            if (isAssignedSubject) {
+                                const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
+                                const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
+                                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
+                            } else {
+                                rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
+                            }
+
+                            const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
+                            let tScoreDiffHtml = '';
+                            if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
+                                const oldTScore = oldStudent.tScores[subject];
+                                if (tScore !== 'N/A') {
+                                    const diff = tScore - oldTScore;
+                                    const diffAbs = Math.abs(diff).toFixed(1);
+                                    if (diff > 0) tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
+                                    else if (diff < 0) tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
+                                }
+                            }
+
+                            return `
                                 <tr>
-                                    <th>科目</th>
-                                    <th>得分 (变化)</th>
-                                    <th>班级科目排名 (变化)</th>
-                                    <th>年级科目排名 (变化)</th>
+                                    <td>${subject}</td>
+                                    <td>
+                                        <div>
+                                            ${student.scores[subject] || 0}
+                                            ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
+                                        </div>
+                                        <div style="font-size:0.8em; color:#666; margin-top:4px;">
+                                            T分: <strong>${tScore}</strong> ${tScoreDiffHtml}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        ${maskRank(student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A')}
+                                        ${maskDiff(subjectClassRankDiff, `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>`)}
+                                    </td>
+                                    <td>
+                                        <div>
+                                            ${maskRank(student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A')}
+                                            ${maskDiff(subjectGradeRankDiff, `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>`)}
+                                        </div>
+                                        ${rankBasedScoreDisplay}
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody>
-
-           ${G_DynamicSubjectList.map(subject => {
-            let subjectScoreDiff = 'N/A';
-            let subjectClassRankDiff = 'N/A';
-            let subjectGradeRankDiff = 'N/A';
-
-            // 1. 计算原始分/排名的进退步
-            if (oldStudent && oldStudent.scores) {
-                const oldScore = oldStudent.scores[subject] || 0;
-                const newScore = student.scores[subject] || 0;
-                if (oldScore !== 0 || newScore !== 0) {
-                    subjectScoreDiff = (newScore - oldScore).toFixed(2);
-                }
-                if (oldStudent.classRanks && student.classRanks) {
-                    const oldClassRank = oldStudent.classRanks[subject] || 0;
-                    const newClassRank = student.classRanks[subject] || 0;
-                    if (oldClassRank > 0 && newClassRank > 0) {
-                        subjectClassRankDiff = oldClassRank - newClassRank;
-                    }
-                }
-                if (oldStudent.gradeRanks && student.gradeRanks) {
-                    const oldGradeRank = oldStudent.gradeRanks[subject] || 0;
-                    const newGradeRank = student.gradeRanks[subject] || 0;
-                    if (oldGradeRank > 0 && newGradeRank > 0) {
-                        subjectGradeRankDiff = oldGradeRank - newGradeRank;
-                    }
-                }
-            }
-
-            // 2. 计算赋分 (保持不变)
-            const config = G_SubjectConfigs[subject] || {};
-            const isAssignedSubject = config.isAssigned === true;
-            let rankBasedScoreDisplay = '';
-            if (isAssignedSubject) {
-                const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
-                const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
-                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
-            } else {
-                rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
-            }
-
-            // 3. [!! 核心修复 !!] 获取本次 T 分 & 计算 T 分变化
-            const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
-            let tScoreDiffHtml = '';
-
-            // 尝试获取上次 T 分
-            if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
-                const oldTScore = oldStudent.tScores[subject];
-                if (tScore !== 'N/A') {
-                    const diff = tScore - oldTScore;
-                    const diffAbs = Math.abs(diff).toFixed(1);
-                    // 根据正负生成箭头
-                    if (diff > 0) {
-                        tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
-                    } else if (diff < 0) {
-                        tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
-                    }
-                }
-            }
-
-            return `
-        <tr>
-            <td>${subject}</td>
-            <td>
-                <div>
-                    ${student.scores[subject] || 0}
-                    ${(oldStudent && subjectScoreDiff !== 'N/A') ? `<span class="${subjectScoreDiff > 0 ? 'progress' : subjectScoreDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectScoreDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectScoreDiff)})</span>` : ''}
-                </div>
-                <div style="font-size:0.8em; color:#666; margin-top:4px;">
-                    T分: <strong>${tScore}</strong> ${tScoreDiffHtml}
-                </div>
-            </td>
-            <td>
-                ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
-                ${(oldStudent && subjectClassRankDiff !== 'N/A') ? `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>` : ''}
-            </td>
-            <td>
-                <div>
-                    ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
-                    ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
-                </div>
-                ${rankBasedScoreDisplay}
-            </td>
-        </tr>
-        `;
-        }).join('')}
+                            `;
+                        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -1772,20 +1773,17 @@ function renderStudent(container, students, stats) {
             </div>
         `;
 
-        // (不变) 渲染雷达图
         renderStudentRadar('student-radar-chart', student, stats);
     };
 
-    // 3. (不变) 监听搜索框的输入事件
+    // 监听搜索输入 (保持不变)
     searchInput.addEventListener('input', (e) => {
         const searchTerm = e.target.value.toLowerCase();
-
         if (searchTerm.length < 1) {
             resultsContainer.innerHTML = '';
             resultsContainer.style.display = 'none';
             return;
         }
-
         const filteredStudents = students.filter(s => {
             return String(s.name).toLowerCase().includes(searchTerm) ||
                 String(s.id).toLowerCase().includes(searchTerm);
@@ -1796,35 +1794,30 @@ function renderStudent(container, students, stats) {
         } else {
             resultsContainer.innerHTML = filteredStudents.map(s => {
                 return `<div class="result-item" data-id="${s.id}">
-                    <strong>${s.name}</strong> (${s.id}) - 班排: ${s.rank}
+                    <strong>${s.name}</strong> (${s.id}) - 班排: ${window.G_HideRank ? '***' : s.rank}
                 </div>`;
             }).join('');
         }
         resultsContainer.style.display = 'block';
     });
 
-    // 4. (不变) 监听下拉选项的点击事件
     resultsContainer.addEventListener('click', (e) => {
         const item = e.target.closest('.result-item');
         if (item && item.dataset.id) {
             const studentId = item.dataset.id;
-
             searchInput.value = `${item.querySelector('strong').innerText} (${studentId})`;
             resultsContainer.innerHTML = '';
             resultsContainer.style.display = 'none';
-
             showReport(studentId);
         }
     });
 
-    // 5. (不变) 当用户点击页面其他地方时，隐藏下拉菜单
     document.addEventListener('click', (e) => {
         if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
             resultsContainer.style.display = 'none';
         }
     });
 
-    // 6. (不变) 当用户重新聚焦搜索框时，如果已有结果则显示
     searchInput.addEventListener('focus', () => {
         if (resultsContainer.innerHTML !== '') {
             resultsContainer.style.display = 'block';
@@ -2454,66 +2447,76 @@ function renderCorrelation(container, activeData) {
 }
 
 /**
- * (新增) 9.7. 模块七：学生偏科诊断
+ * (修改后) 9.7. 模块七：学生偏科诊断
  */
-function renderWeakness(container, activeData, stats) { // [!!] (新增) 接收 G_Statistics
-    // 1. 渲染基础 HTML
+function renderWeakness(container, activeData, stats) {
+    // 1. 渲染基础 HTML (增加了 班级筛选 和 打印按钮)
     container.innerHTML = `
         <h2>模块十：学生偏科诊断 (当前筛选: ${G_CurrentClassFilter})</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
-            </p>
+            分析学生的学科均衡度，快速定位“高分低能”或“严重偏科”的学生。
+        </p>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <div class="controls-bar chart-controls">
-                <h4 style="margin:0;">偏科程度四象限图(右上 (高分-高偏科)：“尖子生但有短板” (重点关注)；右下 (高分-低偏科)：“学霸/全能型”；左上 (低分-高偏科)：“基础差且有极大短板”；左下 (低分-低偏科)：“基础薄弱但各科‘均衡’的差”)</h4>
+                <h4 style="margin:0;">偏科程度四象限图</h4>
+                <span style="font-size: 0.8em; color: var(--text-muted);">(右上: 尖子生有短板 | 右下: 学霸全能 | 左上: 基础差且偏科 | 左下: 基础差但均衡)</span>
             </div>
             <div class="chart-container" id="weakness-scatter-chart" style="width: 100%; height: 500px;"></div>
         </div>
 
         <div class="main-card-wrapper">
-                    <div class="controls-bar chart-controls">
-                        <h4 style="margin:0;">学生偏科诊断总表</h4>
-                        <span style="font-size: 0.8em; color: var(--text-muted);">(按“最弱项偏离度”排序)</span>
-                    </div>
-
-                    <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0 0 15px 0;">
-                        <label for="weakness-search">搜索学生:</label>
-                        <input type="text" id="weakness-search" placeholder="输入姓名或考号...">
-                    </div>
-
-        <div class="table-container" id="weakness-table-container">
-                        </div>
-
-                    <div id="weakness-detail-container" style="margin-top: 20px; display: none;">
-                        </div>
-                </div>
-
+            <div class="controls-bar chart-controls" style="justify-content: space-between;">
+                <h4 style="margin:0;">学生偏科诊断总表</h4>
+                <span style="font-size: 0.8em; color: var(--text-muted);">(按“最弱项偏离度”排序)</span>
             </div>
-        `;
+
+            <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0 0 15px 0; flex-wrap: wrap; gap: 10px;">
+                
+                <label for="weakness-class-filter">班级:</label>
+                <select id="weakness-class-filter" class="sidebar-select" style="min-width: 120px;">
+                    <option value="ALL">-- 全部 --</option>
+                    </select>
+
+                <label for="weakness-search" style="margin-left: 10px;">搜索:</label>
+                <input type="text" id="weakness-search" placeholder="输入姓名或考号..." style="width: 150px;">
+
+                <button id="weakness-print-btn" class="sidebar-button" style="background-color: var(--color-blue); margin-left: auto;">
+                    🖨️ 打印表格
+                </button>
+            </div>
+
+            <div class="table-container" id="weakness-table-container"></div>
+
+            <div id="weakness-detail-container" style="margin-top: 20px; display: none;"></div>
+        </div>
+    `;
 
     // 2. (核心) 计算偏科数据
-    const weaknessData = calculateWeaknessData(activeData, stats); // [!!] (修改) 传入 stats
+    const weaknessData = calculateWeaknessData(activeData, stats);
 
     // 3. 渲染图表
-    renderWeaknessScatter('weakness-scatter-chart', weaknessData, stats); // [!!] (修改) 传入 stats
+    renderWeaknessScatter('weakness-scatter-chart', weaknessData, stats);
+    
+    // 4. 渲染表格 (包含填充下拉框逻辑)
     renderWeaknessTable('weakness-table-container', weaknessData);
 
-    // 4. [!!] (新增) 绑定主表点击事件，用于显示详情表
+    // 5. 绑定主表点击事件 (详情弹窗)
     const tableContainer = document.getElementById('weakness-table-container');
     const detailContainer = document.getElementById('weakness-detail-container');
 
     tableContainer.addEventListener('click', (e) => {
-        // (寻找被点击的行 <tr>, 必须有 data-id 属性)
         const row = e.target.closest('tr[data-id]');
         if (!row) return;
 
         const studentId = row.dataset.id;
-        // (从原始数据中找到该学生)
         const studentData = weaknessData.find(d => String(d.student.id) === String(studentId));
 
         if (studentData) {
-            renderWeaknessDetail(detailContainer, studentData); // 调用新函数
+            renderWeaknessDetail(detailContainer, studentData);
             detailContainer.style.display = 'block';
+            // 滚动到详情处
+            detailContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     });
 }
@@ -3086,13 +3089,11 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
 /**
  * (重构) 9.11. 模块十二：多次考试分析
- * [!! 完整修复版 !!]
- * - 包含了图表3的 HTML 结构。
- * - 包含了下拉框 (multi-rank-type-select) 的事件监听器。
+ * [!! 修复版 !!] 解决 loadMultiExamData 异步调用问题
  */
 function renderMultiExam(container) {
 
-    // 1. 渲染模块 HTML
+    // 1. 渲染模块 HTML (保持不变)
     container.innerHTML = `
         <h2>考试系统中心和多次数据分析</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
@@ -3101,11 +3102,9 @@ function renderMultiExam(container) {
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <h4>考试列表管理</h4>
-
             <ol id="multi-exam-list" class="multi-exam-list-container"></ol>
 
             <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 15px 0 0 0; border-top: 1px solid var(--border-color); flex-wrap: wrap; justify-content: space-between;">
-
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <label for="multi-file-uploader" class="upload-label" style="padding: 10px 16px; background-color: var(--primary-color); color: white;">
                         📊 添加新成绩 (可多选)
@@ -3157,7 +3156,6 @@ function renderMultiExam(container) {
                 </div>
 
                 <div class="dashboard-chart-grid-1x1" style="margin-top: 20px;">
-                    
                     <div class="main-card-wrapper" style="padding: 15px; margin-bottom: 0; border-bottom: none; border-radius: 8px 8px 0 0;">
                         <h4 style="margin: 0;">1. 各科分数变化曲线</h4>
                         <p style="margin: 5px 0 0 0; font-size: 0.8em; color: var(--text-muted);">* 受上方“科目复选框”控制</p>
@@ -3188,7 +3186,6 @@ function renderMultiExam(container) {
                         </p>
                     </div>
                     <div class="chart-container" id="multi-exam-subject-rank-chart" style="height: 350px; margin-top: 0; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 8px 8px; background: #fff;"></div>
-
                 </div>
 
                 <div id="multi-student-table-container" class="multi-exam-table-container">
@@ -3196,8 +3193,6 @@ function renderMultiExam(container) {
             </div>
         </div>
     `;
-
-
 
     // 2. 绑定 DOM 和事件
     const multiUploader = document.getElementById('multi-file-uploader');
@@ -3241,11 +3236,11 @@ function renderMultiExam(container) {
     });
 
     // (列表交互事件: 重命名)
-    listContainer.addEventListener('input', (e) => {
+    listContainer.addEventListener('input', async (e) => { // async added just in case
         if (e.target && e.target.dataset.role === 'label') {
             const id = e.target.closest('li').dataset.id;
             const newLabel = e.target.value;
-            let data = loadMultiExamData();
+            let data = await loadMultiExamData(); // await
             const item = data.find(d => String(d.id) === id);
             if (item) {
                 item.label = newLabel;
@@ -3257,14 +3252,14 @@ function renderMultiExam(container) {
     });
 
     // (列表交互事件: 按钮点击)
-    listContainer.addEventListener('click', (e) => {
+    listContainer.addEventListener('click', async (e) => { // async added
         if (!e.target) return;
         const button = e.target.closest('button');
         if (!button) return;
 
         const role = button.dataset.role;
         const id = button.closest('li').dataset.id;
-        let data = loadMultiExamData();
+        let data = await loadMultiExamData(); // await
         const index = data.findIndex(d => String(d.id) === id);
 
         if (index === -1) return;
@@ -3302,8 +3297,8 @@ function renderMultiExam(container) {
     });
 
     // (导出备份)
-    exportBtn.addEventListener('click', () => {
-        const data = loadMultiExamData();
+    exportBtn.addEventListener('click', async () => {
+        const data = await loadMultiExamData(); // await
         if (data.length === 0) {
             alert('没有可导出的数据。');
             return;
@@ -3371,52 +3366,60 @@ function renderMultiExam(container) {
     // [!! 核心修复 !!] 在这里绑定“排名类型”和“复选框”的监听器
     // ------------------------------------------------------------------
 
-    // (监听: 排名类型下拉框)
+    // (监听: 排名类型下拉框 - [Fix] 增加 async/await)
     const rankTypeSelect = document.getElementById('multi-rank-type-select');
     if (rankTypeSelect) {
-        rankTypeSelect.addEventListener('change', () => {
+        rankTypeSelect.addEventListener('change', async () => {
             const reportContainer = document.getElementById('multi-student-report');
             const currentStudentId = reportContainer.dataset.studentId;
             if (currentStudentId) {
-                drawMultiExamChartsAndTable(currentStudentId, loadMultiExamData(), false);
+                const data = await loadMultiExamData();
+                drawMultiExamChartsAndTable(currentStudentId, data, false);
             }
         });
     }
 
-    // (监听: 复选框容器)
+    // (监听: 复选框容器 - [Fix] 增加 async/await)
     const checkboxContainer = document.getElementById('multi-subject-checkboxes');
     if (checkboxContainer) {
-        checkboxContainer.addEventListener('change', () => {
+        checkboxContainer.addEventListener('change', async () => {
             const reportContainer = document.getElementById('multi-student-report');
             const currentStudentId = reportContainer.dataset.studentId;
             if (currentStudentId) {
-                drawMultiExamChartsAndTable(currentStudentId, loadMultiExamData(), false);
+                const data = await loadMultiExamData();
+                drawMultiExamChartsAndTable(currentStudentId, data, false);
             }
         });
     }
 
-    // (监听: 全选)
+    // (监听: 全选 - [Fix] 增加 async/await)
     const selectAllBtn = document.getElementById('multi-subject-all');
     if (selectAllBtn) {
-        selectAllBtn.addEventListener('click', () => {
+        selectAllBtn.addEventListener('click', async () => {
             if (checkboxContainer) {
                 checkboxContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
                 const reportContainer = document.getElementById('multi-student-report');
                 const currentStudentId = reportContainer.dataset.studentId;
-                if (currentStudentId) drawMultiExamChartsAndTable(currentStudentId, loadMultiExamData(), false);
+                if (currentStudentId) {
+                    const data = await loadMultiExamData();
+                    drawMultiExamChartsAndTable(currentStudentId, data, false);
+                }
             }
         });
     }
 
-    // (监听: 全不选)
+    // (监听: 全不选 - [Fix] 增加 async/await)
     const selectNoneBtn = document.getElementById('multi-subject-none');
     if (selectNoneBtn) {
-        selectNoneBtn.addEventListener('click', () => {
+        selectNoneBtn.addEventListener('click', async () => {
             if (checkboxContainer) {
                 checkboxContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
                 const reportContainer = document.getElementById('multi-student-report');
                 const currentStudentId = reportContainer.dataset.studentId;
-                if (currentStudentId) drawMultiExamChartsAndTable(currentStudentId, loadMultiExamData(), false);
+                if (currentStudentId) {
+                    const data = await loadMultiExamData();
+                    drawMultiExamChartsAndTable(currentStudentId, data, false);
+                }
             }
         });
     }
@@ -5230,19 +5233,19 @@ function renderWeaknessScatter(elementId, weaknessData, stats) {
 }
 
 /**
- * (新增) 10.18. 渲染“短板”学生表格
+ * (修改后 - 支持打印考试名称) 10.18. 渲染“短板”学生表格
  */
 function renderWeaknessTable(elementId, weaknessData) {
     const tableContainer = document.getElementById(elementId);
     if (!tableContainer) return;
 
-    // 1. [!!] (重构) 创建 "学生最弱项" 列表
-    // (不再使用 flatList, 而是每个学生一行)
+    // 1. 创建列表，必须包含班级信息
     const studentWeaknessList = weaknessData.map(data => {
         if (!data.subjectDeviations || data.subjectDeviations.length === 0) {
-            return { // (处理没有有效数据的学生)
+            return {
                 name: data.student.name,
                 id: data.student.id,
+                className: data.student.class, // 用于筛选
                 avgZScore: data.avgZScore,
                 weakestSubject: 'N/A',
                 weakestDeviation: 0,
@@ -5258,6 +5261,7 @@ function renderWeaknessTable(elementId, weaknessData) {
         return {
             name: data.student.name,
             id: data.student.id,
+            className: data.student.class, // 用于筛选
             avgZScore: data.avgZScore,
             weakestSubject: weakest.subject,
             weakestDeviation: weakest.deviation,
@@ -5265,16 +5269,33 @@ function renderWeaknessTable(elementId, weaknessData) {
         };
     });
 
-    // 2. 默认排序：按“最弱项偏离度”升序 (最弱的在最前面)
+    // 2. 默认排序
     studentWeaknessList.sort((a, b) => a.weakestDeviation - b.weakestDeviation);
 
-    // 3. (新增) 渲染表格的内部函数 (用于搜索)
+    // 3. 填充班级下拉框
+    const classSelect = document.getElementById('weakness-class-filter');
+    if (classSelect) {
+        const uniqueClasses = [...new Set(studentWeaknessList.map(s => s.className))].sort();
+        let opts = `<option value="ALL">-- 全部班级 --</option>`;
+        uniqueClasses.forEach(c => {
+            opts += `<option value="${c}">${c}</option>`;
+        });
+        classSelect.innerHTML = opts;
+    }
+
+    // 4. (核心) 渲染表格函数 (支持 搜索 + 班级筛选)
     const drawTable = () => {
         const searchTerm = document.getElementById('weakness-search').value.toLowerCase();
+        const selectedClass = document.getElementById('weakness-class-filter').value;
 
         const filteredList = studentWeaknessList.filter(item => {
-            return String(item.name).toLowerCase().includes(searchTerm) ||
-                String(item.id).toLowerCase().includes(searchTerm);
+            // 搜索匹配
+            const matchSearch = String(item.name).toLowerCase().includes(searchTerm) ||
+                                String(item.id).toLowerCase().includes(searchTerm);
+            // 班级匹配
+            const matchClass = (selectedClass === 'ALL') || (item.className === selectedClass);
+            
+            return matchSearch && matchClass;
         });
 
         let html = ``;
@@ -5285,6 +5306,7 @@ function renderWeaknessTable(elementId, weaknessData) {
                 <table>
                     <thead>
                         <tr>
+                            <th>班级</th>
                             <th>学生姓名</th>
                             <th>考号</th>
                             <th>最弱科目</th>
@@ -5296,29 +5318,94 @@ function renderWeaknessTable(elementId, weaknessData) {
                     <tbody>
                         ${filteredList.map(item => `
                             <tr data-id="${item.id}" style="cursor: pointer;">
+                                <td>${item.className}</td>
                                 <td><strong>${item.name}</strong></td>
                                 <td>${item.id}</td>
                                 <td><strong>${item.weakestSubject}</strong></td>
                                 <td><strong class="${item.weakestDeviation < -0.5 ? 'regress' : ''}">${item.weakestDeviation.toFixed(2)}</strong></td>
-                                <td>${item.weakestZScore.toFixed ? item.weakestZScore.toFixed(2) : 'N/A'}</td>
+                                <td>${item.weakestZScore !== 'N/A' ? item.weakestZScore.toFixed(2) : 'N/A'}</td>
                                 <td>${item.avgZScore.toFixed(2)}</td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
+                <div style="margin-top:10px; font-size:0.85em; color:#666; text-align:right;">
+                    共筛选出 ${filteredList.length} 人
+                </div>
             `;
         }
         tableContainer.innerHTML = html;
     };
 
-    // 4. (新增) 绑定搜索框事件
-    // (搜索框是在 renderWeakness 中创建的)
+    // 5. 绑定事件
     const searchInput = document.getElementById('weakness-search');
-    if (searchInput) {
-        searchInput.addEventListener('input', drawTable);
+    if (searchInput) searchInput.addEventListener('input', drawTable);
+    if (classSelect) classSelect.addEventListener('change', drawTable);
+
+    // 6. [修改] 绑定打印按钮事件 (获取考试名称)
+    const printBtn = document.getElementById('weakness-print-btn');
+    if (printBtn) {
+        // 注意：这里添加了 async 关键字
+        printBtn.addEventListener('click', async () => {
+            const content = tableContainer.innerHTML;
+            if (!content || content.includes('未找到匹配')) {
+                alert('当前列表为空，无法打印。');
+                return;
+            }
+
+            // [核心修改] 获取考试名称
+            // 优先从 localforage 读取，如果失败则尝试 localStorage 或使用默认值
+            let examName = "本次考试";
+            try {
+                const name = await localforage.getItem('G_MainFileName');
+                if (name) examName = name;
+                else {
+                    // 降级尝试
+                    examName = localStorage.getItem('G_MainFileName') || "本次考试";
+                }
+            } catch (e) {
+                console.warn("无法读取考试名称", e);
+            }
+            
+            // 获取当前筛选的班级名称以便展示
+            const selectedClassVal = document.getElementById('weakness-class-filter').value;
+            const subTitle = selectedClassVal === 'ALL' ? '全体学生' : selectedClassVal;
+
+            // 构建打印页
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write(`
+                <html>
+                <head>
+                    <title>${examName} - 偏科诊断表</title>
+                    <style>
+                        body { font-family: "Segoe UI", Arial, sans-serif; padding: 30px; color: #333; }
+                        h2 { text-align: center; margin-bottom: 5px; }
+                        h4 { text-align: center; margin-top: 0; color: #666; font-weight: normal; }
+                        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+                        th, td { border: 1px solid #333; padding: 8px; text-align: center; }
+                        th { background-color: #f0f0f0; }
+                        .regress { color: red; font-weight: bold; }
+                        @media print {
+                           .no-print { display: none; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h2>${examName} - 学生偏科诊断表</h2>
+                    <h4>范围：${subTitle} | 生成时间：${new Date().toLocaleString()}</h4>
+                    ${content}
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+            setTimeout(() => {
+                printWindow.focus();
+                printWindow.print();
+            }, 500);
+        });
     }
 
-    // 5. 初始绘制
+    // 7. 初始绘制
     drawTable();
 }
 
@@ -6406,14 +6493,14 @@ async function loadMultiExamData() {
 
 /**
  * (重构) 11.5. 初始化“多次考试分析”的学生搜索框
- * [!!] (已修改) 添加了筛选器的事件监听
+ * [!! 修复版 !!] 解决 loadMultiExamData 返回 Promise 导致的 .filter 报错
  */
 function initializeStudentSearch(multiExamData) {
     const searchInput = document.getElementById('multi-student-search');
     const resultsContainer = document.getElementById('multi-student-search-results');
     const reportContainer = document.getElementById('multi-student-report');
 
-    if (!searchInput) return; // (如果不在当前模块, DOM不存在)
+    if (!searchInput) return; 
 
     // (计算所有学生列表 - 不变)
     const allStudentsMap = new Map();
@@ -6451,8 +6538,8 @@ function initializeStudentSearch(multiExamData) {
         resultsContainer.style.display = 'block';
     });
 
-    // (点击搜索结果 事件 - [!!] 修改)
-    resultsContainer.addEventListener('click', (e) => {
+    // (点击搜索结果 事件 - [!!] 修改：增加 async/await)
+    resultsContainer.addEventListener('click', async (e) => {
         const item = e.target.closest('.result-item');
         if (item && item.dataset.id) {
             const studentId = item.dataset.id;
@@ -6465,40 +6552,40 @@ function initializeStudentSearch(multiExamData) {
             document.getElementById('multi-student-name-title').innerText = `${studentName} 的成绩曲线`;
             reportContainer.style.display = 'block';
 
-            // [!!] (新增) 存储当前学生ID，以便筛选器使用
+            // 存储当前学生ID
             reportContainer.dataset.studentId = studentId;
 
-            // (调用新函数)
-            drawMultiExamChartsAndTable(studentId, loadMultiExamData(), true); // [!!] true = 强制重绘复选框
+            // [修复点] 等待数据加载
+            const currentData = await loadMultiExamData();
+            drawMultiExamChartsAndTable(studentId, currentData, true); 
         }
     });
 
-    // (点击外部 隐藏 - 不变)
     document.addEventListener('click', (e) => {
         if (searchInput && !searchInput.contains(e.target) && resultsContainer && !resultsContainer.contains(e.target)) {
             resultsContainer.style.display = 'none';
         }
     });
 
-    // [!!] (新增) 绑定筛选器事件
+    // 绑定筛选器事件
     const checkboxContainer = document.getElementById('multi-subject-checkboxes');
     const selectAllBtn = document.getElementById('multi-subject-all');
     const selectNoneBtn = document.getElementById('multi-subject-none');
 
-    // (辅助函数：重绘图表)
-    const redrawCharts = () => {
+    // (辅助函数：重绘图表 - [!!] 修改：增加 async/await)
+    const redrawCharts = async () => {
         const currentStudentId = reportContainer.dataset.studentId;
         if (currentStudentId) {
-            drawMultiExamChartsAndTable(currentStudentId, loadMultiExamData(), false); // [!!] false = 不重绘复选框
+            // [修复点] 等待数据加载
+            const currentData = await loadMultiExamData();
+            drawMultiExamChartsAndTable(currentStudentId, currentData, false);
         }
     };
 
-    // (复选框点击事件 - 委托)
     if (checkboxContainer) {
         checkboxContainer.addEventListener('change', redrawCharts);
     }
 
-    // (全选)
     if (selectAllBtn) {
         selectAllBtn.addEventListener('click', () => {
             checkboxContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
@@ -6506,7 +6593,6 @@ function initializeStudentSearch(multiExamData) {
         });
     }
 
-    // (全不选)
     if (selectNoneBtn) {
         selectNoneBtn.addEventListener('click', () => {
             checkboxContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
@@ -8902,14 +8988,17 @@ async function startPrintJob(studentIds) {
  * @returns {string} - 该学生报告的 HTML
  */
 /**
- * 2. [打印引擎-辅助] 为单个学生生成报告的 HTML
- * [!! 最终同步版 !!] 
- * - 包含：赋分计算、T分显示、T分进退步对比、原始分进退步
+ * (修改后) 2. [打印引擎-辅助] 为单个学生生成报告的 HTML
+ * [!! 最终同步版 - 支持隐藏排名 !!]
  */
 function generateStudentReportHTML(student) {
     if (!student) return '';
 
-    // 1. 查找对比数据 (用于计算总分进退步)
+    // [新增] 掩码辅助函数 (与界面保持一致)
+    const maskRank = (val) => window.G_HideRank ? '***' : val;
+    const maskDiff = (diffVal, diffText) => window.G_HideRank ? '' : (diffVal !== 'N/A' ? diffText : '');
+
+    // 1. 查找对比数据
     let oldStudent = null;
     let scoreDiff = 'N/A', rankDiff = 'N/A', gradeRankDiff = 'N/A';
 
@@ -8919,11 +9008,12 @@ function generateStudentReportHTML(student) {
 
     if (oldStudent) {
         scoreDiff = (student.totalScore - oldStudent.totalScore).toFixed(2);
-        rankDiff = oldStudent.rank - student.rank; // 排名减法：旧-新，正数为进步
+        rankDiff = oldStudent.rank - student.rank;
         gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 'N/A';
     }
 
-    // 2. 生成学生卡片 HTML (保持不变)
+    // 2. 生成学生卡片 HTML
+    // 注意：排名的显示应用了 maskRank 和 maskDiff
     const cardHtml = `
         <div class="student-card">
             <div class="sc-name"><span>姓名</span><strong>${student.name}</strong></div>
@@ -8936,29 +9026,28 @@ function generateStudentReportHTML(student) {
                 </strong>
             </div>
             <div class="sc-rank">
-                <span>班级排名 (上次: ${oldStudent ? oldStudent.rank : 'N/A'})</span>
+                <span>班级排名 (上次: ${maskRank(oldStudent ? oldStudent.rank : 'N/A')})</span>
                 <strong class="${rankDiff > 0 ? 'progress' : rankDiff < 0 ? 'regress' : ''}">
-                    ${student.rank}
-                    ${(rankDiff !== 'N/A' && oldStudent) ? `(${rankDiff > 0 ? '▲' : '▼'} ${Math.abs(rankDiff)})` : ''}
+                    ${maskRank(student.rank)}
+                    ${maskDiff(rankDiff, `(${rankDiff > 0 ? '▲' : '▼'} ${Math.abs(rankDiff)})`)}
                 </strong>
             </div>
             <div class="sc-grade-rank">
-                <span>年级排名 (上次: ${oldStudent ? (oldStudent.gradeRank || 'N/A') : 'N/A'})</span>
+                <span>年级排名 (上次: ${maskRank(oldStudent ? (oldStudent.gradeRank || 'N/A') : 'N/A')})</span>
                 <strong class="${gradeRankDiff > 0 ? 'progress' : gradeRankDiff < 0 ? 'regress' : ''}">
-                    ${student.gradeRank || 'N/A'}
-                    ${(gradeRankDiff !== 'N/A' && oldStudent) ? `(${gradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(gradeRankDiff)})` : ''}
+                    ${maskRank(student.gradeRank || 'N/A')}
+                    ${maskDiff(gradeRankDiff, `(${gradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(gradeRankDiff)})`)}
                 </strong>
             </div>
         </div>
     `;
 
-    // 3. [!! 核心 !!] 生成表格行 HTML (同步所有逻辑)
+    // 3. 生成表格行 HTML
     const tableRowsHtml = G_DynamicSubjectList.map(subject => {
         let subjectScoreDiff = 'N/A';
         let subjectClassRankDiff = 'N/A';
         let subjectGradeRankDiff = 'N/A';
 
-        // (A) 计算原始分/排名的进退步
         if (oldStudent && oldStudent.scores) {
             const oldScore = oldStudent.scores[subject] || 0;
             const newScore = student.scores[subject] || 0;
@@ -8981,13 +9070,11 @@ function generateStudentReportHTML(student) {
             }
         }
 
-        // (B) 计算赋分 (福建模式)
         const config = G_SubjectConfigs[subject] || {};
         const isAssignedSubject = config.isAssigned === true;
         let rankBasedScoreDisplay = '';
 
         if (isAssignedSubject) {
-            // 获取该科目全体原始分，用于计算赋分
             const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
             const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
             rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
@@ -8995,25 +9082,20 @@ function generateStudentReportHTML(student) {
             rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
         }
 
-        // (C) 获取 T分 & 计算 T分进退步
         const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
         let tScoreDiffHtml = '';
 
         if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
             const oldTScore = oldStudent.tScores[subject];
-            // 确保两个 T 分都有效
             if (tScore !== 'N/A' && oldTScore !== undefined && oldTScore !== null) {
                 const diff = tScore - oldTScore;
                 const diffAbs = Math.abs(diff).toFixed(1);
-
-                if (diff > 0) {
-                    tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
-                } else if (diff < 0) {
-                    tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
-                }
+                if (diff > 0) tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
+                else if (diff < 0) tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
             }
         }
 
+        // 表格中的排名也应用 Mask 逻辑
         return `
             <tr>
                 <td>${subject}</td>
@@ -9027,13 +9109,13 @@ function generateStudentReportHTML(student) {
                     </div>
                 </td>
                 <td>
-                    ${student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A'}
-                    ${(oldStudent && subjectClassRankDiff !== 'N/A') ? `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>` : ''}
+                    ${maskRank(student.classRanks ? (student.classRanks[subject] || 'N/A') : 'N/A')}
+                    ${maskDiff(subjectClassRankDiff, `<span class="${subjectClassRankDiff > 0 ? 'progress' : subjectClassRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectClassRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectClassRankDiff)})</span>`)}
                 </td>
                 <td>
                     <div>
-                        ${student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A'}
-                        ${(oldStudent && subjectGradeRankDiff !== 'N/A') ? `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>` : ''}
+                        ${maskRank(student.gradeRanks ? (student.gradeRanks[subject] || 'N/A') : 'N/A')}
+                        ${maskDiff(subjectGradeRankDiff, `<span class="${subjectGradeRankDiff > 0 ? 'progress' : subjectGradeRankDiff < 0 ? 'regress' : ''}" style="font-size:0.8em">(${subjectGradeRankDiff > 0 ? '▲' : '▼'} ${Math.abs(subjectGradeRankDiff)})</span>`)}
                     </div>
                     ${rankBasedScoreDisplay}
                 </td>
@@ -9041,7 +9123,6 @@ function generateStudentReportHTML(student) {
         `;
     }).join('');
 
-    // 4. 生成完整表格 HTML
     const tableHtml = `
         <div class="table-container">
             <table>
