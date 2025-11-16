@@ -12968,9 +12968,13 @@ if (graphDef) {
 }
 
 
-
+/**
+ * [升级版] 15. 渲染模块十五：考场编排
+ * 新增功能：支持“竖向填充”模式 (竖向Z型 / 竖向S型)
+ */
 function renderExamArrangement(container) {
-    const studentCount = G_StudentsData.length;
+    const studentsSource = G_StudentsData; 
+    const studentCount = studentsSource.length;
 
     container.innerHTML = `
         <h2>🧘 模块十五：考场座位编排 & 考号生成</h2>
@@ -12983,15 +12987,16 @@ function renderExamArrangement(container) {
                 <div>
                     <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">1. 考生排序策略:</label>
                     <select id="exam-sort-strategy" class="sidebar-select" style="font-weight:bold; color:var(--primary-color); width:100%; padding: 10px;">
+                        <option value="random">🎲 完全随机打乱</option>
                         <option value="class_balanced">⚖️ 班级均衡 (分层穿插)</option>
                         <option value="score_desc">🏆 按总分高到低 (优生在前)</option>
-                        <option value="score_asc">📉 按总分低到高</option>
-                        <option value="random">🎲 完全随机打乱</option>
+                        <option value="score_asc">📉 按总分低到高 (优生在后)</option>
+                        
                     </select>
                 </div>
 
                 <div>
-                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">2. 单场人数:</label>
+                    <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">2. 单场人数 (Capacity):</label>
                     <input type="number" id="exam-room-capacity" class="sidebar-select" value="40" min="1" style="width:100%; padding: 10px;">
                 </div>
 
@@ -13002,9 +13007,15 @@ function renderExamArrangement(container) {
 
                 <div>
                     <label style="display:block; margin-bottom:8px; font-weight:600; color:#333;">4. 座位填充模式:</label>
-                    <select id="exam-seat-pattern" class="sidebar-select" style="width:100%; padding: 10px;">
-                        <option value="s_shape">🐍 S型 (蛇形/弓字形)</option>
-                        <option value="z_shape">➡️ Z型 (从左到右)</option>
+                    <select id="exam-seat-pattern" class="sidebar-select" style="width:100%; padding: 10px; border: 2px solid var(--color-orange);">
+                        <optgroup label="横向填充 (先左右，再换行)">
+                            <option value="z_shape">➡️ 横向 Z 型 (从左到右)</option>
+                            <option value="s_shape">🐍 横向 S 型 (蛇形/弓字形)</option>
+                        </optgroup>
+                        <optgroup label="竖向填充 (先前后，再换列)">
+                            <option value="z_shape_v">⬇️ 竖向 Z 型 (从前到后)</option>
+                            <option value="s_shape_v">🧬 竖向 S 型 (第1列后, 第2列前...)</option>
+                        </optgroup>
                     </select>
                 </div>
 
@@ -13013,7 +13024,6 @@ function renderExamArrangement(container) {
                     <select id="exam-id-mode" class="sidebar-select" style="width:100%; padding: 10px;">
                         <option value="use_existing">保持现有 (Excel原数据)</option>
                         <option value="auto_generate">自动生成 (考场+座位)</option>
-                        
                     </select>
                 </div>
                 
@@ -13045,7 +13055,11 @@ function renderExamArrangement(container) {
 
     let generatedRooms = [];
 
-    document.getElementById('exam-generate-btn').addEventListener('click', () => {
+    const generateBtn = document.getElementById('exam-generate-btn');
+    const exportBtn = document.getElementById('exam-export-btn');
+
+    generateBtn.addEventListener('click', () => {
+        // 实时读取所有配置
         const config = {
             sort: document.getElementById('exam-sort-strategy').value,
             capacity: parseInt(document.getElementById('exam-room-capacity').value) || 30,
@@ -13054,24 +13068,27 @@ function renderExamArrangement(container) {
             idMode: document.getElementById('exam-id-mode').value,
             idPrefix: document.getElementById('exam-id-prefix').value.trim()
         };
-        generatedRooms = calculateExamArrangement(G_StudentsData, config);
+
+        console.log("开始编排，配置:", config);
+
+        generatedRooms = calculateExamArrangement(studentsSource, config);
         renderExamPreview(generatedRooms, config.cols);
     });
 
-    document.getElementById('exam-export-btn').addEventListener('click', () => {
+    exportBtn.addEventListener('click', () => {
         if(generatedRooms.length > 0) exportExamToExcel(generatedRooms);
+        else alert("请先生成编排方案！");
     });
 }
 
 /**
- * [核心算法] 计算考场编排 (含自定义前缀)
+ * [核心算法] 计算考场编排 (支持横向/竖向填充)
  */
 function calculateExamArrangement(students, config) {
     let sortedStudents = [];
 
-    // --- 第一步：根据策略生成“总名单” ---
+    // --- 1. 排序策略 ---
     if (config.sort === 'class_balanced') {
-        // 班级均衡策略
         const classMap = {};
         students.forEach(s => {
             if (!classMap[s.class]) classMap[s.class] = [];
@@ -13102,41 +13119,78 @@ function calculateExamArrangement(students, config) {
         sortedStudents = [...students].sort(() => Math.random() - 0.5);
     }
 
-    // --- 第二步：切分考场 & 组内处理 ---
+    // --- 2. 考场切分 ---
     const rooms = [];
     const totalStudents = sortedStudents.length;
     let currentStudentIdx = 0;
     let roomNum = 1;
 
+    // 计算每个考场最大需要多少行 (用于竖向填充)
+    // 竖向填充时，我们需要知道这一列填到第几行就该换列了
+    const maxRowsPerRoom = Math.ceil(config.capacity / config.cols);
+
     while (currentStudentIdx < totalStudents) {
         const endIdx = Math.min(currentStudentIdx + config.capacity, totalStudents);
         let roomStudents = sortedStudents.slice(currentStudentIdx, endIdx);
 
-        // 组内随机打乱
         if (config.sort !== 'random') {
-             roomStudents.sort(() => Math.random() - 0.5);
+             // roomStudents.sort(() => Math.random() - 0.5); // 可选：组内再次随机
         }
 
-        // 3. 分配座位号 & 考号
+        // --- 3. 坐标计算 & 考号生成 ---
         const processedStudents = roomStudents.map((student, indexInRoom) => {
             const seatNo = indexInRoom + 1;
             
-            // [NEW] 生成考号逻辑
+            // 生成考号
             let examId = student.id;
             if (config.idMode === 'auto_generate') {
-                // 格式: 前缀 + 考场号(2位) + 座位号(2位)
                 const rStr = String(roomNum).padStart(2, '0');
                 const sStr = String(seatNo).padStart(2, '0');
-                // 如果用户输入了前缀，直接拼在前面
                 const prefix = config.idPrefix || ""; 
                 examId = `${prefix}${rStr}${sStr}`;
             }
 
-            // 计算坐标 (S型/Z型)
-            const row = Math.floor(indexInRoom / config.cols);
-            let col = indexInRoom % config.cols;
-            if (config.pattern === 's_shape' && row % 2 !== 0) {
-                col = config.cols - 1 - col;
+            let row = 0;
+            let col = 0;
+
+            // [关键修改] 根据模式计算坐标 (Row, Col)
+            // indexInRoom: 0, 1, 2, ...
+            
+            switch (config.pattern) {
+                case 's_shape': // 横向S型 (蛇形)
+                    row = Math.floor(indexInRoom / config.cols);
+                    col = indexInRoom % config.cols;
+                    // 偶数行(0,2,4)：左->右；奇数行(1,3,5)：右->左 (即翻转列号)
+                    if (row % 2 !== 0) {
+                        col = config.cols - 1 - col;
+                    }
+                    break;
+
+                case 'z_shape_v': // 竖向Z型 (从前到后，填满一列换下列)
+                    // 先确定在第几列
+                    col = Math.floor(indexInRoom / maxRowsPerRoom);
+                    // 再确定在第几行
+                    row = indexInRoom % maxRowsPerRoom;
+                    break;
+
+                case 's_shape_v': // 竖向S型 (第1列前->后，第2列后->前)
+                    col = Math.floor(indexInRoom / maxRowsPerRoom);
+                    let remainder = indexInRoom % maxRowsPerRoom;
+                    
+                    // 偶数列(0,2,4)：上->下 (row = remainder)
+                    // 奇数列(1,3,5)：下->上 (row = max - 1 - remainder)
+                    if (col % 2 === 0) {
+                        row = remainder;
+                    } else {
+                        row = maxRowsPerRoom - 1 - remainder;
+                    }
+                    break;
+
+                case 'z_shape': // 横向Z型 (默认)
+                default:
+                    row = Math.floor(indexInRoom / config.cols);
+                    col = indexInRoom % config.cols;
+                    break;
             }
 
             return {
@@ -13163,83 +13217,101 @@ function calculateExamArrangement(students, config) {
 }
 
 /**
- * [渲染] 考场预览 (座位网格)
+ * [渲染] 考场预览 (逻辑优化)
  */
 function renderExamPreview(rooms, cols) {
     const resultArea = document.getElementById('exam-result-area');
     const tabContainer = document.getElementById('exam-room-tabs');
     const previewContainer = document.getElementById('exam-room-preview');
     
-    resultArea.style.display = 'block';
+    if (resultArea) resultArea.style.display = 'block';
     
-    // 1. 生成 Tabs
+    // 生成 Tabs
     tabContainer.innerHTML = rooms.map((r, idx) => `
         <button class="sidebar-button room-tab-btn ${idx === 0 ? 'active-tab' : ''}" 
-            onclick="switchExamRoom(${idx})" 
+            data-idx="${idx}"
             style="background-color: ${idx === 0 ? 'var(--primary-color)' : '#fff'}; color: ${idx === 0 ? '#fff' : '#333'}; border: 1px solid #ccc; white-space: nowrap;">
             ${r.name} (${r.students.length}人)
         </button>
     `).join('');
 
-    // 挂载全局切换函数
-    window.currentExamRooms = rooms; // 临时存储
-    window.switchExamRoom = (roomIdx) => {
-        // 更新 Tab 样式
-        document.querySelectorAll('.room-tab-btn').forEach((btn, i) => {
-            btn.style.backgroundColor = (i === roomIdx) ? 'var(--primary-color)' : '#fff';
-            btn.style.color = (i === roomIdx) ? '#fff' : '#333';
+    // 绑定 Tab 点击事件 (避免使用全局函数 window.switchExamRoom)
+    const tabs = tabContainer.querySelectorAll('.room-tab-btn');
+    tabs.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const idx = parseInt(btn.dataset.idx);
+            // 更新样式
+            tabs.forEach(t => {
+                t.style.backgroundColor = '#fff';
+                t.style.color = '#333';
+            });
+            btn.style.backgroundColor = 'var(--primary-color)';
+            btn.style.color = '#fff';
+            
+            // 渲染
+            renderRoomGrid(rooms[idx], cols, previewContainer);
         });
-        // 渲染网格
-        renderRoomGrid(rooms[roomIdx], cols, previewContainer);
-    };
+    });
 
     // 默认显示第1个
-    renderRoomGrid(rooms[0], cols, previewContainer);
+    if (rooms.length > 0) {
+        renderRoomGrid(rooms[0], cols, previewContainer);
+    }
 }
 
+/**
+ * [渲染] 单个考场网格
+ * 重要说明：
+ * - HTML Grid 默认从左到右渲染。
+ * - 如果要让“第一列”在屏幕右侧 (黑板视角)，我们需要把 col=0 放在最右边。
+ * - 做法：渲染循环从 cols-1 (左) 遍历到 0 (右)。
+ */
 function renderRoomGrid(room, cols, container) {
+    if (!room || !room.students) return;
+
     // 计算最大行数
     const maxRow = Math.max(...room.students.map(s => s.gridRow)) + 1;
     
     let html = `<div style="display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 10px; max-width: 1000px; margin: 0 auto;">`;
     
-    // 创建一个矩阵来映射位置
+    // 构建矩阵
     const gridMap = Array(maxRow).fill(null).map(() => Array(cols).fill(null));
     room.students.forEach(s => {
-        gridMap[s.gridRow][s.gridCol] = s;
+        if(s.gridRow < maxRow && s.gridCol < cols) {
+            gridMap[s.gridRow][s.gridCol] = s;
+        }
     });
 
-    // 遍历矩阵生成 HTML
+    // 渲染循环
     for (let r = 0; r < maxRow; r++) {
-        for (let c = 0; c < cols; c++) {
+        // 从最左边(列号最大) 渲染到 最右边(列号最小)
+        for (let c = cols - 1; c >= 0; c--) {
             const student = gridMap[r][c];
             if (student) {
                 html += `
                     <div style="border: 1px solid #ddd; padding: 10px; border-radius: 6px; background: #f9f9f9; text-align: center; font-size: 0.85em; min-height: 60px; display: flex; flex-direction: column; justify-content: center;">
                         <div style="font-weight: bold; color: var(--primary-color); margin-bottom: 4px;">${student.name}</div>
                         <div style="color: #666;">座:${student.seatNo}</div>
-                        <div style="color: #999; font-size: 0.8em;">${student.tempExamId}</div>
+                        <div style="color: #999; font-size: 0.8em;">${student.tempExamId || ''}</div>
                     </div>
                 `;
             } else {
-                // 空座位
-                html += `<div style="border: 1px dashed #eee; border-radius: 6px;"></div>`;
+                html += `<div style="border: 1px dashed #eee; border-radius: 6px; background-color: #fff;"></div>`;
             }
         }
     }
     html += `</div>`;
     
-    // 添加讲台指示
     container.innerHTML = `
         <div style="text-align: center; margin-bottom: 20px; background: #eee; padding: 5px; border-radius: 4px; font-weight: bold; color: #555;">
-            📺 讲台 / 黑板
+            📺 讲台 / 黑板 (视图：最右侧为第一列)
         </div>
         ${html}
     `;
 }
 
 /**
- * [升级版 V2] 导出 Excel (新增：从右往左的组别标识行)
+ * [旗舰版 V4] 导出 Excel (布局修正：从右往左填充，符合黑板视角)
  */
 function exportExamToExcel(rooms) {
     if (!rooms || rooms.length === 0) {
@@ -13250,7 +13322,7 @@ function exportExamToExcel(rooms) {
     const wb = XLSX.utils.book_new();
     
     // ==========================================
-    // Sheet 1: 考场总名单 (List View)
+    // Sheet 1: 考场总名单 (保持不变)
     // ==========================================
     const allData = [];
     rooms.forEach(r => {
@@ -13270,64 +13342,94 @@ function exportExamToExcel(rooms) {
     XLSX.utils.book_append_sheet(wb, wsList, "考场总名单");
 
     // ==========================================
-    // Sheet 2: 考场座位布局图 (Matrix View)
+    // Sheet 2: 考场座位布局图 (方向修正版)
     // ==========================================
     const layoutData = []; 
 
     rooms.forEach(r => {
-        // 1. 考场标题行
+        // 1. 考场标题
         layoutData.push([`=== ${r.name} (共${r.students.length}人) ===`]);
-        
-        // 2. 讲台指示行
-        layoutData.push(["【 讲台 / 黑板 】"]);
 
-        // 3. 计算该考场的最大行列数
+        // 2. 计算该考场的最大行列
         let maxRow = 0;
         let maxCol = 0;
-        r.students.forEach(s => {
-            if (s.gridRow > maxRow) maxRow = s.gridRow;
-            if (s.gridCol > maxCol) maxCol = s.gridCol;
-        });
-
-        // [NEW] 4. 新增“组别”标识行 (从右往左数)
-        // 逻辑：最右边(maxCol)是第1组，最左边(0)是第N组
-        const groupRow = [];
-        for (let c = 0; c <= maxCol; c++) {
-            const groupNum = maxCol - c + 1; // 计算组号
-            groupRow.push(`第${groupNum}组`);
+        if (r.students.length > 0) {
+            maxRow = Math.max(...r.students.map(s => s.gridRow));
+            maxCol = Math.max(...r.students.map(s => s.gridCol));
         }
+
+        // 3. 构建“组别”行 (从左到右：第N组 ... 第1组)
+        // 这样 Excel 左边是最后一组，右边是第一组
+        const groupRow = [];
+        const totalGroups = maxCol + 1;
+        for (let i = 0; i < totalGroups; i++) {
+            const groupNum = totalGroups - i; // 倒序：5, 4, 3, 2, 1
+            groupRow.push(`第${groupNum}组`, ""); // 占两列(班级+姓名)
+        }
+        groupRow.push(""); // 门的那一列留空
         layoutData.push(groupRow);
 
-        // 5. 初始化该考场的网格
+        // 4. 构建表头行 (班级 | 姓名 ... | 前门)
+        const headerRow = [];
+        for (let c = 0; c <= maxCol; c++) {
+            headerRow.push("班级", "姓名");
+        }
+        headerRow.push("前门"); // 最右侧添加前门
+        layoutData.push(headerRow);
+
+        // 5. 初始化网格
+        // 行数 = maxRow + 1
+        // 列数 = (maxCol + 1) * 2 + 1 (门列)
         const grid = [];
         for (let i = 0; i <= maxRow; i++) {
-            const rowArr = new Array(maxCol + 1).fill(null); 
+            const rowArr = new Array((maxCol + 1) * 2 + 1).fill(""); 
             grid.push(rowArr);
         }
 
-        // 6. 填充学生信息
+        // 6. 填充学生数据 (核心修正：列序翻转)
         r.students.forEach(s => {
-            const cellText = `${s.name}`;
-            grid[s.gridRow][s.gridCol] = cellText;
+            // [核心修改] 从右向左填充
+            // s.gridCol = 0 (第1组) -> 映射到最右边的 Excel 列
+            // s.gridCol = max (第N组) -> 映射到最左边的 Excel 列
+            // 算法：(maxCol - s.gridCol) * 2
+            
+            const colIndex = (maxCol - s.gridCol) * 2; 
+            const rowIndex = s.gridRow;
+
+            if (grid[rowIndex] && grid[rowIndex][colIndex] !== undefined) {
+                // 班级名简化
+                let classStr = s.class.replace(/[^0-9]/g, ''); 
+                if (!classStr) classStr = s.class;
+
+                grid[rowIndex][colIndex] = classStr;     // 左格：班级
+                grid[rowIndex][colIndex + 1] = s.name;   // 右格：姓名
+            }
         });
 
-        // 7. 将该考场的 Grid 追加到总 layoutData
-        layoutData.push(...grid);
+        // 7. 添加“后门” (右下角)
+        if (grid.length > 0) {
+            const lastRowIndex = grid.length - 1;
+            const lastColIndex = grid[0].length - 1;
+            grid[lastRowIndex][lastColIndex] = "后门";
+        }
 
-        // 8. 考场之间增加空行
-        layoutData.push([]); 
+        // 8. 写入数据
+        layoutData.push(...grid);
+        layoutData.push([]); // 空行分隔
         layoutData.push([]); 
     });
 
     const wsLayout = XLSX.utils.aoa_to_sheet(layoutData);
 
-    // 设置布局 Sheet 的列宽 (防止文字挤压)
+    // 9. 设置列宽
     const colWidths = [];
-    for(let i=0; i<20; i++) colWidths.push({ wch: 16 }); 
+    for(let i = 0; i < 50; i++) {
+        if (i % 2 === 0) colWidths.push({ wch: 6 });  // 班级列窄
+        else colWidths.push({ wch: 12 });             // 姓名列宽
+    }
+    colWidths.push({ wch: 8 }); // 门列
     wsLayout['!cols'] = colWidths;
 
     XLSX.utils.book_append_sheet(wb, wsLayout, "考场座位布局");
-
-    // 导出文件
-    XLSX.writeFile(wb, `考场编排表_${new Date().toLocaleDateString()}.xlsx`);
+    XLSX.writeFile(wb, `考场编排表${new Date().toLocaleDateString()}.xlsx`);
 }
