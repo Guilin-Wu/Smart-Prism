@@ -6601,14 +6601,14 @@ function initializeStudentSearch(multiExamData) {
     }
 }
 
-
 /**
  * (重构) 11.6. (核心) 绘制多次考试的图表和表格
- * [!! 修复版 !!] 解决缺考科目显示排名的问题
+ * [!! 增强版 !!] 新增：批量打印同班同学功能 (每人一页)
+ * 修复：删除了未定义的 validClassRank 报错代码
  */
 function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCheckboxes = false) {
 
-    // 1. 过滤与准备数据 (不变)
+    // 1. 过滤与准备数据
     const visibleExamData = multiExamData.filter(e => !e.isHidden);
     const examNames = visibleExamData.map(e => e.label);
 
@@ -6629,28 +6629,30 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
         subjectRankData[subject] = { classRank: [], gradeRank: [] };
     });
 
-    let studentNameForPrint = "学生";
+    let currentStudentName = "学生";
+    let currentStudentClass = ""; 
 
-    // 2. 填充数据
+    // 2. 填充数据 (获取当前学生的数据)
     visibleExamData.forEach(exam => {
         const student = exam.students.find(s => String(s.id) === String(studentId));
         if (student) {
-            if (studentNameForPrint === "学生") studentNameForPrint = student.name;
+            if (currentStudentName === "学生") {
+                currentStudentName = student.name;
+                currentStudentClass = student.class; 
+            }
 
             rankData.classRank.push(student.rank || null);
             rankData.gradeRank.push(student.gradeRank || null);
 
             dynamicSubjects.forEach(subject => {
                 const rawScore = student.scores[subject];
-                // [!! 修复 1] 只有当 rawScore 严格为 null/undefined 时才存为 null (保留 0 分)
                 subjectData[subject].push((rawScore !== null && rawScore !== undefined) ? rawScore : null);
 
-                // [!! 修复 2] 核心逻辑：只有当有有效分数时，才获取排名
-                // 如果分数是 N/A，那么排名强制设为 null，不读取系统自动生成的“倒数第一”排名
                 let classRank = null;
                 let gradeRank = null;
 
                 if (typeof rawScore === 'number' && !isNaN(rawScore)) {
+                    // [修复] 删除之前报错的 validClassRank 行，直接使用下方逻辑
                     classRank = student.classRanks ? student.classRanks[subject] : null;
                     gradeRank = student.gradeRanks ? student.gradeRanks[subject] : null;
                 }
@@ -6659,7 +6661,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
                 subjectRankData[subject].gradeRank.push(gradeRank);
             });
         } else {
-            // 学生没参加这次考试，全部填 null
+            // 缺考填空
             rankData.classRank.push(null);
             rankData.gradeRank.push(null);
             dynamicSubjects.forEach(subject => {
@@ -6670,26 +6672,17 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
         }
     });
 
-    // 3. [图表1 数据] 分数 (不变)
+    // 3. [图表1 数据]
     const scoreSeries = [];
     dynamicSubjects.forEach(subject => {
-        scoreSeries.push({
-            name: subject,
-            type: 'line',
-            data: subjectData[subject],
-            smooth: true,
-            connectNulls: true
-        });
+        scoreSeries.push({ name: subject, type: 'line', data: subjectData[subject], smooth: true, connectNulls: true });
     });
 
-    // 4. 复选框逻辑 (不变)
+    // 4. 复选框逻辑
     const checkboxContainer = document.getElementById('multi-subject-checkboxes');
     if (checkboxContainer && forceRepopulateCheckboxes) {
         checkboxContainer.innerHTML = dynamicSubjects.map(subject => `
-            <div>
-                <input type="checkbox" id="multi-cb-${subject}" value="${subject}" checked>
-                <label for="multi-cb-${subject}">${subject}</label>
-            </div>
+            <div><input type="checkbox" id="multi-cb-${subject}" value="${subject}" checked><label for="multi-cb-${subject}">${subject}</label></div>
         `).join('');
     }
     const checkedSubjects = new Set();
@@ -6698,94 +6691,184 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
     }
     const filteredScoreSeries = scoreSeries.filter(series => checkedSubjects.has(series.name));
 
-    // 5. [图表2 数据] 总分排名 (不变)
+    // 5. [图表2 数据]
     const totalRankSeries = [];
-    totalRankSeries.push({
-        name: '班级排名 (总)',
-        type: 'line',
-        data: rankData.classRank,
-        smooth: true,
-        connectNulls: true
-    });
-    totalRankSeries.push({
-        name: '年级排名 (总)',
-        type: 'line',
-        data: rankData.gradeRank,
-        smooth: true,
-        connectNulls: true
-    });
+    totalRankSeries.push({ name: '班级排名 (总)', type: 'line', data: rankData.classRank, smooth: true, connectNulls: true });
+    totalRankSeries.push({ name: '年级排名 (总)', type: 'line', data: rankData.gradeRank, smooth: true, connectNulls: true });
 
-    // 6. 渲染 图表1 & 图表2 (不变)
-    renderMultiExamLineChart('multi-exam-score-chart', '', examNames, filteredScoreSeries, false);
-    renderMultiExamLineChart('multi-exam-rank-chart', '', examNames, totalRankSeries, true);
+    // 6. 渲染 图表
+    if (typeof renderMultiExamLineChart === 'function') {
+        renderMultiExamLineChart('multi-exam-score-chart', '', examNames, filteredScoreSeries, false);
+        renderMultiExamLineChart('multi-exam-rank-chart', '', examNames, totalRankSeries, true);
+    }
 
-    // 7. 渲染 图表3 (不变，调用新函数)
     const rankTypeSelect = document.getElementById('multi-rank-type-select');
     const rankType = rankTypeSelect ? rankTypeSelect.value : 'both';
+    
+    if (typeof renderSubjectRankChart === 'function') {
+        renderSubjectRankChart('multi-exam-subject-rank-chart', examNames, visibleExamData, studentId, checkedSubjects, rankType);
+    }
 
-    renderSubjectRankChart(
-        'multi-exam-subject-rank-chart',
-        examNames,
-        visibleExamData,
-        studentId,
-        checkedSubjects,
-        rankType
-    );
-
-    // 8. 绘制表格 (含打印按钮) [!! 修改渲染模板]
+    // 8. 绘制表格 (含打印按钮)
     const tableContainer = document.getElementById('multi-student-table-container');
     if (!tableContainer) return;
 
-    // 辅助函数：安全显示数据 (0分显示0，null显示N/A)
-    const safeVal = (v) => (v !== null && v !== undefined) ? v : 'N/A';
+    const safeVal = (v) => (v !== null && v !== undefined) ? v : '-';
 
-    let tableHtml = `
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+    // 构建表格 HTML 的辅助函数
+    const generateSingleTableHTML = (sName, sClass, sId, sRankData, sSubData, sSubRankData) => {
+        return `
+            <div class="print-page-wrapper" style="page-break-after: always; padding: 20px;">
+                <div style="text-align:center; margin-bottom:20px;">
+                    <h2 style="margin:0;">${sName} - 历次考试成绩详情</h2>
+                    <p style="margin:5px 0; color:#666;">班级: ${sClass} | 考号: ${sId}</p>
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: center;">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th style="border: 1px solid #999; padding: 8px; min-width: 120px;">考试名称</th>
+                            <th style="border: 1px solid #999; padding: 8px;">班级排名 (总)</th>
+                            <th style="border: 1px solid #999; padding: 8px;">年级排名 (总)</th>
+                            ${dynamicSubjects.map(s => `<th style="border: 1px solid #999; padding: 8px;">${s}<br>(分数)</th>`).join('')}
+                            ${dynamicSubjects.map(s => `<th style="border: 1px solid #999; padding: 8px;">${s}<br>(班排)</th>`).join('')}
+                            ${dynamicSubjects.map(s => `<th style="border: 1px solid #999; padding: 8px;">${s}<br>(年排)</th>`).join('')}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${examNames.map((examName, index) => `
+                            <tr>
+                                <td style="border: 1px solid #999; padding: 8px; font-weight: bold;">${examName}</td>
+                                <td style="border: 1px solid #999; padding: 8px;">${safeVal(sRankData.classRank[index])}</td>
+                                <td style="border: 1px solid #999; padding: 8px;">${safeVal(sRankData.gradeRank[index])}</td>
+                                ${dynamicSubjects.map(subject => `<td style="border: 1px solid #999; padding: 8px;">${safeVal(sSubData[subject][index])}</td>`).join('')}
+                                ${dynamicSubjects.map(subject => `<td style="border: 1px solid #999; padding: 8px;">${safeVal(sSubRankData[subject].classRank[index])}</td>`).join('')}
+                                ${dynamicSubjects.map(subject => `<td style="border: 1px solid #999; padding: 8px;">${safeVal(sSubRankData[subject].gradeRank[index])}</td>`).join('')}
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                <div style="margin-top: 20px; text-align: right; font-size: 10px; color: #999;">
+                    生成时间: ${new Date().toLocaleString()}
+                </div>
+            </div>
+        `;
+    };
+
+    // 生成当前学生的 HTML (用于显示)
+    const currentStudentHtml = generateSingleTableHTML(currentStudentName, currentStudentClass, studentId, rankData, subjectData, subjectRankData);
+
+    // 渲染到页面
+    let interfaceHtml = `
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-top: 20px; border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 10px;">
             <h4 style="margin: 0;">成绩详情表</h4>
-            <button id="multi-print-table-btn" class="sidebar-button" style="font-size: 0.9em; padding: 6px 12px; background-color: var(--color-blue);">
-                🖨️ 打印表格
-            </button>
+            <div>
+                <button id="multi-print-table-btn" class="sidebar-button" style="font-size: 0.9em; padding: 6px 12px; background-color: var(--color-gray);">
+                    🖨️ 打印当前
+                </button>
+                <button id="multi-batch-print-btn" class="sidebar-button" style="font-size: 0.9em; padding: 6px 12px; background-color: var(--color-blue); margin-left: 10px;">
+                    📑 批量打印 (全班/每人一页)
+                </button>
+            </div>
         </div>
         <div class="table-container" id="multi-print-table-content" style="max-height: 400px;">
-            <table>
-                <thead>
-                    <tr>
-                        <th style="min-width: 120px;">考试名称</th>
-                        <th>班级排名 (总)</th>
-                        <th>年级排名 (总)</th>
-                        ${dynamicSubjects.map(s => `<th>${s} (分数)</th>`).join('')}
-                        ${dynamicSubjects.map(s => `<th>${s} (班排)</th>`).join('')}
-                        ${dynamicSubjects.map(s => `<th>${s} (年排)</th>`).join('')}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${examNames.map((examName, index) => `
-                        <tr>
-                            <td><strong>${examName}</strong></td>
-                            <td>${safeVal(rankData.classRank[index])}</td>
-                            <td>${safeVal(rankData.gradeRank[index])}</td>
-                            ${dynamicSubjects.map(subject => `
-                                <td>${safeVal(subjectData[subject][index])}</td>
-                            `).join('')}
-                            ${dynamicSubjects.map(subject => `
-                                <td>${safeVal(subjectRankData[subject].classRank[index])}</td>
-                            `).join('')}
-                            ${dynamicSubjects.map(subject => `
-                                <td>${safeVal(subjectRankData[subject].gradeRank[index])}</td>
-                            `).join('')}
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        </div>
+            ${currentStudentHtml.replace(/<div class="print-page-wrapper".*?>|<\/div>$/g, '')} </div>
     `;
-    tableContainer.innerHTML = tableHtml;
+    tableContainer.innerHTML = interfaceHtml;
 
+    // 绑定事件：打印当前
     const printBtn = document.getElementById('multi-print-table-btn');
     if (printBtn) {
         printBtn.addEventListener('click', () => {
-            const contentToPrint = document.getElementById('multi-print-table-content').innerHTML;
-            startMultiTablePrintJob(studentNameForPrint, contentToPrint);
+            if(typeof startMultiTablePrintJob === 'function') {
+                startMultiTablePrintJob(currentStudentName, currentStudentHtml);
+            } else {
+                console.error("startMultiTablePrintJob 未定义");
+            }
+        });
+    }
+
+    // 绑定事件：批量打印
+    const batchPrintBtn = document.getElementById('multi-batch-print-btn');
+    if (batchPrintBtn) {
+        batchPrintBtn.addEventListener('click', () => {
+            if (!currentStudentClass) {
+                alert("无法识别当前学生的班级，无法进行批量打印。");
+                return;
+            }
+
+            if (!confirm(`即将生成 "${currentStudentClass}" 所有学生的成绩单。\n\n每位学生将占据一页，是否继续？`)) return;
+
+            // 1. 找出同班同学
+            const classStudentsMap = new Map(); // 用 Map 去重
+            visibleExamData.forEach(exam => {
+                exam.students.forEach(s => {
+                    if (s.class === currentStudentClass) {
+                        if (!classStudentsMap.has(s.id)) {
+                            classStudentsMap.set(s.id, { id: s.id, name: s.name, class: s.class });
+                        }
+                    }
+                });
+            });
+
+            const classmates = Array.from(classStudentsMap.values()).sort((a, b) => a.id.localeCompare(b.id)); // 按学号排序
+            
+            if (classmates.length === 0) {
+                alert("未找到同班同学数据。");
+                return;
+            }
+
+            // 2. 循环生成 HTML
+            let fullHtml = "";
+            
+            classmates.forEach(mate => {
+                // 为每个同学准备数据
+                const mRankData = { classRank: [], gradeRank: [] };
+                const mSubjectData = {};
+                const mSubjectRankData = {};
+                dynamicSubjects.forEach(sub => {
+                    mSubjectData[sub] = [];
+                    mSubjectRankData[sub] = { classRank: [], gradeRank: [] };
+                });
+
+                visibleExamData.forEach(exam => {
+                    const s = exam.students.find(st => String(st.id) === String(mate.id));
+                    if (s) {
+                        mRankData.classRank.push(s.rank || null);
+                        mRankData.gradeRank.push(s.gradeRank || null);
+                        dynamicSubjects.forEach(sub => {
+                            const score = s.scores[sub];
+                            mSubjectData[sub].push((score !== null && score !== undefined) ? score : null);
+                            let cRank = null, gRank = null;
+                            if (typeof score === 'number' && !isNaN(score)) {
+                                cRank = s.classRanks ? s.classRanks[sub] : null;
+                                gRank = s.gradeRanks ? s.gradeRanks[sub] : null;
+                            }
+                            mSubjectRankData[sub].classRank.push(cRank);
+                            mSubjectRankData[sub].gradeRank.push(gRank);
+                        });
+                    } else {
+                        // 缺考
+                        mRankData.classRank.push(null);
+                        mRankData.gradeRank.push(null);
+                        dynamicSubjects.forEach(sub => {
+                            mSubjectData[sub].push(null);
+                            mSubjectRankData[sub].classRank.push(null);
+                            mSubjectRankData[sub].gradeRank.push(null);
+                        });
+                    }
+                });
+
+                // 生成单个HTML并追加
+                fullHtml += generateSingleTableHTML(mate.name, mate.class, mate.id, mRankData, mSubjectData, mSubjectRankData);
+            });
+
+            // 3. 调用打印
+            if(typeof startMultiTablePrintJob === 'function') {
+                startMultiTablePrintJob(`${currentStudentClass}-批量成绩单`, fullHtml);
+            } else {
+                console.error("startMultiTablePrintJob 未定义");
+                alert("打印功能函数 startMultiTablePrintJob 缺失");
+            }
         });
     }
 }
