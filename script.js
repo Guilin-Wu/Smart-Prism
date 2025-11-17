@@ -6938,6 +6938,24 @@ function renderItemAnalysis(container) {
                 </button>
                 <span id="item-analysis-status" style="margin-left: 15px; color: var(--text-muted);"></span>
             </div>
+            <div class="main-card-wrapper" style="margin-bottom: 20px; border-left: 5px solid #6f42c1; background-color: #fdfaff;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <h4 style="margin:0; color:#6f42c1;">📂 小题分析数据归档库 (History)</h4>
+                <div style="display:flex; gap:10px;">
+                    <button id="item-lib-save-current-btn" class="sidebar-button" style="background-color:#28a745; font-size:0.85em;" disabled>
+                        💾 保存当前数据
+                    </button>
+                     <button id="item-lib-clear-btn" class="sidebar-button" style="background-color:#dc3545; font-size:0.85em;">
+                        🗑️ 清空库
+                    </button>
+                </div>
+            </div>
+            <p style="font-size:0.85em; color:#666; margin:5px 0 10px 0;">点击列表项可直接切换至该次考试分析。保存的数据包含题目配置和试卷文本。</p>
+            
+            <div id="item-analysis-library-list" class="multi-exam-list-container" style="max-height: 250px; overflow-y: auto; background:#fff;">
+                <div style="padding:20px; text-align:center; color:#999;">加载中...</div>
+            </div>
+        </div>
         </div>
 
         
@@ -7122,6 +7140,9 @@ function renderItemAnalysis(container) {
             // [!! 修改 !!] 显示文件名
             statusLabel.innerText = `✅ 已加载: ${file.name} (共 ${subjects.length} 科)`;
             populateItemAnalysisUI(itemData);
+
+            const saveBtn = document.getElementById('item-lib-save-current-btn');
+            if (saveBtn) saveBtn.disabled = false;
         } catch (err) {
             console.error(err);
             statusLabel.innerText = `❌ 解析失败: ${err.message}`;
@@ -7237,10 +7258,9 @@ function renderItemAnalysis(container) {
         renderItemAnalysisCharts(); // [!!] 保存配置后重绘所有
     });
 
-    // 12. 模块加载时：尝试从缓存加载 (!! 修改：包裹在 async 箭头函数中 !!)
-    (async () => {
+ (async () => {
         try {
-            const statusLabel = document.getElementById('item-analysis-status'); // 确保获取到 statusLabel
+            const statusLabel = document.getElementById('item-analysis-status'); 
 
             // 并行获取配置和数据
             const [storedConfig, storedData, storedFileName] = await Promise.all([
@@ -7264,6 +7284,18 @@ function renderItemAnalysis(container) {
                 }
 
                 populateItemAnalysisUI(G_ItemAnalysisData);
+
+                // =================================================
+                // [!! 核心修复 !!] 自动加载成功后，必须激活“保存”按钮
+                // =================================================
+                const saveBtn = document.getElementById('item-lib-save-current-btn');
+                if (saveBtn) {
+                    saveBtn.disabled = false; 
+                    saveBtn.style.opacity = "1"; // 确保样式也恢复
+                    saveBtn.style.cursor = "pointer";
+                }
+                // =================================================
+
             } else {
                 statusLabel.innerText = "请导入小题分明细 Excel。";
             }
@@ -7277,6 +7309,225 @@ function renderItemAnalysis(container) {
             localforage.removeItem('G_ItemAnalysisConfig');
         }
     })();
+// ============================================================
+    // [修复] 小题分析归档库：事件绑定与渲染逻辑
+    // ============================================================
+    const libListContainer = document.getElementById('item-analysis-library-list');
+    const libSaveBtn = document.getElementById('item-lib-save-current-btn');
+    const libClearBtn = document.getElementById('item-lib-clear-btn');
+
+// 1. 渲染存档列表函数
+    const renderLibraryList = async () => {
+        
+        const library = await localforage.getItem('G_ItemAnalysis_Library') || [];
+        refreshLibraryUI(library);
+
+        if (library.length === 0) {
+            libListContainer.innerHTML = `<div style="padding:20px; text-align:center; color:#999;">暂无存档数据</div>`;
+            return;
+        }
+
+        libListContainer.innerHTML = library.map((item, index) => `
+            <div class="multi-exam-item" style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                <div onclick="window.loadItemFromLibrary('${item.id}')" style="flex-grow:1; cursor:pointer;">
+                    <div style="font-weight:bold; color:#333;">${index + 1}. ${item.name}</div>
+                    <div style="font-size:0.8em; color:#999;">📅 ${item.date} | 📚 ${item.subjects.length} 个科目</div>
+                </div>
+                <div style="display:flex; gap:5px;">
+                    <button onclick="window.renameItemFromLibrary('${item.id}')" class="sidebar-button" 
+                        style="background-color:#17a2b8; padding:2px 8px; font-size:0.8em; border:none;">
+                        重命名
+                    </button>
+                    
+                    <button onclick="window.deleteItemFromLibrary('${item.id}')" class="sidebar-button" 
+                        style="background-color:#fff; color:#dc3545; border:1px solid #dc3545; padding:2px 8px; font-size:0.8em;">
+                        删除
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    };
+
+// 2. 绑定“保存当前数据”点击事件
+    if (libSaveBtn) {
+        // [!! 优化 !!] 直接绑定即可，不需要 cloneNode，因为 initialized 标记保证了只会执行一次
+        libSaveBtn.onclick = async () => { // 使用 onclick 覆盖之前的事件，防止重复
+            // 检查是否有数据
+            if (!G_ItemAnalysisData || Object.keys(G_ItemAnalysisData).length === 0) {
+                alert("当前没有可保存的数据！请先导入 Excel。");
+                return;
+            }
+
+            // 获取文件名作为默认标题
+            let defaultName = "我的小题分析";
+            const storedFileName = await localforage.getItem('G_ItemAnalysisFileName');
+            if (storedFileName) defaultName = storedFileName.replace(/\.xlsx|\.xls|\.csv/g, '');
+
+            const name = prompt("请为该存档命名:", defaultName);
+            if (!name) return;
+
+            // 构建存档对象
+            const record = {
+                id: Date.now().toString(),
+                name: name,
+                date: new Date().toLocaleString(),
+                data: G_ItemAnalysisData,        
+                config: G_ItemAnalysisConfig,    
+                fileName: storedFileName || name,
+                subjects: Object.keys(G_ItemAnalysisData)
+            };
+
+            // 保存到 IndexedDB
+            let library = await localforage.getItem('G_ItemAnalysis_Library');
+            if (!Array.isArray(library)) library = []; // 确保是数组
+            
+            library.unshift(record); 
+            await localforage.setItem('G_ItemAnalysis_Library', library);
+            
+            alert("✅ 保存成功！您可以在下方列表中随时切换回此数据。");
+            renderLibraryList(); // 刷新列表
+        };
+    }
+
+    // 3. 绑定“清空库”点击事件
+    if (libClearBtn) {
+        // 同样做一次克隆替换，防止重复绑定
+        const newClearBtn = libClearBtn.cloneNode(true);
+        libClearBtn.parentNode.replaceChild(newClearBtn, libClearBtn);
+
+        newClearBtn.addEventListener('click', async () => {
+            if(confirm("⚠️ 确定要清空所有小题分析的存档吗？\n此操作不可恢复！")) {
+                await localforage.removeItem('G_ItemAnalysis_Library');
+                renderLibraryList();
+            }
+        });
+    }
+
+    // 4. 初始化时渲染列表
+    renderLibraryList();
+}
+
+// ==========================================
+// [新增] 全局函数：小题库的加载与删除
+// ==========================================
+
+// 加载存档
+window.loadItemFromLibrary = async (id) => {
+    const library = await localforage.getItem('G_ItemAnalysis_Library') || [];
+    const record = library.find(r => r.id === id);
+
+    if (!record) { alert("未找到该记录，可能已被删除。"); return; }
+    if (!confirm(`确定要加载存档：\n【${record.name}】吗？\n\n注意：当前未保存的分析界面将被覆盖。`)) return;
+
+    // 1. 恢复全局变量
+    G_ItemAnalysisData = record.data;
+    G_ItemAnalysisConfig = record.config || {}; 
+    
+    // 2. 更新当前环境缓存 (保证刷新页面后还在)
+    await localforage.setItem('G_ItemAnalysisData', G_ItemAnalysisData);
+    await localforage.setItem('G_ItemAnalysisConfig', G_ItemAnalysisConfig);
+    await localforage.setItem('G_ItemAnalysisFileName', record.fileName);
+
+    // 3. 刷新 UI
+    // 这里我们模拟一次“重新选择模式”来触发刷新，或者手动调用填充逻辑
+    const subjectSelect = document.getElementById('item-subject-select');
+    const statusLabel = document.getElementById('item-analysis-status');
+    const saveBtn = document.getElementById('item-lib-save-current-btn');
+    const configBtn = document.getElementById('item-analysis-config-btn');
+
+    if (subjectSelect) {
+        const subjects = Object.keys(G_ItemAnalysisData);
+        // 填充科目下拉框
+        subjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+        
+        // 显示相关按钮
+        document.getElementById('item-analysis-results').style.display = 'block';
+        if (configBtn) configBtn.style.display = 'inline-block';
+        if (saveBtn) saveBtn.disabled = false;
+        if (statusLabel) statusLabel.innerText = `📂 已加载存档: ${record.name}`;
+
+        // 触发重绘 (模拟用户切换了科目)
+        renderItemAnalysisCharts(); 
+    }
+};
+
+// ==========================================
+// [新增] 全局函数：重命名存档
+// ==========================================
+window.renameItemFromLibrary = async (id) => {
+    let library = await localforage.getItem('G_ItemAnalysis_Library') || [];
+    const item = library.find(r => r.id === id);
+    
+    if (!item) return;
+
+    // 弹出输入框
+    const newName = prompt("请输入新的存档名称:", item.name);
+    
+    // 如果用户点击取消或输入为空，则不处理
+    if (newName === null || newName.trim() === "") return;
+
+    // 更新名称
+    item.name = newName.trim();
+    
+    // 保存回数据库
+    await localforage.setItem('G_ItemAnalysis_Library', library);
+    
+    // 刷新 UI (复用下方的渲染逻辑)
+    refreshLibraryUI(library);
+};
+
+// ==========================================
+// [修改] 全局函数：删除存档 (更新渲染逻辑以包含重命名按钮)
+// ==========================================
+window.deleteItemFromLibrary = async (id) => {
+    // event.stopPropagation() 不需要，因为按钮不在 onclick div 内部，而是兄弟节点
+    if(!confirm("确定删除这条存档吗？此操作不可恢复。")) return;
+    
+    let library = await localforage.getItem('G_ItemAnalysis_Library') || [];
+    library = library.filter(r => r.id !== id);
+    await localforage.setItem('G_ItemAnalysis_Library', library);
+    
+    // 刷新 UI
+    refreshLibraryUI(library);
+};
+
+
+// [辅助函数] 用于全局刷新列表 UI (已更新：添加“切换”按钮)
+function refreshLibraryUI(library) {
+    const container = document.getElementById('item-analysis-library-list');
+    if(container) {
+        if (library.length === 0) {
+            container.innerHTML = `<div style="padding:20px; text-align:center; color:#999;">暂无存档数据</div>`;
+        } else {
+            container.innerHTML = library.map((item, index) => `
+                <div class="multi-exam-item" style="padding:10px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                    
+                    <div onclick="window.loadItemFromLibrary('${item.id}')" style="flex-grow:1; cursor:pointer; padding-right: 10px;">
+                        <div style="font-weight:bold; color:#333;">${index + 1}. ${item.name}</div>
+                        <div style="font-size:0.8em; color:#999;">📅 ${item.date} | 📚 ${item.subjects.length} 个科目</div>
+                    </div>
+
+                    <div style="display:flex; gap:5px;">
+                        
+                        <button onclick="window.loadItemFromLibrary('${item.id}')" class="sidebar-button" 
+                            style="background-color:#28a745; padding:2px 8px; font-size:0.8em; border:none;" title="加载此存档">
+                            📂 切换
+                        </button>
+
+                        <button onclick="window.renameItemFromLibrary('${item.id}')" class="sidebar-button" 
+                            style="background-color:#17a2b8; padding:2px 8px; font-size:0.8em; border:none;">
+                            重命名
+                        </button>
+                        
+                        <button onclick="window.deleteItemFromLibrary('${item.id}')" class="sidebar-button" 
+                            style="background-color:#fff; color:#dc3545; border:1px solid #dc3545; padding:2px 8px; font-size:0.8em;">
+                            删除
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
 }
 
 /**
