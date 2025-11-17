@@ -1165,8 +1165,8 @@ function renderModule(moduleName, activeData, activeCompareData) {
         case 'goal-setting':
             renderGoalSetting(container, activeData, G_Statistics);
             break;
-        
-            // [!! 在这里插入这一段 !!]
+
+        // [!! 在这里插入这一段 !!]
         case 'exam-arrangement':
             renderExamArrangement(container);
             break;
@@ -1174,6 +1174,10 @@ function renderModule(moduleName, activeData, activeCompareData) {
         // [!! 新增 !!] 智能互助分组
         case 'study-groups':
             renderStudyGroups(container);
+            break;
+
+        case 'comment-gen':
+            renderCommentGenerator(container);
             break;
 
         default:
@@ -1589,11 +1593,11 @@ function renderStudent(container, students, stats) {
     // [新增] 绑定隐藏排名按钮事件
     toggleRankBtn.addEventListener('click', () => {
         window.G_HideRank = !window.G_HideRank; // 切换状态
-        
+
         // 更新按钮样式
         toggleRankBtn.innerHTML = window.G_HideRank ? '👁️ 显示排名' : '🚫 隐藏排名';
         toggleRankBtn.style.backgroundColor = window.G_HideRank ? '#6c757d' : '#fd7e14';
-        
+
         // 如果当前有选中的学生，立即刷新显示
         const currentStudentId = contentEl.dataset.currentStudentId;
         if (currentStudentId) {
@@ -1646,7 +1650,7 @@ function renderStudent(container, students, stats) {
             rankDiff = oldStudent.rank - student.rank;
             gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 'N/A';
         }
-        
+
         // [新增] 掩码辅助函数
         const maskRank = (val) => window.G_HideRank ? '***' : val;
         // 如果隐藏排名，也不显示排名的变化（进退步）
@@ -1694,56 +1698,56 @@ function renderStudent(container, students, stats) {
                     </thead>
                     <tbody>
                         ${G_DynamicSubjectList.map(subject => {
-                            let subjectScoreDiff = 'N/A';
-                            let subjectClassRankDiff = 'N/A';
-                            let subjectGradeRankDiff = 'N/A';
+            let subjectScoreDiff = 'N/A';
+            let subjectClassRankDiff = 'N/A';
+            let subjectGradeRankDiff = 'N/A';
 
-                            if (oldStudent && oldStudent.scores) {
-                                const oldScore = oldStudent.scores[subject] || 0;
-                                const newScore = student.scores[subject] || 0;
-                                if (oldScore !== 0 || newScore !== 0) {
-                                    subjectScoreDiff = (newScore - oldScore).toFixed(2);
-                                }
-                                if (oldStudent.classRanks && student.classRanks) {
-                                    const oldClassRank = oldStudent.classRanks[subject] || 0;
-                                    const newClassRank = student.classRanks[subject] || 0;
-                                    if (oldClassRank > 0 && newClassRank > 0) {
-                                        subjectClassRankDiff = oldClassRank - newClassRank;
-                                    }
-                                }
-                                if (oldStudent.gradeRanks && student.gradeRanks) {
-                                    const oldGradeRank = oldStudent.gradeRanks[subject] || 0;
-                                    const newGradeRank = student.gradeRanks[subject] || 0;
-                                    if (oldGradeRank > 0 && newGradeRank > 0) {
-                                        subjectGradeRankDiff = oldGradeRank - newGradeRank;
-                                    }
-                                }
-                            }
+            if (oldStudent && oldStudent.scores) {
+                const oldScore = oldStudent.scores[subject] || 0;
+                const newScore = student.scores[subject] || 0;
+                if (oldScore !== 0 || newScore !== 0) {
+                    subjectScoreDiff = (newScore - oldScore).toFixed(2);
+                }
+                if (oldStudent.classRanks && student.classRanks) {
+                    const oldClassRank = oldStudent.classRanks[subject] || 0;
+                    const newClassRank = student.classRanks[subject] || 0;
+                    if (oldClassRank > 0 && newClassRank > 0) {
+                        subjectClassRankDiff = oldClassRank - newClassRank;
+                    }
+                }
+                if (oldStudent.gradeRanks && student.gradeRanks) {
+                    const oldGradeRank = oldStudent.gradeRanks[subject] || 0;
+                    const newGradeRank = student.gradeRanks[subject] || 0;
+                    if (oldGradeRank > 0 && newGradeRank > 0) {
+                        subjectGradeRankDiff = oldGradeRank - newGradeRank;
+                    }
+                }
+            }
 
-                            const config = G_SubjectConfigs[subject] || {};
-                            const isAssignedSubject = config.isAssigned === true;
-                            let rankBasedScoreDisplay = '';
-                            if (isAssignedSubject) {
-                                const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
-                                const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
-                                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
-                            } else {
-                                rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
-                            }
+            const config = G_SubjectConfigs[subject] || {};
+            const isAssignedSubject = config.isAssigned === true;
+            let rankBasedScoreDisplay = '';
+            if (isAssignedSubject) {
+                const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
+                const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
+                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
+            } else {
+                rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
+            }
 
-                            const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
-                            let tScoreDiffHtml = '';
-                            if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
-                                const oldTScore = oldStudent.tScores[subject];
-                                if (tScore !== 'N/A') {
-                                    const diff = tScore - oldTScore;
-                                    const diffAbs = Math.abs(diff).toFixed(1);
-                                    if (diff > 0) tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
-                                    else if (diff < 0) tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
-                                }
-                            }
+            const tScore = (student.tScores && student.tScores[subject]) ? student.tScores[subject] : 'N/A';
+            let tScoreDiffHtml = '';
+            if (oldStudent && oldStudent.tScores && oldStudent.tScores[subject]) {
+                const oldTScore = oldStudent.tScores[subject];
+                if (tScore !== 'N/A') {
+                    const diff = tScore - oldTScore;
+                    const diffAbs = Math.abs(diff).toFixed(1);
+                    if (diff > 0) tScoreDiffHtml = `<span class="progress" style="font-size:0.9em; margin-left:4px;">(▲${diffAbs})</span>`;
+                    else if (diff < 0) tScoreDiffHtml = `<span class="regress" style="font-size:0.9em; margin-left:4px;">(▼${diffAbs})</span>`;
+                }
+            }
 
-                            return `
+            return `
                                 <tr>
                                     <td>${subject}</td>
                                     <td>
@@ -1768,7 +1772,7 @@ function renderStudent(container, students, stats) {
                                     </td>
                                 </tr>
                             `;
-                        }).join('')}
+        }).join('')}
                     </tbody>
                 </table>
             </div>
@@ -2502,7 +2506,7 @@ function renderWeakness(container, activeData, stats) {
 
     // 3. 渲染图表
     renderWeaknessScatter('weakness-scatter-chart', weaknessData, stats);
-    
+
     // 4. 渲染表格 (包含填充下拉框逻辑)
     renderWeaknessTable('weakness-table-container', weaknessData);
 
@@ -3068,14 +3072,14 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                                 <tbody>
                         ${students.map(s => {
                         const r = getRanks(s);
-                        
+
                         // [!!] 获取分层名称
                         const oldTierName = getRankCategory(r.old);
                         const newTierName = getRankCategory(r.new);
-                        
+
                         const tierOld = rankTiers.findIndex(t => t.name === oldTierName);
                         const tierNew = rankTiers.findIndex(t => t.name === newTierName);
-                        
+
                         let rowClass = '';
                         // 索引越小代表排名越靠前 (Top 10% 是 0)，所以 旧索引 > 新索引 = 进步
                         if (tierOld > tierNew) rowClass = 'progress';
@@ -3313,7 +3317,7 @@ function renderMultiExam(container) {
         }
     });
 
-   // ============================================================
+    // ============================================================
     // [!! 核心升级 !!] 全系统数据导出 (Full System Export)
     // ============================================================
     exportBtn.onclick = async () => { // 使用 onclick 避免重复绑定
@@ -3323,7 +3327,7 @@ function renderMultiExam(container) {
 
             // 1. 准备要备份的数据 Key 清单
             // 格式: { backupKey: localForageKey/localStorageKey, type: 'localforage'/'localstorage' }
-            
+
             // (A) 从 IndexedDB 获取的大数据
             const [
                 collections,
@@ -3395,7 +3399,7 @@ function renderMultiExam(container) {
 
         statusLabel.innerText = `⏳ 正在解析备份文件...`;
         const reader = new FileReader();
-        
+
         reader.onload = async (e) => {
             try {
                 const jsonContent = JSON.parse(e.target.result);
@@ -3403,7 +3407,7 @@ function renderMultiExam(container) {
                 // --- 情况 A: 识别为新版全量备份 ---
                 if (jsonContent.__version__ && jsonContent.__version__.startsWith("SmartPrism_Full")) {
                     const { data, timestamp } = jsonContent;
-                    
+
                     if (!confirm(`检测到全系统备份文件 (创建于 ${timestamp})。\n\n包含：\n- 📚 考试列表库\n- 🎯 目标规划数据\n- 🔬 小题分析库\n- ⚙️ 系统配置\n\n【警告】导入将覆盖当前浏览器的所有历史数据！\n确定要还原吗？`)) {
                         statusLabel.innerText = "操作已取消";
                         jsonUploader.value = null;
@@ -3428,14 +3432,14 @@ function renderMultiExam(container) {
                         if (data.meta.deepSeekKey) localStorage.setItem('G_DeepSeekKey', data.meta.deepSeekKey);
                         if (data.meta.theme) {
                             localStorage.setItem('app_theme', data.meta.theme);
-                            if(data.meta.theme === 'dark') document.body.setAttribute('data-theme', 'dark');
+                            if (data.meta.theme === 'dark') document.body.setAttribute('data-theme', 'dark');
                         }
                     }
 
                     alert("✅ 全系统数据还原成功！页面即将刷新。");
                     location.reload(); // 刷新以应用所有更改
-                } 
-                
+                }
+
                 // --- 情况 B: 识别为旧版备份 (仅考试列表数组) ---
                 else if (Array.isArray(jsonContent) || (jsonContent.length > 0 && jsonContent[0].students)) {
                     if (!confirm(`检测到旧版备份文件 (仅包含考试列表)。\n\n是否将其导入到当前选中的列表库中？(这不会覆盖目标规划和小题库)`)) {
@@ -3445,13 +3449,13 @@ function renderMultiExam(container) {
 
                     // 走旧的逻辑：保存到当前 collection
                     await saveMultiExamData(jsonContent);
-                    
+
                     // 刷新界面
                     renderMultiExamList(jsonContent);
                     initializeStudentSearch(jsonContent);
                     statusLabel.innerText = `✅ 旧版数据已导入 (仅更新考试列表)`;
-                } 
-                
+                }
+
                 else {
                     throw new Error("无法识别的文件格式。请确保这是由本系统导出的 JSON 备份。");
                 }
@@ -3464,12 +3468,12 @@ function renderMultiExam(container) {
                 jsonUploader.value = null; // 重置控件，允许重复上传同名文件
             }
         };
-        
+
         reader.onerror = () => {
             alert("文件读取失败");
             jsonUploader.value = null;
         };
-        
+
         reader.readAsText(file);
     };
 
@@ -5408,10 +5412,10 @@ function renderWeaknessTable(elementId, weaknessData) {
         const filteredList = studentWeaknessList.filter(item => {
             // 搜索匹配
             const matchSearch = String(item.name).toLowerCase().includes(searchTerm) ||
-                                String(item.id).toLowerCase().includes(searchTerm);
+                String(item.id).toLowerCase().includes(searchTerm);
             // 班级匹配
             const matchClass = (selectedClass === 'ALL') || (item.className === selectedClass);
-            
+
             return matchSearch && matchClass;
         });
 
@@ -5483,7 +5487,7 @@ function renderWeaknessTable(elementId, weaknessData) {
             } catch (e) {
                 console.warn("无法读取考试名称", e);
             }
-            
+
             // 获取当前筛选的班级名称以便展示
             const selectedClassVal = document.getElementById('weakness-class-filter').value;
             const subTitle = selectedClassVal === 'ALL' ? '全体学生' : selectedClassVal;
@@ -5537,7 +5541,7 @@ function renderWeaknessDetail(containerElement, studentData) {
     // 按偏离度升序排序 (最弱的在最前面)
     deviations.sort((a, b) => a.deviation - b.deviation);
 
-let html = `
+    let html = `
         <h4>${student.name} (${student.id}) - 各科偏离度详情</h4>
         <div class="table-container" style="max-height: 400px; overflow-y: auto;">
             <table>
@@ -6622,7 +6626,7 @@ function initializeStudentSearch(multiExamData) {
     const resultsContainer = document.getElementById('multi-student-search-results');
     const reportContainer = document.getElementById('multi-student-report');
 
-    if (!searchInput) return; 
+    if (!searchInput) return;
 
     // (计算所有学生列表 - 不变)
     const allStudentsMap = new Map();
@@ -6679,7 +6683,7 @@ function initializeStudentSearch(multiExamData) {
 
             // [修复点] 等待数据加载
             const currentData = await loadMultiExamData();
-            drawMultiExamChartsAndTable(studentId, currentData, true); 
+            drawMultiExamChartsAndTable(studentId, currentData, true);
         }
     });
 
@@ -6752,7 +6756,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
     });
 
     let currentStudentName = "学生";
-    let currentStudentClass = ""; 
+    let currentStudentClass = "";
 
     // 2. 填充数据 (获取当前学生的数据)
     visibleExamData.forEach(exam => {
@@ -6760,7 +6764,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
         if (student) {
             if (currentStudentName === "学生") {
                 currentStudentName = student.name;
-                currentStudentClass = student.class; 
+                currentStudentClass = student.class;
             }
 
             rankData.classRank.push(student.rank || null);
@@ -6826,7 +6830,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
 
     const rankTypeSelect = document.getElementById('multi-rank-type-select');
     const rankType = rankTypeSelect ? rankTypeSelect.value : 'both';
-    
+
     if (typeof renderSubjectRankChart === 'function') {
         renderSubjectRankChart('multi-exam-subject-rank-chart', examNames, visibleExamData, studentId, checkedSubjects, rankType);
     }
@@ -6901,7 +6905,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
     const printBtn = document.getElementById('multi-print-table-btn');
     if (printBtn) {
         printBtn.addEventListener('click', () => {
-            if(typeof startMultiTablePrintJob === 'function') {
+            if (typeof startMultiTablePrintJob === 'function') {
                 startMultiTablePrintJob(currentStudentName, currentStudentHtml);
             } else {
                 console.error("startMultiTablePrintJob 未定义");
@@ -6933,7 +6937,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
             });
 
             const classmates = Array.from(classStudentsMap.values()).sort((a, b) => a.id.localeCompare(b.id)); // 按学号排序
-            
+
             if (classmates.length === 0) {
                 alert("未找到同班同学数据。");
                 return;
@@ -6941,7 +6945,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
 
             // 2. 循环生成 HTML
             let fullHtml = "";
-            
+
             classmates.forEach(mate => {
                 // 为每个同学准备数据
                 const mRankData = { classRank: [], gradeRank: [] };
@@ -6985,7 +6989,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
             });
 
             // 3. 调用打印
-            if(typeof startMultiTablePrintJob === 'function') {
+            if (typeof startMultiTablePrintJob === 'function') {
                 startMultiTablePrintJob(`${currentStudentClass}-批量成绩单`, fullHtml);
             } else {
                 console.error("startMultiTablePrintJob 未定义");
@@ -7380,9 +7384,9 @@ function renderItemAnalysis(container) {
         renderItemAnalysisCharts(); // [!!] 保存配置后重绘所有
     });
 
- (async () => {
+    (async () => {
         try {
-            const statusLabel = document.getElementById('item-analysis-status'); 
+            const statusLabel = document.getElementById('item-analysis-status');
 
             // 并行获取配置和数据
             const [storedConfig, storedData, storedFileName] = await Promise.all([
@@ -7412,7 +7416,7 @@ function renderItemAnalysis(container) {
                 // =================================================
                 const saveBtn = document.getElementById('item-lib-save-current-btn');
                 if (saveBtn) {
-                    saveBtn.disabled = false; 
+                    saveBtn.disabled = false;
                     saveBtn.style.opacity = "1"; // 确保样式也恢复
                     saveBtn.style.cursor = "pointer";
                 }
@@ -7431,16 +7435,16 @@ function renderItemAnalysis(container) {
             localforage.removeItem('G_ItemAnalysisConfig');
         }
     })();
-// ============================================================
+    // ============================================================
     // [修复] 小题分析归档库：事件绑定与渲染逻辑
     // ============================================================
     const libListContainer = document.getElementById('item-analysis-library-list');
     const libSaveBtn = document.getElementById('item-lib-save-current-btn');
     const libClearBtn = document.getElementById('item-lib-clear-btn');
 
-// 1. 渲染存档列表函数
+    // 1. 渲染存档列表函数
     const renderLibraryList = async () => {
-        
+
         const library = await localforage.getItem('G_ItemAnalysis_Library') || [];
         refreshLibraryUI(library);
 
@@ -7470,7 +7474,7 @@ function renderItemAnalysis(container) {
         `).join('');
     };
 
-// 2. 绑定“保存当前数据”点击事件
+    // 2. 绑定“保存当前数据”点击事件
     if (libSaveBtn) {
         // [!! 优化 !!] 直接绑定即可，不需要 cloneNode，因为 initialized 标记保证了只会执行一次
         libSaveBtn.onclick = async () => { // 使用 onclick 覆盖之前的事件，防止重复
@@ -7493,8 +7497,8 @@ function renderItemAnalysis(container) {
                 id: Date.now().toString(),
                 name: name,
                 date: new Date().toLocaleString(),
-                data: G_ItemAnalysisData,        
-                config: G_ItemAnalysisConfig,    
+                data: G_ItemAnalysisData,
+                config: G_ItemAnalysisConfig,
                 fileName: storedFileName || name,
                 subjects: Object.keys(G_ItemAnalysisData)
             };
@@ -7502,10 +7506,10 @@ function renderItemAnalysis(container) {
             // 保存到 IndexedDB
             let library = await localforage.getItem('G_ItemAnalysis_Library');
             if (!Array.isArray(library)) library = []; // 确保是数组
-            
-            library.unshift(record); 
+
+            library.unshift(record);
             await localforage.setItem('G_ItemAnalysis_Library', library);
-            
+
             alert("✅ 保存成功！您可以在下方列表中随时切换回此数据。");
             renderLibraryList(); // 刷新列表
         };
@@ -7518,7 +7522,7 @@ function renderItemAnalysis(container) {
         libClearBtn.parentNode.replaceChild(newClearBtn, libClearBtn);
 
         newClearBtn.addEventListener('click', async () => {
-            if(confirm("⚠️ 确定要清空所有小题分析的存档吗？\n此操作不可恢复！")) {
+            if (confirm("⚠️ 确定要清空所有小题分析的存档吗？\n此操作不可恢复！")) {
                 await localforage.removeItem('G_ItemAnalysis_Library');
                 renderLibraryList();
             }
@@ -7543,8 +7547,8 @@ window.loadItemFromLibrary = async (id) => {
 
     // 1. 恢复全局变量
     G_ItemAnalysisData = record.data;
-    G_ItemAnalysisConfig = record.config || {}; 
-    
+    G_ItemAnalysisConfig = record.config || {};
+
     // 2. 更新当前环境缓存 (保证刷新页面后还在)
     await localforage.setItem('G_ItemAnalysisData', G_ItemAnalysisData);
     await localforage.setItem('G_ItemAnalysisConfig', G_ItemAnalysisConfig);
@@ -7561,7 +7565,7 @@ window.loadItemFromLibrary = async (id) => {
         const subjects = Object.keys(G_ItemAnalysisData);
         // 填充科目下拉框
         subjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
-        
+
         // 显示相关按钮
         document.getElementById('item-analysis-results').style.display = 'block';
         if (configBtn) configBtn.style.display = 'inline-block';
@@ -7569,7 +7573,7 @@ window.loadItemFromLibrary = async (id) => {
         if (statusLabel) statusLabel.innerText = `📂 已加载存档: ${record.name}`;
 
         // 触发重绘 (模拟用户切换了科目)
-        renderItemAnalysisCharts(); 
+        renderItemAnalysisCharts();
     }
 };
 
@@ -7579,21 +7583,21 @@ window.loadItemFromLibrary = async (id) => {
 window.renameItemFromLibrary = async (id) => {
     let library = await localforage.getItem('G_ItemAnalysis_Library') || [];
     const item = library.find(r => r.id === id);
-    
+
     if (!item) return;
 
     // 弹出输入框
     const newName = prompt("请输入新的存档名称:", item.name);
-    
+
     // 如果用户点击取消或输入为空，则不处理
     if (newName === null || newName.trim() === "") return;
 
     // 更新名称
     item.name = newName.trim();
-    
+
     // 保存回数据库
     await localforage.setItem('G_ItemAnalysis_Library', library);
-    
+
     // 刷新 UI (复用下方的渲染逻辑)
     refreshLibraryUI(library);
 };
@@ -7603,12 +7607,12 @@ window.renameItemFromLibrary = async (id) => {
 // ==========================================
 window.deleteItemFromLibrary = async (id) => {
     // event.stopPropagation() 不需要，因为按钮不在 onclick div 内部，而是兄弟节点
-    if(!confirm("确定删除这条存档吗？此操作不可恢复。")) return;
-    
+    if (!confirm("确定删除这条存档吗？此操作不可恢复。")) return;
+
     let library = await localforage.getItem('G_ItemAnalysis_Library') || [];
     library = library.filter(r => r.id !== id);
     await localforage.setItem('G_ItemAnalysis_Library', library);
-    
+
     // 刷新 UI
     refreshLibraryUI(library);
 };
@@ -7617,7 +7621,7 @@ window.deleteItemFromLibrary = async (id) => {
 // [辅助函数] 用于全局刷新列表 UI (已更新：添加“切换”按钮)
 function refreshLibraryUI(library) {
     const container = document.getElementById('item-analysis-library-list');
-    if(container) {
+    if (container) {
         if (library.length === 0) {
             container.innerHTML = `<div style="padding:20px; text-align:center; color:#999;">暂无存档数据</div>`;
         } else {
@@ -11889,7 +11893,7 @@ function initPromptManager() {
         // 6. 刷新 UI
         alert("✅ 模板已删除");
         renderSelect(); // 重新渲染下拉框
-        
+
         // 7. 自动切换回默认模板
         select.value = 'default';
         loadTemplate('default');
@@ -11909,10 +11913,10 @@ async function renderGoalSetting(container, activeData, stats) {
     // ------------------------------------------------------
     // 0. 初始化与数据加载
     // ------------------------------------------------------
-    
+
     // 默认基准数据使用全局导入的数据
-    if (!G_GoalBaselineData) G_GoalBaselineData = activeData; 
-    
+    if (!G_GoalBaselineData) G_GoalBaselineData = activeData;
+
     // 记录复盘数据来源名称 (用于显示和打印)
     let currentOutcomeSourceName = "未导入";
     // 尝试检测是否已有数据
@@ -11923,20 +11927,20 @@ async function renderGoalSetting(container, activeData, stats) {
     // 加载存档和批次信息
     let allArchives = await localforage.getItem('G_Goal_Archives') || {};
     let sessionMeta = await localforage.getItem('G_Goal_Session_Meta') || [];
-    
+
     // 初始化默认批次
     if (sessionMeta.length === 0) {
         sessionMeta = [{ id: 'default_session', name: '默认规划列表', createDate: new Date().toLocaleString() }];
         await localforage.setItem('G_Goal_Session_Meta', sessionMeta);
     }
-    
+
     // 获取当前选中的批次ID
     let currentSessionId = localStorage.getItem('G_Goal_Current_Session_ID') || sessionMeta[0].id;
     if (!sessionMeta.find(s => s.id === currentSessionId)) currentSessionId = sessionMeta[0].id;
 
     // 局部变量
     let currentStudent = null;
-    let currentPlanMode = 'total'; 
+    let currentPlanMode = 'total';
     let currentSubject = G_DynamicSubjectList[0];
     let currentStrategy = null;
     let currentTargetData = { val: 0, type: 'score' };
@@ -12137,28 +12141,28 @@ async function renderGoalSetting(container, activeData, stats) {
     // ------------------------------------------------------
     document.getElementById('btn-import-baseline').addEventListener('click', () => { G_CurrentImportType = 'goal-baseline'; document.getElementById('import-modal-title').innerText = '选择“基准成绩”'; openImportModal(); });
     document.getElementById('btn-import-outcome').addEventListener('click', () => { G_CurrentImportType = 'goal-outcome'; document.getElementById('import-modal-title').innerText = '选择“达成成绩”'; openImportModal(); });
-    
+
     // 全局数据刷新回调
     window.refreshGoalDataSourceUI = (type, fileName, data) => {
         if (type === 'baseline') {
             document.getElementById('goal-status-baseline').innerHTML = `✅ 已导入: <strong>${fileName}</strong> (${data.length}人)`;
             document.getElementById('goal-status-baseline').style.color = "#28a745";
-            refreshClassSelector(); 
+            refreshClassSelector();
             document.getElementById('goal-workspace').style.display = 'none';
         } else if (type === 'outcome') {
             // [NEW] 更新来源名
             currentOutcomeSourceName = fileName;
             // 保存到本地防止刷新丢失
             localStorage.setItem('G_GoalOutcome_FileName', fileName);
-            
+
             document.getElementById('goal-status-outcome').innerHTML = `✅ 已导入: <strong>${fileName}</strong> (${data.length}人)`;
             document.getElementById('goal-status-outcome').style.color = "#28a745";
         }
     };
 
     // 文件控件监听
-    document.getElementById('goal-upload-baseline').addEventListener('change', async (e) => { const file = e.target.files[0]; if(!file) return; try { const { processedData } = await loadExcelData(file); G_GoalBaselineData = addSubjectRanksToData(processedData); window.refreshGoalDataSourceUI('baseline', file.name, G_GoalBaselineData); } catch(err) { alert(err.message); } });
-    document.getElementById('goal-upload-outcome').addEventListener('change', async (e) => { const file = e.target.files[0]; if(!file) return; try { const { processedData } = await loadExcelData(file); G_GoalOutcomeData = addSubjectRanksToData(processedData); window.refreshGoalDataSourceUI('outcome', file.name, G_GoalOutcomeData); } catch(err) { alert(err.message); } });
+    document.getElementById('goal-upload-baseline').addEventListener('change', async (e) => { const file = e.target.files[0]; if (!file) return; try { const { processedData } = await loadExcelData(file); G_GoalBaselineData = addSubjectRanksToData(processedData); window.refreshGoalDataSourceUI('baseline', file.name, G_GoalBaselineData); } catch (err) { alert(err.message); } });
+    document.getElementById('goal-upload-outcome').addEventListener('change', async (e) => { const file = e.target.files[0]; if (!file) return; try { const { processedData } = await loadExcelData(file); G_GoalOutcomeData = addSubjectRanksToData(processedData); window.refreshGoalDataSourceUI('outcome', file.name, G_GoalOutcomeData); } catch (err) { alert(err.message); } });
 
     // ------------------------------------------------------
     // 3. 批次管理逻辑
@@ -12181,14 +12185,14 @@ async function renderGoalSetting(container, activeData, stats) {
     // ------------------------------------------------------
     // 4. 新建规划逻辑 (Tab 1)
     // ------------------------------------------------------
-    function refreshClassSelector() { const classSelect = document.getElementById('goal-class-select'); const studentGrid = document.getElementById('goal-student-grid'); studentGrid.innerHTML = ''; if(!G_GoalBaselineData || G_GoalBaselineData.length === 0) return; const classes = [...new Set(G_GoalBaselineData.map(s => s.class))].sort(); classSelect.innerHTML = `<option value="">-- 请选择班级 --</option>` + classes.map(c => `<option value="${c}">${c}</option>`).join(''); }
+    function refreshClassSelector() { const classSelect = document.getElementById('goal-class-select'); const studentGrid = document.getElementById('goal-student-grid'); studentGrid.innerHTML = ''; if (!G_GoalBaselineData || G_GoalBaselineData.length === 0) return; const classes = [...new Set(G_GoalBaselineData.map(s => s.class))].sort(); classSelect.innerHTML = `<option value="">-- 请选择班级 --</option>` + classes.map(c => `<option value="${c}">${c}</option>`).join(''); }
     refreshClassSelector();
 
     // 【在这里插入新增代码】 快速搜索监听
     document.getElementById('goal-fast-search').addEventListener('input', (e) => {
         const term = e.target.value.trim().toLowerCase();
         const grid = document.getElementById('goal-student-grid');
-        
+
         // 如果搜索框清空，这就恢复当前选中班级的视图 (触发一次 change 事件)
         if (!term) {
             document.getElementById('goal-class-select').dispatchEvent(new Event('change'));
@@ -12196,7 +12200,7 @@ async function renderGoalSetting(container, activeData, stats) {
         }
 
         // 在所有基准数据中搜索
-        const matches = G_GoalBaselineData.filter(s => 
+        const matches = G_GoalBaselineData.filter(s =>
             s.name.toLowerCase().includes(term) || String(s.id).includes(term)
         );
 
@@ -12210,7 +12214,7 @@ async function renderGoalSetting(container, activeData, stats) {
             let hasPlan = false;
             if (allArchives[s.id]) hasPlan = allArchives[s.id].some(r => r.sessionId === currentSessionId);
             const mark = hasPlan ? `<span style="color:#28a745; font-weight:bold;">✅</span>` : '';
-            
+
             // 显示班级信息，方便区分同名
             return `<button class="sidebar-button goal-student-btn" data-id="${s.id}" 
                 style="background-color:#fff; color:#333; border:1px solid #dee2e6; justify-content:center; font-size:0.9em; flex-direction:column; gap:2px;">
@@ -12226,39 +12230,39 @@ async function renderGoalSetting(container, activeData, stats) {
     });
 
 
-    document.getElementById('goal-class-select').addEventListener('change', (e) => { const cls = e.target.value; const grid = document.getElementById('goal-student-grid'); if(!cls) { grid.innerHTML = ''; return; } const studentsInClass = G_GoalBaselineData.filter(s => s.class === cls); grid.innerHTML = studentsInClass.map(s => { let hasPlan = false; if (allArchives[s.id]) hasPlan = allArchives[s.id].some(r => r.sessionId === currentSessionId); const mark = hasPlan ? `<span style="color:#28a745; font-weight:bold;">✅</span>` : ''; return `<button class="sidebar-button goal-student-btn" data-id="${s.id}" style="background-color:#fff; color:#333; border:1px solid #dee2e6; justify-content:center; font-size:0.9em;">${s.name} ${mark}</button>`; }).join(''); document.querySelectorAll('.goal-student-btn').forEach(btn => btn.addEventListener('click', () => selectStudent(btn.dataset.id))); document.getElementById('goal-fast-search').value = '';});
-    function selectStudent(id) { currentStudent = G_GoalBaselineData.find(s => String(s.id) === String(id)); if(!currentStudent) return; document.querySelectorAll('.goal-student-btn').forEach(b => { b.style.backgroundColor = '#fff'; b.style.color = '#333'; }); const activeBtn = document.querySelector(`.goal-student-btn[data-id="${id}"]`); if(activeBtn) { activeBtn.style.backgroundColor = '#007bff'; activeBtn.style.color = '#fff'; } document.getElementById('goal-workspace').style.display = 'block'; document.getElementById('goal-result-area').style.display = 'none'; updateCurrentInfoLabel(); }
-    
+    document.getElementById('goal-class-select').addEventListener('change', (e) => { const cls = e.target.value; const grid = document.getElementById('goal-student-grid'); if (!cls) { grid.innerHTML = ''; return; } const studentsInClass = G_GoalBaselineData.filter(s => s.class === cls); grid.innerHTML = studentsInClass.map(s => { let hasPlan = false; if (allArchives[s.id]) hasPlan = allArchives[s.id].some(r => r.sessionId === currentSessionId); const mark = hasPlan ? `<span style="color:#28a745; font-weight:bold;">✅</span>` : ''; return `<button class="sidebar-button goal-student-btn" data-id="${s.id}" style="background-color:#fff; color:#333; border:1px solid #dee2e6; justify-content:center; font-size:0.9em;">${s.name} ${mark}</button>`; }).join(''); document.querySelectorAll('.goal-student-btn').forEach(btn => btn.addEventListener('click', () => selectStudent(btn.dataset.id))); document.getElementById('goal-fast-search').value = ''; });
+    function selectStudent(id) { currentStudent = G_GoalBaselineData.find(s => String(s.id) === String(id)); if (!currentStudent) return; document.querySelectorAll('.goal-student-btn').forEach(b => { b.style.backgroundColor = '#fff'; b.style.color = '#333'; }); const activeBtn = document.querySelector(`.goal-student-btn[data-id="${id}"]`); if (activeBtn) { activeBtn.style.backgroundColor = '#007bff'; activeBtn.style.color = '#fff'; } document.getElementById('goal-workspace').style.display = 'block'; document.getElementById('goal-result-area').style.display = 'none'; updateCurrentInfoLabel(); }
+
     document.getElementsByName('plan-mode').forEach(r => r.addEventListener('change', (e) => { currentPlanMode = e.target.value; document.getElementById('goal-single-subject-select-wrapper').style.display = (currentPlanMode === 'single') ? 'block' : 'none'; document.getElementById('goal-chart-wrapper').style.display = (currentPlanMode === 'total') ? 'grid' : 'none'; updateCurrentInfoLabel(); }));
     document.getElementById('goal-single-subject-select').addEventListener('change', (e) => { currentSubject = e.target.value; updateCurrentInfoLabel(); });
-    function updateCurrentInfoLabel() { if(!currentStudent) return; const infoEl = document.getElementById('goal-current-info'); if(currentPlanMode === 'total') infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 基准总分：${currentStudent.totalScore} | 基准年排：${currentStudent.gradeRank}`; else { const score = currentStudent.scores[currentSubject] || 0; infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 科目：<strong>${currentSubject}</strong> | 基准分：${score}`; } }
-    
+    function updateCurrentInfoLabel() { if (!currentStudent) return; const infoEl = document.getElementById('goal-current-info'); if (currentPlanMode === 'total') infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 基准总分：${currentStudent.totalScore} | 基准年排：${currentStudent.gradeRank}`; else { const score = currentStudent.scores[currentSubject] || 0; infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 科目：<strong>${currentSubject}</strong> | 基准分：${score}`; } }
+
     // 计算生成
     document.getElementById('goal-calc-btn').addEventListener('click', () => {
-        if(!currentStudent) return;
+        if (!currentStudent) return;
         const val = parseFloat(document.getElementById('goal-target-val').value);
         const type = document.getElementById('goal-target-type').value;
-        if(!val) { alert("请输入目标值"); return; }
+        if (!val) { alert("请输入目标值"); return; }
         currentTargetData = { val, type };
         let details = [], targetTotal = 0, displayGap = 0;
 
-        if(currentPlanMode === 'single') {
+        if (currentPlanMode === 'single') {
             let targetScore = val;
             const currentScore = currentStudent.scores[currentSubject] || 0;
             const fullScore = G_SubjectConfigs[currentSubject] ? G_SubjectConfigs[currentSubject].full : 100;
-            if(type === 'rank') {
-                const allScores = G_GoalBaselineData.map(s => s.scores[currentSubject]).filter(v=>typeof v==='number').sort((a,b)=>b-a);
-                const idx = Math.min(Math.max(0, Math.floor(val)-1), allScores.length-1);
+            if (type === 'rank') {
+                const allScores = G_GoalBaselineData.map(s => s.scores[currentSubject]).filter(v => typeof v === 'number').sort((a, b) => b - a);
+                const idx = Math.min(Math.max(0, Math.floor(val) - 1), allScores.length - 1);
                 targetScore = allScores[idx] || 0;
             }
-            if(targetScore > fullScore) targetScore = fullScore;
-            details.push({ subject: currentSubject, current: currentScore, target: targetScore, gain: targetScore-currentScore, room: fullScore-currentScore, difficultyText: getDifficultyText(fullScore-currentScore, currentScore, fullScore) });
+            if (targetScore > fullScore) targetScore = fullScore;
+            details.push({ subject: currentSubject, current: currentScore, target: targetScore, gain: targetScore - currentScore, room: fullScore - currentScore, difficultyText: getDifficultyText(fullScore - currentScore, currentScore, fullScore) });
             targetTotal = targetScore; displayGap = targetScore - currentScore;
         } else {
             let targetScoreVal = val;
-            if(type === 'rank') {
-                const allTotals = G_GoalBaselineData.map(s => s.totalScore).filter(v=>typeof v==='number').sort((a,b)=>b-a);
-                const idx = Math.min(Math.max(0, Math.floor(val)-1), allTotals.length-1);
+            if (type === 'rank') {
+                const allTotals = G_GoalBaselineData.map(s => s.totalScore).filter(v => typeof v === 'number').sort((a, b) => b - a);
+                const idx = Math.min(Math.max(0, Math.floor(val) - 1), allTotals.length - 1);
                 targetScoreVal = allTotals[idx] || 0;
             }
             const baselineStats = calculateAllStatistics(G_GoalBaselineData);
@@ -12276,9 +12280,9 @@ async function renderGoalSetting(container, activeData, stats) {
         const kpi = document.getElementById('goal-result-kpi');
         const gapText = gap > 0 ? `需提升 ${gap.toFixed(1)}` : `已达标`;
         const modeText = strategy.mode === 'total' ? "总分" : strategy.subject;
-        kpi.innerHTML = `<div class="kpi-card"><h3>目标${modeText}</h3><div class="value" style="color:var(--color-purple)">${strategy.targetScoreCalculated.toFixed(1)}</div></div><div class="kpi-card"><h3>差距</h3><div class="value" style="font-size:1.5em; color:${gap>0?'#dc3545':'#28a745'}">${gapText}</div></div>`;
-        document.getElementById('goal-result-table').innerHTML = `<table><thead><tr><th>科目</th><th>基准分</th><th>目标</th><th style="color:purple">需提分</th><th>策略</th></tr></thead><tbody>${strategy.details.map(d => `<tr><td>${d.subject}</td><td>${d.current}</td><td><strong>${d.target.toFixed(1)}</strong></td><td style="font-weight:bold; color:${d.gain>0?'purple':'#999'}">+${d.gain.toFixed(1)}</td><td>${d.difficultyText}</td></tr>`).join('')}</tbody></table>`;
-        if(strategy.mode === 'total') {
+        kpi.innerHTML = `<div class="kpi-card"><h3>目标${modeText}</h3><div class="value" style="color:var(--color-purple)">${strategy.targetScoreCalculated.toFixed(1)}</div></div><div class="kpi-card"><h3>差距</h3><div class="value" style="font-size:1.5em; color:${gap > 0 ? '#dc3545' : '#28a745'}">${gapText}</div></div>`;
+        document.getElementById('goal-result-table').innerHTML = `<table><thead><tr><th>科目</th><th>基准分</th><th>目标</th><th style="color:purple">需提分</th><th>策略</th></tr></thead><tbody>${strategy.details.map(d => `<tr><td>${d.subject}</td><td>${d.current}</td><td><strong>${d.target.toFixed(1)}</strong></td><td style="font-weight:bold; color:${d.gain > 0 ? 'purple' : '#999'}">+${d.gain.toFixed(1)}</td><td>${d.difficultyText}</td></tr>`).join('')}</tbody></table>`;
+        if (strategy.mode === 'total') {
             renderGoalWaterfall('goal-waterfall-chart', student.totalScore, strategy.targetScoreCalculated, strategy.details);
             renderGoalRadar('goal-radar-chart', student, strategy.details);
         }
@@ -12286,21 +12290,21 @@ async function renderGoalSetting(container, activeData, stats) {
 
     // 保存规划
     document.getElementById('goal-save-btn').addEventListener('click', async () => {
-        if(!currentStudent || !currentStrategy) return;
+        if (!currentStudent || !currentStrategy) return;
         const planName = prompt("规划名称:", "目标-" + new Date().toLocaleDateString());
-        if(!planName) return;
-        
+        if (!planName) return;
+
         let baselineSource = "系统默认数据";
         const baselineStatusText = document.getElementById('goal-status-baseline').innerText;
-        if(baselineStatusText.includes('已导入')) { const match = document.getElementById('goal-status-baseline').querySelector('strong'); if(match) baselineSource = match.innerText; }
-        
+        if (baselineStatusText.includes('已导入')) { const match = document.getElementById('goal-status-baseline').querySelector('strong'); if (match) baselineSource = match.innerText; }
+
         const record = { id: Date.now(), sessionId: currentSessionId, studentId: currentStudent.id, studentName: currentStudent.name, className: currentStudent.class, name: planName, createDate: new Date().toLocaleString(), baselineSource: baselineSource, strategy: currentStrategy };
-        if(!allArchives[currentStudent.id]) allArchives[currentStudent.id] = [];
+        if (!allArchives[currentStudent.id]) allArchives[currentStudent.id] = [];
         allArchives[currentStudent.id].unshift(record);
         await localforage.setItem('G_Goal_Archives', allArchives);
         alert("✅ 规划已保存！");
         const btn = document.querySelector(`.goal-student-btn[data-id="${currentStudent.id}"]`);
-        if(btn && !btn.innerHTML.includes('✅')) btn.innerHTML += ` <span style="color:#28a745; font-weight:bold;">✅</span>`;
+        if (btn && !btn.innerHTML.includes('✅')) btn.innerHTML += ` <span style="color:#28a745; font-weight:bold;">✅</span>`;
     });
 
     document.getElementById('goal-print-btn').addEventListener('click', () => { if (!currentStudent || !currentStrategy) return; let printRank = currentTargetData.type === 'rank' ? currentTargetData.val : '-'; startGoalPrintJob(currentStudent, currentStrategy.targetScoreCalculated, printRank, currentStrategy); });
@@ -12319,19 +12323,19 @@ async function renderGoalSetting(container, activeData, stats) {
         const tbody = document.getElementById('goal-manage-tbody');
         const rows = [];
         Object.keys(allArchives).forEach(sid => { if (Array.isArray(allArchives[sid])) { allArchives[sid].forEach((plan, idx) => { if (plan.sessionId === currentSessionId || (!plan.sessionId && currentSessionId === sessionMeta[0].id)) { rows.push({ ...plan, idx, sid }); } }); } });
-        if(rows.length === 0) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px;">当前列表 [${sessionLabel.innerText}] 暂无记录</td></tr>`; return; }
+        if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px;">当前列表 [${sessionLabel.innerText}] 暂无记录</td></tr>`; return; }
         rows.sort((a, b) => b.id - a.id);
-        tbody.innerHTML = rows.map(r => { const st = r.strategy || {}; const targetText = st.mode === 'total' ? `总分 ${st.targetScoreCalculated.toFixed(0)}` : `${st.subject} ${st.targetScoreCalculated.toFixed(0)}`; return `<tr><td>${r.className}</td><td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;" title="点击查看详情">${r.studentName} 📊</td><td onclick="renamePlan('${r.sid}', ${r.idx})" style="cursor:pointer; color:blue;">${r.name || '未命名'} ✎</td><td>${st.mode==='total'?'全科':'单科'}</td><td>${targetText}</td><td><button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" style="border:1px solid #28a745; color:#28a745; background:#fff; border-radius:4px; cursor:pointer;">复盘</button><button onclick="deletePlanGlobal('${r.sid}', ${r.idx})" style="border:1px solid #dc3545; color:#dc3545; background:#fff; border-radius:4px; cursor:pointer; margin-left:5px;">删除</button></td></tr>`; }).join('');
+        tbody.innerHTML = rows.map(r => { const st = r.strategy || {}; const targetText = st.mode === 'total' ? `总分 ${st.targetScoreCalculated.toFixed(0)}` : `${st.subject} ${st.targetScoreCalculated.toFixed(0)}`; return `<tr><td>${r.className}</td><td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;" title="点击查看详情">${r.studentName} 📊</td><td onclick="renamePlan('${r.sid}', ${r.idx})" style="cursor:pointer; color:blue;">${r.name || '未命名'} ✎</td><td>${st.mode === 'total' ? '全科' : '单科'}</td><td>${targetText}</td><td><button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" style="border:1px solid #28a745; color:#28a745; background:#fff; border-radius:4px; cursor:pointer;">复盘</button><button onclick="deletePlanGlobal('${r.sid}', ${r.idx})" style="border:1px solid #dc3545; color:#dc3545; background:#fff; border-radius:4px; cursor:pointer; margin-left:5px;">删除</button></td></tr>`; }).join('');
     }
 
-    window.renamePlan = async (sid, idx) => { let archives = await localforage.getItem('G_Goal_Archives'); const newName = prompt("重命名:", archives[sid][idx].name); if(newName) { archives[sid][idx].name = newName; await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); } };
-    window.deletePlanGlobal = async (sid, idx) => { if(!confirm("确定删除?")) return; let archives = await localforage.getItem('G_Goal_Archives'); archives[sid].splice(idx, 1); await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); };
+    window.renamePlan = async (sid, idx) => { let archives = await localforage.getItem('G_Goal_Archives'); const newName = prompt("重命名:", archives[sid][idx].name); if (newName) { archives[sid][idx].name = newName; await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); } };
+    window.deletePlanGlobal = async (sid, idx) => { if (!confirm("确定删除?")) return; let archives = await localforage.getItem('G_Goal_Archives'); archives[sid].splice(idx, 1); await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); };
 
     // [NEW] 详情查看 (含来源显示 + 打印)
     window.showPlanDetail = async (sid, idx) => {
         let archives = await localforage.getItem('G_Goal_Archives');
         const plan = archives[sid][idx];
-        if(!plan) return;
+        if (!plan) return;
 
         let actualStudent = null;
         if (G_GoalOutcomeData) actualStudent = G_GoalOutcomeData.find(s => String(s.id) === String(sid));
@@ -12339,17 +12343,17 @@ async function renderGoalSetting(container, activeData, stats) {
         const modal = document.getElementById('goal-detail-modal');
         const titleEl = document.getElementById('goal-detail-title');
         const alertEl = document.getElementById('goal-detail-alert');
-        const sourceInfoEl = document.getElementById('goal-detail-source-info'); 
+        const sourceInfoEl = document.getElementById('goal-detail-source-info');
         const kpiEl = document.getElementById('goal-detail-kpi');
         const tableEl = document.getElementById('goal-detail-table');
         const printBtn = document.getElementById('goal-detail-print-btn');
 
         titleEl.innerText = `${plan.studentName} - ${plan.name}`;
-        
+
         // [NEW] 来源显示逻辑
         const baseSource = plan.baselineSource || '系统默认/未知';
         const outSource = actualStudent ? currentOutcomeSourceName : null; // 使用 currentOutcomeSourceName
-        
+
         sourceInfoEl.innerHTML = `
             <div style="background:#f1f3f5; padding:8px 12px; border-radius:6px; margin-bottom:15px; font-size:0.9em; color:#555; display:flex; flex-wrap:wrap; gap:15px;">
                 <span>📄 <strong>规划基准:</strong> ${baseSource}</span>
@@ -12371,7 +12375,7 @@ async function renderGoalSetting(container, activeData, stats) {
 
         let actualTotal = 0;
         let actualDiffHtml = '<span style="color:#ccc; font-size:0.5em;">(无数据)</span>';
-        
+
         if (actualStudent) {
             if (st.mode === 'total') {
                 actualTotal = actualStudent.totalScore;
@@ -12381,7 +12385,7 @@ async function renderGoalSetting(container, activeData, stats) {
             const diff = actualTotal - st.targetScoreCalculated;
             const diffClass = diff >= 0 ? 'progress' : 'regress';
             const diffIcon = diff >= 0 ? '🎉' : '⚠️';
-            actualDiffHtml = `<span class="${diffClass}" style="font-size:0.6em;">${diffIcon} ${diff>0?'+':''}${diff.toFixed(1)}</span>`;
+            actualDiffHtml = `<span class="${diffClass}" style="font-size:0.6em;">${diffIcon} ${diff > 0 ? '+' : ''}${diff.toFixed(1)}</span>`;
         }
 
         kpiEl.innerHTML = `
@@ -12399,7 +12403,7 @@ async function renderGoalSetting(container, activeData, stats) {
                 const diff = actScore - d.target;
                 const color = diff >= 0 ? 'green' : 'red';
                 const icon = diff >= 0 ? '✅' : '❌';
-                actualCell = `<td style="font-weight:bold; background:#fffbf0;">${actScore}</td><td style="color:${color}; background:#fffbf0;">${icon} ${diff>0?'+':''}${diff.toFixed(1)}</td>`;
+                actualCell = `<td style="font-weight:bold; background:#fffbf0;">${actScore}</td><td style="color:${color}; background:#fffbf0;">${icon} ${diff > 0 ? '+' : ''}${diff.toFixed(1)}</td>`;
             }
             tableHtml += `<tr><td>${d.subject}</td><td>${d.current}</td><td><strong>${d.target.toFixed(1)}</strong></td><td style="color:#6f42c1;">+${d.gain.toFixed(1)}</td>${actualCell}<td>${d.difficultyText}</td></tr>`;
         });
@@ -12413,9 +12417,9 @@ async function renderGoalSetting(container, activeData, stats) {
 
         modal.style.display = 'flex';
         setTimeout(() => {
-            if(st.mode === 'total') {
+            if (st.mode === 'total') {
                 renderGoalWaterfall('goal-detail-waterfall-chart', baseTotal, st.targetScoreCalculated, st.details);
-                renderGoalRadarComparison('goal-detail-radar-chart', st.details, actualStudent); 
+                renderGoalRadarComparison('goal-detail-radar-chart', st.details, actualStudent);
             } else {
                 document.getElementById('goal-detail-waterfall-chart').innerHTML = '<p style="text-align:center; padding-top:50px; color:#999;">单科模式无瀑布图</p>';
                 document.getElementById('goal-detail-radar-chart').innerHTML = '<p style="text-align:center; padding-top:50px; color:#999;">单科模式无雷达图</p>';
@@ -12426,18 +12430,18 @@ async function renderGoalSetting(container, activeData, stats) {
     // [辅助] 3维雷达图渲染 (基准 vs 目标 vs 实际)
     function renderGoalRadarComparison(elemId, details, actualStudent) {
         const dom = document.getElementById(elemId);
-        if(!dom) return;
-        if(echartsInstances[elemId]) echartsInstances[elemId].dispose();
+        if (!dom) return;
+        if (echartsInstances[elemId]) echartsInstances[elemId].dispose();
         const myChart = echarts.init(dom);
-        
+
         const indicators = [];
         const dataBaseline = [];
         const dataTarget = [];
         const dataActual = [];
-        
+
         details.forEach(d => {
             // 估算满分
-            const full = d.current + d.room; 
+            const full = d.current + d.room;
             indicators.push({ name: d.subject, max: full });
             dataBaseline.push(d.current);
             dataTarget.push(d.target);
@@ -12452,9 +12456,9 @@ async function renderGoalSetting(container, activeData, stats) {
         ];
 
         if (actualStudent) {
-            seriesData.push({ 
-                value: dataActual, 
-                name: '实际成绩', 
+            seriesData.push({
+                value: dataActual,
+                name: '实际成绩',
                 itemStyle: { color: '#fd7e14' }, // 橙色
                 lineStyle: { width: 3 },
                 areaStyle: { opacity: 0.2, color: '#fd7e14' }
@@ -12474,10 +12478,10 @@ async function renderGoalSetting(container, activeData, stats) {
     window.renamePlan = async (sid, idx) => {
         let archives = await localforage.getItem('G_Goal_Archives');
         const newName = prompt("重命名:", archives[sid][idx].name);
-        if(newName) { archives[sid][idx].name = newName; await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); }
+        if (newName) { archives[sid][idx].name = newName; await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); }
     };
     window.deletePlanGlobal = async (sid, idx) => {
-        if(!confirm("确定删除?")) return;
+        if (!confirm("确定删除?")) return;
         let archives = await localforage.getItem('G_Goal_Archives');
         archives[sid].splice(idx, 1); await localforage.setItem('G_Goal_Archives', archives); renderManageTable();
     };
@@ -12485,31 +12489,31 @@ async function renderGoalSetting(container, activeData, stats) {
     // [核心升级] 复盘查看 (含全列表聚合)
     window.reviewPlanGlobal = async (sid, idx) => {
         if (!G_GoalOutcomeData) { alert("⚠️ 请先在顶部右侧导入【达成成绩表】，系统才能进行对比复盘！"); return; }
-        
+
         let archives = await localforage.getItem('G_Goal_Archives');
         const plan = archives[sid][idx];
         const actualStudent = G_GoalOutcomeData.find(s => String(s.id) === String(sid));
-        
+
         const panel = document.getElementById('goal-review-panel');
         const content = document.getElementById('goal-review-content');
         panel.style.display = 'block';
 
         // --- 图表绘制逻辑 (支持切换模式) ---
         const radios = document.getElementsByName('goal-trend-mode');
-        
+
         const drawChart = () => {
             let mode = 'student';
-            radios.forEach(r => { if(r.checked) mode = r.value; });
-            
+            radios.forEach(r => { if (r.checked) mode = r.value; });
+
             const trendX = [];
             const trendY = [];
-            
+
             if (mode === 'student') {
                 // 模式A: 当前学生在当前列表内的所有规划
                 const studentPlans = archives[sid] || [];
                 const sessionPlans = studentPlans.filter(p => p.sessionId === currentSessionId);
-                sessionPlans.sort((a,b) => a.id - b.id);
-                
+                sessionPlans.sort((a, b) => a.id - b.id);
+
                 sessionPlans.forEach(p => {
                     if (p.strategy.mode === 'total' && actualStudent) {
                         const target = p.strategy.targetScoreCalculated;
@@ -12520,7 +12524,7 @@ async function renderGoalSetting(container, activeData, stats) {
                     }
                 });
                 renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `达成率 (当前学生: ${plan.studentName})`);
-            
+
             } else {
                 // 模式B: 全列表平均 (按规划名称聚合)
                 // 1. 收集所有属于当前 Session 的规划
@@ -12528,13 +12532,13 @@ async function renderGoalSetting(container, activeData, stats) {
                 Object.values(archives).forEach(userPlans => {
                     userPlans.forEach(p => { if (p.sessionId === currentSessionId) allSessionPlans.push(p); });
                 });
-                
+
                 // 2. 按名称分组计算平均达成率
                 const groups = {};
                 allSessionPlans.forEach(p => {
                     if (p.strategy.mode === 'total') {
                         if (!groups[p.name]) groups[p.name] = { sumRate: 0, count: 0, ts: p.id };
-                        
+
                         // 获取该学生的实际分数 (注意: 必须在 outcomeData 里有这个人)
                         const sData = G_GoalOutcomeData.find(s => String(s.id) === String(p.studentId));
                         if (sData) {
@@ -12544,19 +12548,19 @@ async function renderGoalSetting(container, activeData, stats) {
                         }
                     }
                 });
-                
+
                 // 3. 转换为数组并排序
                 const sortedGroups = Object.keys(groups).map(name => ({
                     name: name,
                     avgRate: groups[name].count > 0 ? (groups[name].sumRate / groups[name].count) : 0,
                     ts: groups[name].ts
                 })).sort((a, b) => a.ts - b.ts);
-                
+
                 sortedGroups.forEach(g => {
                     trendX.push(g.name);
                     trendY.push(parseFloat(g.avgRate.toFixed(1)));
                 });
-                
+
                 renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `达成率 (全列表平均)`);
             }
         };
@@ -12568,7 +12572,7 @@ async function renderGoalSetting(container, activeData, stats) {
         drawChart();
 
         // 渲染表格 (保持不变)
-        if(!actualStudent) { content.innerHTML = `<p style="color:red;">⚠️ 达成成绩表中无此学生。</p>`; return; }
+        if (!actualStudent) { content.innerHTML = `<p style="color:red;">⚠️ 达成成绩表中无此学生。</p>`; return; }
         let html = `<h4>${plan.studentName} - ${plan.name} (本次详情)</h4>`;
         html += `<table><thead><tr><th>科目</th><th>规划目标</th><th>实际得分</th><th>达成情况</th></tr></thead><tbody>`;
         plan.strategy.details.forEach(d => {
@@ -12587,8 +12591,8 @@ async function renderGoalSetting(container, activeData, stats) {
 // 辅助: 渲染趋势图
 function renderGoalTrendChart(elemId, xData, yData, titleText) {
     const dom = document.getElementById(elemId);
-    if(!dom) return;
-    if(echartsInstances[elemId]) echartsInstances[elemId].dispose();
+    if (!dom) return;
+    if (echartsInstances[elemId]) echartsInstances[elemId].dispose();
     const myChart = echarts.init(dom);
     const option = {
         title: { text: titleText, left: 'center', textStyle: { fontSize: 14 } },
@@ -13077,7 +13081,7 @@ async function startGoalPrintJob(student, targetScore, targetRank, strategy) {
 function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseName, outName) {
     const st = plan.strategy;
     const isCompare = !!actualStudent;
-    
+
     // 1. 构建表格行
     const rows = st.details.map(d => {
         let compareCells = '';
@@ -13088,7 +13092,7 @@ function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseNa
             const icon = diff >= 0 ? '✅' : '❌';
             compareCells = `
                 <td style="background-color:#fff8e1; font-weight:bold;">${act}</td>
-                <td style="background-color:#fff8e1; color:${color};">${icon} ${diff>0?'+':''}${diff.toFixed(1)}</td>
+                <td style="background-color:#fff8e1; color:${color};">${icon} ${diff > 0 ? '+' : ''}${diff.toFixed(1)}</td>
             `;
         }
 
@@ -13120,11 +13124,11 @@ function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseNa
         summaryHtml += `
             <div class="info-box" style="border-color: #fd7e14; background-color: #fffbf0; margin-top:10px;">
                 <span>实际总分: <strong style="font-size:1.2em; color:#fd7e14;">${actualTotal}</strong></span>
-                <span style="color:${statusColor}; font-weight:bold;">${statusText} (${diffTotal>0?'+':''}${diffTotal.toFixed(1)})</span>
+                <span style="color:${statusColor}; font-weight:bold;">${statusText} (${diffTotal > 0 ? '+' : ''}${diffTotal.toFixed(1)})</span>
             </div>
         `;
     }
-    
+
     // [NEW] 来源信息行
     const sourceHtml = `
         <div class="source-line">
@@ -13214,7 +13218,7 @@ function drawItemKnowledgeGraph() {
     // 1. 获取配置与数据
     const subjectName = document.getElementById('item-subject-select').value;
     const selectedClass = document.getElementById('item-class-filter').value;
-    
+
     if (!G_ItemAnalysisData || !G_ItemAnalysisData[subjectName]) return;
     const subjectConfig = G_ItemAnalysisConfig[subjectName] || {};
     const graphDef = subjectConfig['_knowledge_graph_def_'];
@@ -13222,19 +13226,19 @@ function drawItemKnowledgeGraph() {
     // 2. 解析用户定义的依赖关系
     const edges = [];
     const nodesSet = new Set();
-    
-if (graphDef) {
+
+    if (graphDef) {
         const lines = graphDef.split('\n');
         lines.forEach(line => {
             if (line.includes('->')) {
                 // 1. 按箭头分割并去除空白
                 const parts = line.split('->').map(s => s.trim()).filter(s => s);
-                
+
                 // 2. 循环创建链式关系 (A->B, B->C, C->D...)
                 for (let i = 0; i < parts.length - 1; i++) {
                     const source = parts[i];
-                    const target = parts[i+1];
-                    
+                    const target = parts[i + 1];
+
                     // 防止重复添加相同的边（可选优化）
                     // 但 ECharts Graph 允许重边，这里为了简单直接推入即可
                     edges.push({ source, target });
@@ -13248,18 +13252,18 @@ if (graphDef) {
     // 3. 计算当前筛选群体的知识点得分率
     // (复用现有逻辑，但针对特定群体)
     const allStudents = G_ItemAnalysisData[subjectName].students;
-    const filteredStudents = (selectedClass === 'ALL') 
-        ? allStudents 
+    const filteredStudents = (selectedClass === 'ALL')
+        ? allStudents
         : allStudents.filter(s => s.class === selectedClass);
 
     // 计算得分率 Map: { "二次函数": 0.65, ... }
     const kpRates = {};
-    
+
     // 获取所有涉及的知识点（包括配置中未定义但在题目中出现的）
     const recalculatedStats = getRecalculatedItemStats(subjectName);
     // 遍历所有题目累加分数
-    const aggregates = {}; 
-    
+    const aggregates = {};
+
     const processQ = (qList, scoreType, statsType) => {
         qList.forEach(qName => {
             const content = subjectConfig[qName]?.content || "";
@@ -13275,7 +13279,7 @@ if (graphDef) {
                     if (typeof v === 'number') { totalGot += v; count++; }
                 });
                 const avgScore = count > 0 ? totalGot / count : 0;
-                
+
                 kps.forEach(kp => {
                     if (!aggregates[kp]) aggregates[kp] = { got: 0, full: 0 };
                     aggregates[kp].got += avgScore;
@@ -13285,7 +13289,7 @@ if (graphDef) {
             }
         });
     };
-    
+
     processQ(G_ItemAnalysisData[subjectName].minorQuestions, 'minorScores', 'minorStats');
     processQ(G_ItemAnalysisData[subjectName].majorQuestions, 'majorScores', 'majorStats');
 
@@ -13303,7 +13307,7 @@ if (graphDef) {
     // 4. 构建 ECharts Nodes
     const echartsNodes = Array.from(nodesSet).map(kp => {
         const rate = kpRates[kp] !== undefined ? kpRates[kp] : 0; // 默认0或者不显示
-        
+
         // 颜色逻辑
         let color = '#007bff'; // 默认蓝
         if (rate >= 0.85) color = '#28a745'; // 优 (绿)
@@ -13323,7 +13327,7 @@ if (graphDef) {
     const echartsLinks = edges.map(edge => {
         const sourceRate = kpRates[edge.source] || 1;
         const targetRate = kpRates[edge.target] || 1;
-        
+
         // 归因逻辑：如果父子双双挂科 (<0.6)，则为“核心归因链”
         const isCritical = (sourceRate < 0.6 && targetRate < 0.6);
 
@@ -13381,7 +13385,7 @@ if (graphDef) {
  * 新增功能：支持“竖向填充”模式 (竖向Z型 / 竖向S型)
  */
 function renderExamArrangement(container) {
-    const studentsSource = G_StudentsData; 
+    const studentsSource = G_StudentsData;
     const studentCount = studentsSource.length;
 
     container.innerHTML = `
@@ -13484,7 +13488,7 @@ function renderExamArrangement(container) {
     });
 
     exportBtn.addEventListener('click', () => {
-        if(generatedRooms.length > 0) exportExamToExcel(generatedRooms);
+        if (generatedRooms.length > 0) exportExamToExcel(generatedRooms);
         else alert("请先生成编排方案！");
     });
 }
@@ -13542,19 +13546,19 @@ function calculateExamArrangement(students, config) {
         let roomStudents = sortedStudents.slice(currentStudentIdx, endIdx);
 
         if (config.sort !== 'random') {
-             // roomStudents.sort(() => Math.random() - 0.5); // 可选：组内再次随机
+            // roomStudents.sort(() => Math.random() - 0.5); // 可选：组内再次随机
         }
 
         // --- 3. 坐标计算 & 考号生成 ---
         const processedStudents = roomStudents.map((student, indexInRoom) => {
             const seatNo = indexInRoom + 1;
-            
+
             // 生成考号
             let examId = student.id;
             if (config.idMode === 'auto_generate') {
                 const rStr = String(roomNum).padStart(2, '0');
                 const sStr = String(seatNo).padStart(2, '0');
-                const prefix = config.idPrefix || ""; 
+                const prefix = config.idPrefix || "";
                 examId = `${prefix}${rStr}${sStr}`;
             }
 
@@ -13563,7 +13567,7 @@ function calculateExamArrangement(students, config) {
 
             // [关键修改] 根据模式计算坐标 (Row, Col)
             // indexInRoom: 0, 1, 2, ...
-            
+
             switch (config.pattern) {
                 case 's_shape': // 横向S型 (蛇形)
                     row = Math.floor(indexInRoom / config.cols);
@@ -13584,7 +13588,7 @@ function calculateExamArrangement(students, config) {
                 case 's_shape_v': // 竖向S型 (第1列前->后，第2列后->前)
                     col = Math.floor(indexInRoom / maxRowsPerRoom);
                     let remainder = indexInRoom % maxRowsPerRoom;
-                    
+
                     // 偶数列(0,2,4)：上->下 (row = remainder)
                     // 奇数列(1,3,5)：下->上 (row = max - 1 - remainder)
                     if (col % 2 === 0) {
@@ -13631,9 +13635,9 @@ function renderExamPreview(rooms, cols) {
     const resultArea = document.getElementById('exam-result-area');
     const tabContainer = document.getElementById('exam-room-tabs');
     const previewContainer = document.getElementById('exam-room-preview');
-    
+
     if (resultArea) resultArea.style.display = 'block';
-    
+
     // 生成 Tabs
     tabContainer.innerHTML = rooms.map((r, idx) => `
         <button class="sidebar-button room-tab-btn ${idx === 0 ? 'active-tab' : ''}" 
@@ -13655,7 +13659,7 @@ function renderExamPreview(rooms, cols) {
             });
             btn.style.backgroundColor = 'var(--primary-color)';
             btn.style.color = '#fff';
-            
+
             // 渲染
             renderRoomGrid(rooms[idx], cols, previewContainer);
         });
@@ -13679,13 +13683,13 @@ function renderRoomGrid(room, cols, container) {
 
     // 计算最大行数
     const maxRow = Math.max(...room.students.map(s => s.gridRow)) + 1;
-    
+
     let html = `<div style="display: grid; grid-template-columns: repeat(${cols}, 1fr); gap: 10px; max-width: 1000px; margin: 0 auto;">`;
-    
+
     // 构建矩阵
     const gridMap = Array(maxRow).fill(null).map(() => Array(cols).fill(null));
     room.students.forEach(s => {
-        if(s.gridRow < maxRow && s.gridCol < cols) {
+        if (s.gridRow < maxRow && s.gridCol < cols) {
             gridMap[s.gridRow][s.gridCol] = s;
         }
     });
@@ -13709,7 +13713,7 @@ function renderRoomGrid(room, cols, container) {
         }
     }
     html += `</div>`;
-    
+
     container.innerHTML = `
         <div style="text-align: center; margin-bottom: 20px; background: #eee; padding: 5px; border-radius: 4px; font-weight: bold; color: #555;">
             📺 讲台 / 黑板 (视图：最右侧为第一列)
@@ -13728,7 +13732,7 @@ function exportExamToExcel(rooms) {
     }
 
     const wb = XLSX.utils.book_new();
-    
+
     // ==========================================
     // Sheet 1: 考场总名单 (保持不变)
     // ==========================================
@@ -13746,13 +13750,13 @@ function exportExamToExcel(rooms) {
         });
     });
     const wsList = XLSX.utils.json_to_sheet(allData);
-    wsList['!cols'] = [{wch:10}, {wch:8}, {wch:12}, {wch:10}, {wch:12}, {wch:8}];
+    wsList['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 10 }, { wch: 12 }, { wch: 8 }];
     XLSX.utils.book_append_sheet(wb, wsList, "考场总名单");
 
     // ==========================================
     // Sheet 2: 考场座位布局图 (方向修正版)
     // ==========================================
-    const layoutData = []; 
+    const layoutData = [];
 
     rooms.forEach(r => {
         // 1. 考场标题
@@ -13790,7 +13794,7 @@ function exportExamToExcel(rooms) {
         // 列数 = (maxCol + 1) * 2 + 1 (门列)
         const grid = [];
         for (let i = 0; i <= maxRow; i++) {
-            const rowArr = new Array((maxCol + 1) * 2 + 1).fill(""); 
+            const rowArr = new Array((maxCol + 1) * 2 + 1).fill("");
             grid.push(rowArr);
         }
 
@@ -13800,13 +13804,13 @@ function exportExamToExcel(rooms) {
             // s.gridCol = 0 (第1组) -> 映射到最右边的 Excel 列
             // s.gridCol = max (第N组) -> 映射到最左边的 Excel 列
             // 算法：(maxCol - s.gridCol) * 2
-            
-            const colIndex = (maxCol - s.gridCol) * 2; 
+
+            const colIndex = (maxCol - s.gridCol) * 2;
             const rowIndex = s.gridRow;
 
             if (grid[rowIndex] && grid[rowIndex][colIndex] !== undefined) {
                 // 班级名简化
-                let classStr = s.class.replace(/[^0-9]/g, ''); 
+                let classStr = s.class.replace(/[^0-9]/g, '');
                 if (!classStr) classStr = s.class;
 
                 grid[rowIndex][colIndex] = classStr;     // 左格：班级
@@ -13824,14 +13828,14 @@ function exportExamToExcel(rooms) {
         // 8. 写入数据
         layoutData.push(...grid);
         layoutData.push([]); // 空行分隔
-        layoutData.push([]); 
+        layoutData.push([]);
     });
 
     const wsLayout = XLSX.utils.aoa_to_sheet(layoutData);
 
     // 9. 设置列宽
     const colWidths = [];
-    for(let i = 0; i < 50; i++) {
+    for (let i = 0; i < 50; i++) {
         if (i % 2 === 0) colWidths.push({ wch: 6 });  // 班级列窄
         else colWidths.push({ wch: 12 });             // 姓名列宽
     }
@@ -13852,7 +13856,7 @@ function exportExamToExcel(rooms) {
  */
 function renderStudyGroups(container) {
     const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
-    
+
     // 准备科目选项
     const subjectOptions = G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('');
 
@@ -13968,7 +13972,7 @@ function renderStudyGroups(container) {
 
         if (so === 'single') singleWrapper.style.display = 'block';
         else if (so === 'complementary') compWrapper.style.display = 'block';
-        
+
         if (st !== 'high_low') sizeWrapper.style.display = 'block';
 
         let text = "💡 <strong>当前逻辑：</strong> ";
@@ -13981,7 +13985,7 @@ function renderStudyGroups(container) {
         else text += "进行 <span style='color:#007bff'>随机分组</span>。";
 
         if (so === 'complementary') {
-             text += `<br>🔥 <strong>T分优势：</strong> 已消除学科难度差异。队首是“A强B弱”，队尾是“B强A弱”，1帮1结合后形成完美互补！`;
+            text += `<br>🔥 <strong>T分优势：</strong> 已消除学科难度差异。队首是“A强B弱”，队尾是“B强A弱”，1帮1结合后形成完美互补！`;
         }
         descBox.innerHTML = text;
     };
@@ -14028,11 +14032,11 @@ function renderStudyGroups(container) {
                 // [!! UPGRADED !!] 使用 T 分差值
                 const tA = (s.tScores && s.tScores[params.subA]) ? s.tScores[params.subA] : 50;
                 const tB = (s.tScores && s.tScores[params.subB]) ? s.tScores[params.subB] : 50;
-                
+
                 // 差值：正值越大 -> A相对越好；负值越小 -> B相对越好
                 const diff = tA - tB;
                 s._sortScore = diff;
-                
+
                 // 显示原始分给老师看，但备注 T 分差
                 const rawA = s.scores[params.subA] || 0;
                 const rawB = s.scores[params.subB] || 0;
@@ -14053,7 +14057,7 @@ function renderStudyGroups(container) {
 
     // 导出
     document.getElementById('btn-export-groups').addEventListener('click', () => {
-        if(currentGroups.length > 0) exportGroupsToExcel(currentGroups);
+        if (currentGroups.length > 0) exportGroupsToExcel(currentGroups);
     });
 }
 
@@ -14064,12 +14068,12 @@ function renderStudyGroups(container) {
 function calculateGroups(students, strategy, groupSize, sortMode) {
     const groups = [];
     const totalStudents = students.length;
-    
+
     // --- 随机模式 ---
     if (strategy === 'random') {
         const shuffled = [...students].sort(() => Math.random() - 0.5);
         const numGroups = Math.ceil(totalStudents / groupSize);
-        for(let i=0; i<numGroups; i++) groups.push({ name: `第 ${i+1} 组`, members: [] });
+        for (let i = 0; i < numGroups; i++) groups.push({ name: `第 ${i + 1} 组`, members: [] });
         shuffled.forEach((s, idx) => groups[idx % numGroups].members.push(s));
         return groups;
     }
@@ -14080,7 +14084,7 @@ function calculateGroups(students, strategy, groupSize, sortMode) {
         for (let i = 0; i < pairCount; i++) {
             const top = students[i];
             const bottom = students[totalStudents - 1 - i];
-            
+
             // 在互补模式下，Top是 A强B弱，Bottom是 A弱B强。绝配！
             groups.push({
                 name: sortMode === 'complementary' ? `互补对子 ${i + 1}` : `帮扶对子 ${i + 1}`,
@@ -14092,11 +14096,11 @@ function calculateGroups(students, strategy, groupSize, sortMode) {
             const midStudent = students[Math.floor(totalStudents / 2)];
             groups[groups.length - 1].members.push(midStudent); // 加到最后一组变3人
         }
-    } 
+    }
     // --- S型均衡模式 (Balanced) ---
     else {
         const numGroups = Math.ceil(totalStudents / groupSize);
-        for(let i=0; i<numGroups; i++) groups.push({ name: `第 ${i+1} 组`, members: [] });
+        for (let i = 0; i < numGroups; i++) groups.push({ name: `第 ${i + 1} 组`, members: [] });
 
         students.forEach((s, index) => {
             const row = Math.floor(index / numGroups);
@@ -14115,7 +14119,7 @@ function calculateGroups(students, strategy, groupSize, sortMode) {
 
         // 组内排序 (方便显示 Leader)
         g.members.sort((a, b) => b._sortScore - a._sortScore);
-        
+
         // 角色标记
         g.members.forEach((m, idx) => {
             if (sortMode === 'complementary') {
@@ -14149,7 +14153,7 @@ function renderGroupVisuals(groups, className, sortMode) {
     if (sortMode !== 'complementary' && groups.length > 0) {
         const max = Math.max(...groups.map(g => parseFloat(g.avgSortScore)));
         const min = Math.min(...groups.map(g => parseFloat(g.avgSortScore)));
-        statText += ` 组间指标极差：<strong>${(max-min).toFixed(1)}</strong> (越小越均衡)`;
+        statText += ` 组间指标极差：<strong>${(max - min).toFixed(1)}</strong> (越小越均衡)`;
     } else {
         statText += ` 已尝试最大化组内互补性。`;
     }
@@ -14163,25 +14167,25 @@ function renderGroupVisuals(groups, className, sortMode) {
             </div>
             <ul class="group-member-list">
                 ${g.members.map(m => {
-                    let badge = '';
-                    let scoreColor = '#666';
-                    
-                    if (sortMode === 'complementary') {
-                        if (m.role === 'typeA') {
-                            badge = `<span class="role-badge" style="background:#e3f2fd; color:#0d47a1;">A强</span>`;
-                            scoreColor = '#0d47a1';
-                        } else if (m.role === 'typeB') {
-                            badge = `<span class="role-badge" style="background:#fbe9e7; color:#bf360c;">B强</span>`;
-                            scoreColor = '#bf360c';
-                        } else {
-                            badge = `<span class="role-badge" style="background:#f5f5f5; color:#666;">均衡</span>`;
-                        }
-                    } else {
-                        if (m.role === 'leader') badge = `<span class="role-badge role-leader">Leader</span>`;
-                        else if (m.role === 'support') badge = `<span class="role-badge role-support">Help</span>`;
-                    }
-                    
-                    return `
+        let badge = '';
+        let scoreColor = '#666';
+
+        if (sortMode === 'complementary') {
+            if (m.role === 'typeA') {
+                badge = `<span class="role-badge" style="background:#e3f2fd; color:#0d47a1;">A强</span>`;
+                scoreColor = '#0d47a1';
+            } else if (m.role === 'typeB') {
+                badge = `<span class="role-badge" style="background:#fbe9e7; color:#bf360c;">B强</span>`;
+                scoreColor = '#bf360c';
+            } else {
+                badge = `<span class="role-badge" style="background:#f5f5f5; color:#666;">均衡</span>`;
+            }
+        } else {
+            if (m.role === 'leader') badge = `<span class="role-badge role-leader">Leader</span>`;
+            else if (m.role === 'support') badge = `<span class="role-badge role-support">Help</span>`;
+        }
+
+        return `
                     <li class="group-member-item">
                         <div style="font-weight:500;">
                             ${m.name} ${badge}
@@ -14190,7 +14194,7 @@ function renderGroupVisuals(groups, className, sortMode) {
                             ${m._displayInfo}
                         </div>
                     </li>`;
-                }).join('')}
+    }).join('')}
             </ul>
         </div>
     `).join('');
@@ -14202,15 +14206,15 @@ function renderGroupVisuals(groups, className, sortMode) {
 function exportGroupsToExcel(groups) {
     const wb = XLSX.utils.book_new();
     const data = [];
-    
+
     // 1. 设置表头
-    data.push(["小组名称", "姓名", "组内角色", "排序指标数据 (分数/差值)"]); 
+    data.push(["小组名称", "姓名", "组内角色", "排序指标数据 (分数/差值)"]);
 
     // 2. 填充数据
     groups.forEach(g => {
         g.members.forEach(m => {
             let roleText = m.role;
-            
+
             // 角色名称映射 (对应 renderVisuals 中的逻辑)
             if (roleText === 'leader') roleText = '🌟 组长';
             else if (roleText === 'support') roleText = '💪 帮扶对象';
@@ -14219,16 +14223,16 @@ function exportGroupsToExcel(groups) {
             else if (roleText === 'typeB') roleText = '🔴 B科优势';
             else if (roleText === 'balance') roleText = '⚪ 均衡';
 
-            data.push([ 
-                g.name, 
-                m.name, 
-                roleText, 
+            data.push([
+                g.name,
+                m.name,
+                roleText,
                 m._displayInfo // 这里会显示 "总分:500" 或 "数学:90 / 英语:60"
             ]);
         });
-        
+
         // 每个小组之间插入空行，方便阅读
-        data.push([]); 
+        data.push([]);
     });
 
     // 3. 生成 Sheet
@@ -14245,4 +14249,480 @@ function exportGroupsToExcel(groups) {
     // 5. 写入并下载
     XLSX.utils.book_append_sheet(wb, ws, "互助分组名单");
     XLSX.writeFile(wb, `智能互助分组名单_${new Date().toLocaleDateString()}.xlsx`);
+}
+
+
+// =====================================================================
+// [!! UPGRADED V3 !!] 模块十七：学期综合评语助手 (成绩 + 生活双维度)
+// =====================================================================
+
+// 预设的日常行为标签库 (点击可快速插入)
+// 预设的日常行为标签库 (点击可快速插入)
+const DAILY_TAGS = [
+    // --- 👍 学习与态度 ---
+    { text: "👂 听课专注", type: "good" },
+    { text: "🧠 思维敏捷", type: "good" },
+    { text: "🙋 积极发言", type: "good" },
+    { text: "📝 书写美观", type: "good" },
+    { text: "📚 热爱阅读", type: "good" },
+    { text: "🦅 敢于质疑", type: "good" },
+    { text: "🐢 作业拖拉", type: "bad" },
+    { text: "📉 粗心大意", type: "bad" },
+    { text: "💤 上课走神", type: "bad" },
+    { text: "🤫 爱讲小话", type: "bad" },
+
+    // --- 🌟 性格与品质 ---
+    { text: "🌞 阳光开朗", type: "good" },
+    { text: "💼 责任心强", type: "good" },
+    { text: "💪 意志坚强", type: "good" },
+    { text: "😊 礼貌待人", type: "good" },
+    { text: "🤐 性格内向", type: "neutral" },
+    { text: "😶 缺乏自信", type: "bad" },
+    { text: "🤯 情绪波动大", type: "bad" },
+    { text: "🧊 个性独立", type: "neutral" },
+
+    // --- 🤝 社交与集体 ---
+    { text: "🤝 乐于助人", type: "good" },
+    { text: "🏆 集体荣誉感", type: "good" },
+    { text: "👮 优秀班干", type: "good" },
+    { text: "👥 人缘极好", type: "good" },
+    { text: "🌵 容易起摩擦", type: "bad" },
+    { text: "🧐 爱钻牛角尖", type: "neutral" },
+
+    // --- 🏃 综合与特长 ---
+    { text: "🔥 劳动积极", type: "good" },
+    { text: "🏃 体育健将", type: "good" },
+    { text: "🎨 艺术特长", type: "good" },
+    { text: "💻 电脑高手", type: "good" },
+    { text: "🕰️ 经常迟到", type: "bad" },
+    { text: "🧹 卫生习惯差", type: "bad" }
+];
+/**
+ * 17.1 渲染主界面 (Async)
+ */
+async function renderCommentGenerator(container) {
+    const multiData = await loadMultiExamData();
+
+    if (!multiData || multiData.length === 0) {
+        container.innerHTML = `
+            <h2>✍️ 学期综合评语助手</h2>
+            <div class="main-card-wrapper" style="text-align:center; padding:50px;">
+                <p style="color:#666;">⚠️ 请先在“数据管理中心”导入本学期的考试数据。</p>
+            </div>`;
+        return;
+    }
+
+    // 数据聚合 (同上个版本)
+    const studentMap = new Map();
+    const classSet = new Set();
+
+    multiData.forEach(exam => {
+        if (exam.isHidden) return;
+        exam.students.forEach(s => {
+            if (!studentMap.has(s.id)) {
+                studentMap.set(s.id, {
+                    info: { name: s.name, class: s.class, id: s.id },
+                    exams: []
+                });
+            }
+            const record = studentMap.get(s.id);
+            record.info.class = s.class;
+            classSet.add(s.class);
+            record.exams.push({
+                label: exam.label,
+                totalScore: s.totalScore,
+                rank: s.rank,
+                gradeRank: s.gradeRank
+            });
+        });
+    });
+
+    const classes = Array.from(classSet).sort();
+
+    // 渲染 UI
+    container.innerHTML = `
+        <h2>✍️ 学期综合评语助手</h2>
+        <p style="color: var(--text-muted); margin-top:-10px;">
+            结合 <strong>历史成绩趋势</strong> 与 <strong>日常行为表现</strong>，生成有温度的素质教育评语。
+        </p>
+
+        <div class="main-card-wrapper" style="border-left: 5px solid #6f42c1;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <label style="font-weight:600;">选择班级:</label>
+                    <select id="comment-class-select" class="sidebar-select" style="width:auto; min-width:150px; font-weight:bold;">
+                        ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div style="display:flex; gap:10px;">
+                    <button id="btn-gen-ai-batch" class="sidebar-button" style="background-color: #6f42c1;">
+                        🤖 AI 融合生成 (推荐)
+                    </button>
+                    <button id="btn-export-comments" class="sidebar-button" style="background-color: var(--color-green);">
+                        📥 导出评语表
+                    </button>
+                </div>
+            </div>
+            
+            <div id="ai-batch-progress" style="display:none; margin-top:15px; background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #eee;">
+                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9em; margin-bottom:5px;">
+                    <span id="ai-progress-text" style="font-weight:bold; color:#555;">AI 生成中... (0/0)</span>
+                    
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button id="btn-stop-ai" style="border:none; background:none; color:#dc3545; cursor:pointer; font-weight:bold;">
+                            ⏹ 停止
+                        </button>
+                        
+                        <button id="btn-close-progress" style="border:none; background:none; color:#999; cursor:pointer; font-size:1.2em; line-height:1;" title="关闭面板">
+                            &times;
+                        </button>
+                    </div>
+                </div>
+                <div style="width:100%; background:#e9ecef; height:8px; border-radius:4px; overflow:hidden;">
+                    <div id="ai-progress-bar" style="width:0%; height:100%; background:#6f42c1; transition:width 0.3s;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-card-wrapper">
+            <div class="table-container" style="max-height: 65vh; overflow-y: auto;">
+                <table id="comment-table">
+                    <thead>
+                        <tr>
+                            <th style="width:70px;">姓名</th>
+                            <th style="width:120px;">成绩趋势</th>
+                            <th style="width:250px; background-color:#fff3cd;">
+                                📝 日常印象 (关键词)
+                                <span style="font-weight:normal; font-size:0.8em; color:#856404; display:block;">点击下方标签快速添加，或手动输入</span>
+                            </th>
+                            <th>评语预览 (AI生成结果)</th>
+                            <th style="width:60px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="comment-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // 4. 核心渲染逻辑
+    const renderTable = (className) => {
+        const tbody = document.getElementById('comment-tbody');
+        let rowsHtml = '';
+
+        const classStudents = [];
+        studentMap.forEach(record => {
+            if (record.info.class === className) classStudents.push(record);
+        });
+
+        // 按最新排名排序
+        classStudents.sort((a, b) => {
+            const lastRankA = a.exams[a.exams.length - 1].rank || 9999;
+            const lastRankB = b.exams[b.exams.length - 1].rank || 9999;
+            return lastRankA - lastRankB;
+        });
+
+        classStudents.forEach(record => {
+            // --- [!! 修改开始 !!] 使用回归斜率计算趋势 ---
+            const exams = record.exams;
+            const count = exams.length;
+            let trendHtml = '<span style="color:#ccc">-</span>';
+
+            if (count >= 2) {
+                // 1. 提取所有有效排名 (优先年排)
+                const ranks = exams.map(e => e.gradeRank || e.rank || 0);
+
+                // 2. 计算回归斜率 (Slope)
+                // Slope = -10 表示平均每次考试名次向前(变小)移动 10 名
+                const slope = calculateTrendSlope(ranks);
+
+                // 3. 计算“拟合总进步量” (Slope * 考试间隔数)
+                // 这代表了基于整体走势，该生在一个学期内的“理论进步名次”
+                // 取反 (-)，因为排名数字变小是好事
+                const trendScore = Math.round(slope * (count - 1) * -1);
+
+                // 4. 计算波动性 (标准差) - 可选，用于判断是否稳定
+                // 这里主要用 trendScore 来定性
+
+                if (trendScore > 30) trendHtml = `<span class="progress">🚀 强势上升 (+${trendScore})</span>`;
+                else if (trendScore > 5) trendHtml = `<span class="progress" style="color:#20c997">📈 稳步进步 (+${trendScore})</span>`;
+                else if (trendScore < -30) trendHtml = `<span class="regress">📉 趋势下滑 (${trendScore})</span>`;
+                else if (trendScore < -5) trendHtml = `<span class="regress" style="color:#fd7e14">📉 略有退步 (${trendScore})</span>`;
+                else trendHtml = `<span style="color:#007bff">⚖️ 发挥稳定</span>`;
+
+                // (Debug提示: 鼠标悬停显示斜率)
+                trendHtml = `<span title="平均每场变化: ${(-slope).toFixed(1)}名">${trendHtml}</span>`;
+            }
+            const historyJson = encodeURIComponent(JSON.stringify(record));
+
+            // 生成标签按钮 HTML
+            const tagsHtml = DAILY_TAGS.map(tag =>
+                `<span class="quick-tag" onclick="addTag(this, '${tag.text}')">${tag.text}</span>`
+            ).join('');
+
+            rowsHtml += `
+                <tr class="comment-row" data-history="${historyJson}">
+                    <td style="font-weight:bold;">${record.info.name}</td>
+                    <td>${trendHtml}</td>
+                    
+                    <td style="vertical-align:top;">
+                        <input type="text" class="daily-input sidebar-select" placeholder="例: 乐于助人, 偶尔迟到..." style="width:100%; margin-bottom:5px;">
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                            ${tagsHtml}
+                        </div>
+                    </td>
+
+                    <td style="padding:5px;">
+                        <textarea class="result-textarea sidebar-select" style="width:100%; height:80px; border:1px solid #eee; resize:vertical;" placeholder="等待生成..."></textarea>
+                    </td>
+                    <td>
+                        <button class="btn-single-ai sidebar-button" style="font-size:0.8em; padding:4px 8px; background-color:#6f42c1;">🤖</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = rowsHtml;
+        bindRowEvents();
+    };
+
+    // 5. 绑定事件
+    const classSelect = document.getElementById('comment-class-select');
+    classSelect.addEventListener('change', () => renderTable(classSelect.value));
+    if (classes.length > 0) renderTable(classes[0]);
+
+    // 全局函数：点击标签添加到输入框
+    window.addTag = (span, text) => {
+        const row = span.closest('td');
+        const input = row.querySelector('input');
+        // 避免重复添加
+        if (!input.value.includes(text.replace(/^[^\s]+\s/, ''))) { // 去掉emoji比较
+            input.value = input.value ? input.value + "，" + text : text;
+        }
+    };
+
+    document.getElementById('btn-export-comments').addEventListener('click', exportCommentsToExcel);
+
+    // 批量 AI 生成 (修复停止逻辑版)
+    let aiController = null;
+    document.getElementById('btn-gen-ai-batch').addEventListener('click', async () => {
+        const apiKey = localStorage.getItem('G_DeepSeekKey');
+        if (!apiKey) { alert("请先设置 API Key"); return; }
+
+        const rows = Array.from(document.querySelectorAll('.comment-row'));
+        if (rows.length === 0) return;
+
+        if (!confirm(`即将为 ${rows.length} 位学生生成融合评语。\n建议您先简单勾选一些“日常印象”标签，生成效果更佳。`)) return;
+
+        const progressBox = document.getElementById('ai-batch-progress');
+        const progressBar = document.getElementById('ai-progress-bar');
+        const progressText = document.getElementById('ai-progress-text');
+        progressBox.style.display = 'block';
+
+        // 重置控制器
+        if (aiController) aiController.abort();
+        aiController = new AbortController();
+
+        let completed = 0;
+
+        for (const row of rows) {
+            // 1. 循环开始检查信号
+            if (aiController.signal.aborted) break;
+
+            const record = JSON.parse(decodeURIComponent(row.dataset.history));
+            const dailyText = row.querySelector('.daily-input').value || "在校表现中规中矩，遵守纪律";
+            const textarea = row.querySelector('.result-textarea');
+
+            progressText.innerText = `🤖 正在生成: ${record.info.name} (${completed + 1}/${rows.length})`;
+
+            try {
+                // [!! 核心修改 !!] 传入 signal
+                const comment = await fetchHybridAIComment(apiKey, record, dailyText, aiController.signal);
+                textarea.value = comment;
+                completed++;
+                progressBar.style.width = `${(completed / rows.length) * 100}%`;
+
+                // 延时防止速率限制
+                await new Promise(r => setTimeout(r, 600));
+
+            } catch (err) {
+                // [!! 核心修改 !!] 如果是停止信号导致的错误，优雅退出
+                if (err.name === 'AbortError') {
+                    progressText.innerText = "🛑 已停止";
+                    break; // 立即跳出循环
+                }
+                textarea.value = `[失败] ${err.message}`;
+            }
+        }
+
+        // 只有在非手动停止的情况下，才自动隐藏进度条
+        if (!aiController.signal.aborted) {
+            setTimeout(() => { progressBox.style.display = 'none'; }, 2000);
+        }
+    });
+
+    document.getElementById('btn-stop-ai').addEventListener('click', () => {
+        if (aiController) {
+            aiController.abort(); // 发送终止信号
+            // [新增] 立即给用户视觉反馈
+            document.getElementById('ai-progress-text').innerText = "🛑 正在停止...";
+        }
+    });
+
+    // [!! 新增 !!] 绑定关闭按钮 (X)
+    document.getElementById('btn-close-progress').addEventListener('click', () => {
+        // 强制终止 AI (如果还没停)
+        if(aiController) aiController.abort();
+        // 隐藏面板
+        document.getElementById('ai-batch-progress').style.display = 'none';
+    });
+
+    // [原有] 停止按钮逻辑
+    document.getElementById('btn-stop-ai').addEventListener('click', () => {
+        if(aiController) {
+            aiController.abort();
+            document.getElementById('ai-progress-text').innerText = "🛑 已停止 (点击右侧 X 关闭)";
+        }
+    });
+}
+
+/**
+ * 17.2 辅助函数：绑定行内 AI 按钮
+ */
+function bindRowEvents() {
+    document.querySelectorAll('.btn-single-ai').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const row = e.target.closest('tr');
+            const record = JSON.parse(decodeURIComponent(row.dataset.history));
+            const dailyText = row.querySelector('.daily-input').value || "表现正常";
+            const textarea = row.querySelector('.result-textarea');
+
+            const apiKey = localStorage.getItem('G_DeepSeekKey');
+            if (!apiKey) { alert("请设置 API Key"); return; }
+
+            const originalText = e.target.innerText;
+            e.target.innerText = "⏳";
+            e.target.disabled = true;
+
+            try {
+                const comment = await fetchHybridAIComment(apiKey, record, dailyText);
+                textarea.value = comment;
+            } catch (err) {
+                alert(err.message);
+            } finally {
+                e.target.innerText = originalText;
+                e.target.disabled = false;
+            }
+        });
+    });
+}
+
+
+
+/**
+ * 17.4 AI 生成逻辑 (融合版 - 支持立即停止)
+ * [!! 修改 !!] 新增 signal 参数，用于接收停止信号
+ */
+async function fetchHybridAIComment(apiKey, record, dailyInfo, signal) {
+    // 构建历史成绩
+    let historyStr = record.exams.map((e, i) => {
+        return `${i + 1}. ${e.label}: 总分${e.totalScore} (班排${e.rank || '-'})`;
+    }).join('\n');
+
+    const prompt = `
+你是一位温暖、细致的班主任。请为学生【${record.info.name}】写一段期末评语。
+评语需要包含两个维度，比重各占 50%：
+
+1. 【学习方面】（基于数据）：
+${historyStr}
+(请分析成绩起伏趋势，肯定努力或指出不足)
+
+2. 【生活方面】（基于关键词）：
+关键词：${dailyInfo}
+(请将这些关键词扩展成通顺、温情的语句，描述他在校的品德、性格或习惯)
+
+【写作要求】：
+- 将两部分自然融合，不要生硬拼接。
+- 语气要是“对学生说话”的口吻（第二人称“你”），请统一使用【第二人称“你”】。
+- 字数控制在 80-120 字。
+- 充满教育的温度和期待。
+    `.trim();
+
+    // [!! 核心修改 !!] 将 signal 传递给 fetch
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        signal: signal, // <--- 这里是关键
+        body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7
+        })
+    });
+
+    if (!response.ok) throw new Error("API Error");
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+}
+
+/**
+ * 17.5 导出 Excel
+ */
+function exportCommentsToExcel() {
+    const className = document.getElementById('comment-class-select').value;
+    const rows = Array.from(document.querySelectorAll('.comment-row'));
+
+    const data = [];
+    data.push(["班级", "姓名", "日常标签", "最终评语"]);
+
+    rows.forEach(row => {
+        const record = JSON.parse(decodeURIComponent(row.dataset.history));
+        const daily = row.querySelector('.daily-input').value;
+        const comment = row.querySelector('.result-textarea').value;
+        data.push([
+            record.info.class,
+            record.info.name,
+            daily,
+            comment
+        ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 80 }];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "学生评语");
+    XLSX.writeFile(wb, `${className}_期末评语_${new Date().toLocaleDateString()}.xlsx`);
+}
+
+
+/**
+ * [数学核心] 计算线性回归斜率 (Linear Regression Slope)
+ * 用于评估成绩的平均走势
+ * @param {Array} values - 排名数组 (y轴)
+ * @returns {Number} - 斜率 (Slope)。负数代表数值变小(排名进步)，正数代表数值变大(退步)
+ */
+function calculateTrendSlope(values) {
+    const n = values.length;
+    if (n < 2) return 0;
+
+    let sumX = 0;   // 考试次序之和 (0+1+2...)
+    let sumY = 0;   // 排名之和
+    let sumXY = 0;  // 次序*排名 之和
+    let sumXX = 0;  // 次序平方 之和
+
+    for (let i = 0; i < n; i++) {
+        const x = i;        // x轴：时间/次序
+        const y = values[i]; // y轴：排名
+
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumXX += x * x;
+    }
+
+    // 斜率公式: (nΣxy - ΣxΣy) / (nΣx² - (Σx)²)
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    return slope;
 }
