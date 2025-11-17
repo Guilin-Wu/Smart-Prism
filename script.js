@@ -11850,6 +11850,41 @@ function initPromptManager() {
         alert("模板已保存");
     };
 
+    // ============================================================
+    // [!! 修复 !!] 添加删除按钮的逻辑
+    // ============================================================
+    delBtn.onclick = () => {
+        const key = select.value;
+
+        // 1. 保护系统默认模板，不允许删除
+        if (DEFAULT_PROMPTS[key]) {
+            alert("系统默认模板无法删除！");
+            return;
+        }
+
+        // 2. 删除确认
+        if (!confirm("确定要删除这个自定义模板吗？\n此操作不可恢复。")) return;
+
+        // 3. 执行删除
+        delete prompts[key];
+
+        // 4. 保存更新后的数据到本地存储
+        localStorage.setItem('G_AI_Prompts', JSON.stringify(prompts));
+
+        // 5. 检查逻辑：如果删除了当前正在使用的模板，重置为默认
+        if (localStorage.getItem('G_AI_ActivePromptId') === key) {
+            localStorage.setItem('G_AI_ActivePromptId', 'default');
+        }
+
+        // 6. 刷新 UI
+        alert("✅ 模板已删除");
+        renderSelect(); // 重新渲染下拉框
+        
+        // 7. 自动切换回默认模板
+        select.value = 'default';
+        loadTemplate('default');
+    };
+
     // 初始化
     renderSelect();
 }
