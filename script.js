@@ -1171,6 +1171,11 @@ function renderModule(moduleName, activeData, activeCompareData) {
             renderExamArrangement(container);
             break;
 
+        // [!! 新增 !!] 智能互助分组
+        case 'study-groups':
+            renderStudyGroups(container);
+            break;
+
         default:
             container.innerHTML = `<h2>模块 ${moduleName} (待开发)</h2>`;
     }
@@ -13835,4 +13840,409 @@ function exportExamToExcel(rooms) {
 
     XLSX.utils.book_append_sheet(wb, wsLayout, "考场座位布局");
     XLSX.writeFile(wb, `考场编排表${new Date().toLocaleDateString()}.xlsx`);
+}
+
+
+// =====================================================================
+// [!! UPGRADED V2 !!] 模块十六：智能互助分组生成器 (基于 T 分互补)
+// =====================================================================
+
+/**
+ * 16.1 渲染主界面
+ */
+function renderStudyGroups(container) {
+    const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
+    
+    // 准备科目选项
+    const subjectOptions = G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('');
+
+    container.innerHTML = `
+        <h2>🧩 智能互助分组生成器 (T分版)</h2>
+        <p style="color: var(--text-muted); margin-top:-10px;">
+            利用 <strong>标准分 (T-Score)</strong> 消除学科难度差异，实现更精准的跨学科互补。
+        </p>
+
+        <div class="main-card-wrapper" style="border-left: 5px solid #6f42c1;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
+                <h4 style="margin:0;">🛠️ 策略配置</h4>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end;">
+                
+                <div>
+                    <label style="font-weight:600; font-size:0.9em; color:#555;">1. 选择班级</label>
+                    <select id="group-class-select" class="sidebar-select" style="width:100%; font-weight:bold;">
+                        ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div>
+                    <label style="font-weight:600; font-size:0.9em; color:#555;">2. 分组模式 (结构)</label>
+                    <select id="group-strategy" class="sidebar-select" style="width:100%;">
+                        <option value="balanced">⚖️ S型均衡分组 (推荐)</option>
+                        <option value="high_low">🤝 1帮1 (首尾结对)</option>
+                        <option value="random">🎲 完全随机</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label style="font-weight:600; font-size:0.9em; color:#555;">3. 核心依据 (重点)</label>
+                    <select id="group-sort-basis" class="sidebar-select" style="width:100%; color:#6f42c1; font-weight:bold;">
+                        <option value="total">🏆 按“总分”实力</option>
+                        <option value="single">🎯 按“单科”成绩</option>
+                        <option value="complementary">☯️ 按“双科互补” (A强B弱)</option>
+                    </select>
+                </div>
+
+                <div id="group-params-area" style="grid-column: span 1;">
+                    <div id="group-size-wrapper">
+                        <label style="font-weight:600; font-size:0.9em; color:#555;">每组人数</label>
+                        <input type="number" id="group-size-input" class="sidebar-select" value="6" min="2" max="10" style="width:100%;">
+                    </div>
+                    
+                    <div id="group-single-wrapper" style="display:none;">
+                        <label style="font-weight:600; font-size:0.9em; color:#555;">选择目标学科</label>
+                        <select id="group-single-subject" class="sidebar-select" style="width:100%;">${subjectOptions}</select>
+                    </div>
+
+                    <div id="group-comp-wrapper" style="display:none;">
+                         <label style="font-weight:600; font-size:0.9em; color:#555;">选择互补学科 (A vs B)</label>
+                         <div style="display:flex; gap:5px;">
+                            <select id="group-sub-a" class="sidebar-select" style="width:50%;">${subjectOptions}</select>
+                            <span style="align-self:center;">⚡️</span>
+                            <select id="group-sub-b" class="sidebar-select" style="width:50%;">${subjectOptions}</select>
+                         </div>
+                    </div>
+                </div>
+
+                <div>
+                     <button id="btn-generate-groups" class="sidebar-button" style="background-color: #6f42c1; width:100%; height: 42px;">
+                        ✨ 生成分组
+                    </button>
+                </div>
+
+            </div>
+
+            <div id="group-strategy-desc" style="font-size:0.85em; color:#666; margin-top:15px; padding:10px; background:#f8f9fa; border-radius:6px;">
+                💡 <strong>当前逻辑：</strong> 根据 <span style="color:#007bff;">总分</span> 进行 <span style="color:#007bff;">S型排列</span>。<br>
+                组间总分均衡，组内包含优中差，适合建立行政学习小组。
+            </div>
+        </div>
+
+        <div id="group-result-area" style="display: none;">
+            <div class="main-card-wrapper">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <h3 style="margin:0;">📋 分组结果预览</h3>
+                    <button id="btn-export-groups" class="sidebar-button" style="background-color: var(--color-green);">📥 导出名单 (Excel)</button>
+                </div>
+                <div id="group-stats-bar" style="background:#fff3cd; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.9em; color:#856404; border:1px solid #ffeeba;"></div>
+                <div id="group-cards-container" class="group-grid-container"></div>
+            </div>
+        </div>
+    `;
+
+    // 2. 绑定 UI 交互逻辑
+    const strategySelect = document.getElementById('group-strategy');
+    const sortSelect = document.getElementById('group-sort-basis');
+    const sizeWrapper = document.getElementById('group-size-wrapper');
+    const singleWrapper = document.getElementById('group-single-wrapper');
+    const compWrapper = document.getElementById('group-comp-wrapper');
+    const descBox = document.getElementById('group-strategy-desc');
+
+    // 统一更新 UI 状态函数
+    const updateUI = () => {
+        const st = strategySelect.value;
+        const so = sortSelect.value;
+
+        const sizeInput = document.getElementById('group-size-input');
+        if (st === 'high_low') {
+            sizeInput.value = 2;
+            sizeInput.disabled = true;
+        } else {
+            sizeInput.disabled = false;
+        }
+
+        sizeWrapper.style.display = 'none';
+        singleWrapper.style.display = 'none';
+        compWrapper.style.display = 'none';
+
+        if (so === 'single') singleWrapper.style.display = 'block';
+        else if (so === 'complementary') compWrapper.style.display = 'block';
+        
+        if (st !== 'high_low') sizeWrapper.style.display = 'block';
+
+        let text = "💡 <strong>当前逻辑：</strong> ";
+        if (so === 'total') text += "依据 <span style='color:#007bff'>总分</span> ";
+        else if (so === 'single') text += "依据 <span style='color:#007bff'>单科成绩</span> ";
+        else text += "依据 <span style='color:#007bff'>双科 T 分差值 (A-B)</span> ";
+
+        if (st === 'balanced') text += "进行 <span style='color:#007bff'>S型蛇形分组</span>。<br>保证组间实力均衡，适合长期小组。";
+        else if (st === 'high_low') text += "进行 <span style='color:#007bff'>首尾结对 (1帮1)</span>。<br>最强配最弱，适合专项帮扶。";
+        else text += "进行 <span style='color:#007bff'>随机分组</span>。";
+
+        if (so === 'complementary') {
+             text += `<br>🔥 <strong>T分优势：</strong> 已消除学科难度差异。队首是“A强B弱”，队尾是“B强A弱”，1帮1结合后形成完美互补！`;
+        }
+        descBox.innerHTML = text;
+    };
+
+    strategySelect.addEventListener('change', updateUI);
+    sortSelect.addEventListener('change', updateUI);
+    updateUI();
+
+    // 3. 生成逻辑
+    let currentGroups = [];
+
+    document.getElementById('btn-generate-groups').addEventListener('click', () => {
+        const className = document.getElementById('group-class-select').value;
+        const strategy = strategySelect.value;
+        const sortMode = sortSelect.value;
+        const size = parseInt(document.getElementById('group-size-input').value) || 6;
+
+        const params = {
+            subject: document.getElementById('group-single-subject').value,
+            subA: document.getElementById('group-sub-a').value,
+            subB: document.getElementById('group-sub-b').value
+        };
+
+        // 1. 筛选班级
+        let students = G_StudentsData.filter(s => s.class === className);
+        if (students.length === 0) { alert("该班级无学生数据"); return; }
+
+        // [!! 核心 !!] 确保 T 分已计算 (基于全体学生 G_StudentsData 算 T 分才准)
+        if (!G_StudentsData[0].tScores) {
+            console.log("检测到 T 分缺失，正在计算全体标准分...");
+            const globalStats = calculateAllStatistics(G_StudentsData);
+            calculateStandardScores(G_StudentsData, globalStats);
+        }
+
+        // 2. 计算排序权重
+        students.forEach(s => {
+            if (sortMode === 'total') {
+                s._sortScore = s.totalScore || 0;
+                s._displayInfo = `总分: ${s.totalScore}`;
+            } else if (sortMode === 'single') {
+                s._sortScore = s.scores[params.subject] || 0;
+                s._displayInfo = `${params.subject}: ${s.scores[params.subject]}`;
+            } else if (sortMode === 'complementary') {
+                // [!! UPGRADED !!] 使用 T 分差值
+                const tA = (s.tScores && s.tScores[params.subA]) ? s.tScores[params.subA] : 50;
+                const tB = (s.tScores && s.tScores[params.subB]) ? s.tScores[params.subB] : 50;
+                
+                // 差值：正值越大 -> A相对越好；负值越小 -> B相对越好
+                const diff = tA - tB;
+                s._sortScore = diff;
+                
+                // 显示原始分给老师看，但备注 T 分差
+                const rawA = s.scores[params.subA] || 0;
+                const rawB = s.scores[params.subB] || 0;
+                s._displayInfo = `${params.subA}:${rawA} / ${params.subB}:${rawB}`;
+                s._compDiff = diff; // 存下来用于显示颜色
+            }
+        });
+
+        // 3. 排序 (降序)
+        students.sort((a, b) => b._sortScore - a._sortScore);
+
+        // 4. 执行分组
+        currentGroups = calculateGroups(students, strategy, size, sortMode);
+
+        // 5. 渲染
+        renderGroupVisuals(currentGroups, className, sortMode);
+    });
+
+    // 导出
+    document.getElementById('btn-export-groups').addEventListener('click', () => {
+        if(currentGroups.length > 0) exportGroupsToExcel(currentGroups);
+    });
+}
+
+
+/**
+ * 16.2 分组核心算法 (适配多模式)
+ */
+function calculateGroups(students, strategy, groupSize, sortMode) {
+    const groups = [];
+    const totalStudents = students.length;
+    
+    // --- 随机模式 ---
+    if (strategy === 'random') {
+        const shuffled = [...students].sort(() => Math.random() - 0.5);
+        const numGroups = Math.ceil(totalStudents / groupSize);
+        for(let i=0; i<numGroups; i++) groups.push({ name: `第 ${i+1} 组`, members: [] });
+        shuffled.forEach((s, idx) => groups[idx % numGroups].members.push(s));
+        return groups;
+    }
+
+    // --- 1帮1模式 (High-Low) ---
+    if (strategy === 'high_low') {
+        const pairCount = Math.floor(totalStudents / 2);
+        for (let i = 0; i < pairCount; i++) {
+            const top = students[i];
+            const bottom = students[totalStudents - 1 - i];
+            
+            // 在互补模式下，Top是 A强B弱，Bottom是 A弱B强。绝配！
+            groups.push({
+                name: sortMode === 'complementary' ? `互补对子 ${i + 1}` : `帮扶对子 ${i + 1}`,
+                members: [top, bottom]
+            });
+        }
+        // 处理落单 (奇数)
+        if (totalStudents % 2 !== 0) {
+            const midStudent = students[Math.floor(totalStudents / 2)];
+            groups[groups.length - 1].members.push(midStudent); // 加到最后一组变3人
+        }
+    } 
+    // --- S型均衡模式 (Balanced) ---
+    else {
+        const numGroups = Math.ceil(totalStudents / groupSize);
+        for(let i=0; i<numGroups; i++) groups.push({ name: `第 ${i+1} 组`, members: [] });
+
+        students.forEach((s, index) => {
+            const row = Math.floor(index / numGroups);
+            let groupIndex;
+            if (row % 2 === 0) groupIndex = index % numGroups; // 正向
+            else groupIndex = numGroups - 1 - (index % numGroups); // 反向
+            groups[groupIndex].members.push(s);
+        });
+    }
+
+    // 计算统计信息 (均分/均差)
+    groups.forEach(g => {
+        let sum = 0;
+        g.members.forEach(m => sum += m._sortScore);
+        g.avgSortScore = (sum / g.members.length).toFixed(1);
+
+        // 组内排序 (方便显示 Leader)
+        g.members.sort((a, b) => b._sortScore - a._sortScore);
+        
+        // 角色标记
+        g.members.forEach((m, idx) => {
+            if (sortMode === 'complementary') {
+                // 互补模式下，没有绝对的优差，而是特质不同
+                // 排序分高(A强B弱)，排序分低(B强A弱)
+                if (m._compDiff > 5) m.role = 'typeA'; // A科大佬
+                else if (m._compDiff < -5) m.role = 'typeB'; // B科大佬
+                else m.role = 'balance'; // 均衡
+            } else {
+                // 传统优差
+                if (idx === 0) m.role = 'leader';
+                else if (idx === g.members.length - 1) m.role = 'support';
+                else m.role = 'member';
+            }
+        });
+    });
+
+    return groups;
+}
+
+/**
+ * 16.3 渲染可视化 (增强版)
+ */
+function renderGroupVisuals(groups, className, sortMode) {
+    const container = document.getElementById('group-cards-container');
+    const statsBar = document.getElementById('group-stats-bar');
+    document.getElementById('group-result-area').style.display = 'block';
+
+    // 统计描述
+    let statText = `<strong>${className}</strong> 生成 <strong>${groups.length}</strong> 组。`;
+    if (sortMode !== 'complementary' && groups.length > 0) {
+        const max = Math.max(...groups.map(g => parseFloat(g.avgSortScore)));
+        const min = Math.min(...groups.map(g => parseFloat(g.avgSortScore)));
+        statText += ` 组间指标极差：<strong>${(max-min).toFixed(1)}</strong> (越小越均衡)`;
+    } else {
+        statText += ` 已尝试最大化组内互补性。`;
+    }
+    statsBar.innerHTML = statText;
+
+    container.innerHTML = groups.map(g => `
+        <div class="group-card">
+            <div class="group-header">
+                <span>${g.name}</span>
+                <span class="group-avg" style="font-size:0.8em; opacity:0.7;">指标均值:${g.avgSortScore}</span>
+            </div>
+            <ul class="group-member-list">
+                ${g.members.map(m => {
+                    let badge = '';
+                    let scoreColor = '#666';
+                    
+                    if (sortMode === 'complementary') {
+                        if (m.role === 'typeA') {
+                            badge = `<span class="role-badge" style="background:#e3f2fd; color:#0d47a1;">A强</span>`;
+                            scoreColor = '#0d47a1';
+                        } else if (m.role === 'typeB') {
+                            badge = `<span class="role-badge" style="background:#fbe9e7; color:#bf360c;">B强</span>`;
+                            scoreColor = '#bf360c';
+                        } else {
+                            badge = `<span class="role-badge" style="background:#f5f5f5; color:#666;">均衡</span>`;
+                        }
+                    } else {
+                        if (m.role === 'leader') badge = `<span class="role-badge role-leader">Leader</span>`;
+                        else if (m.role === 'support') badge = `<span class="role-badge role-support">Help</span>`;
+                    }
+                    
+                    return `
+                    <li class="group-member-item">
+                        <div style="font-weight:500;">
+                            ${m.name} ${badge}
+                        </div>
+                        <div style="font-size:0.85em; color:${scoreColor};">
+                            ${m._displayInfo}
+                        </div>
+                    </li>`;
+                }).join('')}
+            </ul>
+        </div>
+    `).join('');
+}
+
+/**
+ * 16.4 导出 (适配 Pro 版)
+ */
+function exportGroupsToExcel(groups) {
+    const wb = XLSX.utils.book_new();
+    const data = [];
+    
+    // 1. 设置表头
+    data.push(["小组名称", "姓名", "组内角色", "排序指标数据 (分数/差值)"]); 
+
+    // 2. 填充数据
+    groups.forEach(g => {
+        g.members.forEach(m => {
+            let roleText = m.role;
+            
+            // 角色名称映射 (对应 renderVisuals 中的逻辑)
+            if (roleText === 'leader') roleText = '🌟 组长';
+            else if (roleText === 'support') roleText = '💪 帮扶对象';
+            else if (roleText === 'member') roleText = '组员';
+            else if (roleText === 'typeA') roleText = '🔵 A科优势';
+            else if (roleText === 'typeB') roleText = '🔴 B科优势';
+            else if (roleText === 'balance') roleText = '⚪ 均衡';
+
+            data.push([ 
+                g.name, 
+                m.name, 
+                roleText, 
+                m._displayInfo // 这里会显示 "总分:500" 或 "数学:90 / 英语:60"
+            ]);
+        });
+        
+        // 每个小组之间插入空行，方便阅读
+        data.push([]); 
+    });
+
+    // 3. 生成 Sheet
+    const ws = XLSX.utils.aoa_to_sheet(data);
+
+    // 4. 设置列宽 (wch 是字符宽度)
+    ws['!cols'] = [
+        { wch: 12 }, // 小组名称
+        { wch: 10 }, // 姓名
+        { wch: 12 }, // 组内角色
+        { wch: 30 }  // 排序指标数据 (这一列可能较长，给宽一点)
+    ];
+
+    // 5. 写入并下载
+    XLSX.utils.book_append_sheet(wb, ws, "互助分组名单");
+    XLSX.writeFile(wb, `智能互助分组名单_${new Date().toLocaleDateString()}.xlsx`);
 }

@@ -1438,3 +1438,71 @@ details.ai-reasoning-box:not([open]) summary::after {
     background-color: var(--primary-color-dark) !important;
     color: #fff !important;
 }
+
+/* 模块十六：互助分组样式 */
+.group-grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.group-card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    overflow: hidden;
+    transition: transform 0.2s;
+}
+.group-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    border-color: var(--primary-color);
+}
+
+.group-header {
+    background: #f8f9fa;
+    padding: 10px 15px;
+    border-bottom: 1px solid #eee;
+    font-weight: bold;
+    color: #333;
+    display: flex;
+    justify-content: space-between;
+}
+
+.group-avg {
+    font-size: 0.85em;
+    color: #666;
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.group-member-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.group-member-item {
+    padding: 8px 15px;
+    border-bottom: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9em;
+}
+.group-member-item:last-child {
+    border-bottom: none;
+}
+
+.role-badge {
+    font-size: 0.75em;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 5px;
+}
+.role-leader { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; } /* 组长/优 */
+.role-member { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; } /* 中 */
+.role-support { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; } /* 需帮扶 */
