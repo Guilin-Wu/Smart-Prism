@@ -5532,14 +5532,14 @@ function renderWeaknessDetail(containerElement, studentData) {
     // 按偏离度升序排序 (最弱的在最前面)
     deviations.sort((a, b) => a.deviation - b.deviation);
 
-    let html = `
+let html = `
         <h4>${student.name} (${student.id}) - 各科偏离度详情</h4>
         <div class="table-container" style="max-height: 400px; overflow-y: auto;">
             <table>
                 <thead>
                     <tr>
                         <th>科目</th>
-                        <th>该科Z-Score</th>
+                        <th>科目分数</th> <th>该科Z-Score</th>
                         <th>学生平均Z-Score</th>
                         <th>偏离度 (该科Z - 均Z)</th>
                     </tr>
@@ -5548,6 +5548,11 @@ function renderWeaknessDetail(containerElement, studentData) {
                     ${deviations.map(item => `
                         <tr>
                             <td><strong>${item.subject}</strong></td>
+                            
+                            <td style="font-weight:bold; color:#555;">
+                                ${student.scores[item.subject] !== undefined ? student.scores[item.subject] : '-'}
+                            </td>
+                            
                             <td>${item.zScore.toFixed(2)}</td>
                             <td>${studentData.avgZScore.toFixed(2)}</td>
                             <td>
