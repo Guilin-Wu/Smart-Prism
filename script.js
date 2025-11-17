@@ -3088,7 +3088,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 }
 
 /**
- * (重构) 9.11. 模块十二：多次考试分析
+ * (重构) 9.11. 模块：数据管理中心
  * [!! 修复版 !!] 解决 loadMultiExamData 异步调用问题
  */
 function renderMultiExam(container) {
@@ -3112,14 +3112,14 @@ function renderMultiExam(container) {
                     <input type="file" id="multi-file-uploader" accept=".xlsx, .xls, .csv" style="display: none;" multiple>
 
                     <label for="multi-json-uploader" class="upload-label" style="padding: 10px 16px; background-color: var(--color-orange); color: white;">
-                        📥 导入备份 (JSON)
+                        📥 导入全系统备份 (JSON)
                     </label>
                     <input type="file" id="multi-json-uploader" accept=".json" style="display: none;">
                 </div>
 
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button id="multi-export-all" class="sidebar-button" style="background-color: var(--color-green);">
-                        📤 导出备份 (JSON)
+                        📤 导出全系统备份 (JSON)  </button>
                     </button>
                     <button id="multi-clear-all" class="sidebar-button" style="background-color: var(--color-red);">
                         🗑️ 清除全部
@@ -3296,65 +3296,165 @@ function renderMultiExam(container) {
         }
     });
 
-    // (导出备份)
-    exportBtn.addEventListener('click', async () => {
-        const data = await loadMultiExamData(); // await
-        if (data.length === 0) {
-            alert('没有可导出的数据。');
-            return;
-        }
+   // ============================================================
+    // [!! 核心升级 !!] 全系统数据导出 (Full System Export)
+    // ============================================================
+    exportBtn.onclick = async () => { // 使用 onclick 避免重复绑定
         try {
-            const jsonString = JSON.stringify(data);
+            exportBtn.innerText = "📦 打包中...";
+            exportBtn.disabled = true;
+
+            // 1. 准备要备份的数据 Key 清单
+            // 格式: { backupKey: localForageKey/localStorageKey, type: 'localforage'/'localstorage' }
+            
+            // (A) 从 IndexedDB 获取的大数据
+            const [
+                collections,
+                goalArchives,
+                goalSessionMeta,
+                itemLibrary,
+                subjectConfigs
+            ] = await Promise.all([
+                localforage.getItem('G_MultiExam_Collections_V2'), // 考试列表库
+                localforage.getItem('G_Goal_Archives'),            // 目标规划-档案
+                localforage.getItem('G_Goal_Session_Meta'),        // 目标规划-列表元数据
+                localforage.getItem('G_ItemAnalysis_Library'),     // 学科小题库
+                localforage.getItem('G_SubjectConfigs')            // 全局科目配置
+            ]);
+
+            // (B) 从 localStorage 获取的状态/小数据
+            const metaData = {
+                activeCollectionId: localStorage.getItem('G_MultiExam_ActiveId'),
+                activeGoalSessionId: localStorage.getItem('G_Goal_Current_Session_ID'),
+                deepSeekKey: localStorage.getItem('G_DeepSeekKey'), // 可选：备份API Key方便迁移
+                theme: localStorage.getItem('app_theme')
+            };
+
+            // 2. 构建全量备份对象
+            const fullBackup = {
+                __version__: "SmartPrism_Full_v2.0", // 版本标识，用于导入时识别
+                timestamp: new Date().toLocaleString(),
+                data: {
+                    collections: collections || {},
+                    goalArchives: goalArchives || {},
+                    goalSessionMeta: goalSessionMeta || [],
+                    itemLibrary: itemLibrary || [],
+                    subjectConfigs: subjectConfigs || {},
+                    meta: metaData
+                }
+            };
+
+            // 3. 生成文件并下载
+            const jsonString = JSON.stringify(fullBackup, null, 2); // 美化输出
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `成绩分析系统_多次考试备份_${new Date().toISOString().split('T')[0]}.json`;
+            a.download = `智慧棱镜_全系统备份_${new Date().toISOString().split('T')[0]}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            statusLabel.innerText = `✅ 成功导出 ${data.length} 条考试数据。`;
-        } catch (err) {
-            statusLabel.innerText = `❌ 导出失败: ${err.message}`;
-            console.error(err);
-        }
-    });
 
-    // (导入备份)
-    jsonUploader.addEventListener('change', (event) => {
+            statusLabel.innerText = `✅ 全系统备份已导出 (包含考试库、规划、小题库等)`;
+            statusLabel.style.color = "green";
+
+        } catch (err) {
+            console.error(err);
+            alert("导出失败: " + err.message);
+            statusLabel.innerText = `❌ 导出失败`;
+        } finally {
+            exportBtn.innerText = "📤 导出全系统备份 (JSON)";
+            exportBtn.disabled = false;
+        }
+    };
+
+    // ============================================================
+    // [!! 核心升级 !!] 全系统数据导入 (Full System Import)
+    // ============================================================
+    jsonUploader.onchange = (event) => { // 使用 onchange 覆盖
         const file = event.target.files[0];
         if (!file) return;
-        statusLabel.innerText = `🔄 正在读取备份文件...`;
+
+        statusLabel.innerText = `⏳ 正在解析备份文件...`;
         const reader = new FileReader();
-        reader.onload = (e) => {
+        
+        reader.onload = async (e) => {
             try {
-                const importedData = JSON.parse(e.target.result);
-                if (!Array.isArray(importedData) || (importedData.length > 0 && !importedData[0].students)) {
-                    throw new Error('文件格式不正确，不是有效的备份文件。');
+                const jsonContent = JSON.parse(e.target.result);
+
+                // --- 情况 A: 识别为新版全量备份 ---
+                if (jsonContent.__version__ && jsonContent.__version__.startsWith("SmartPrism_Full")) {
+                    const { data, timestamp } = jsonContent;
+                    
+                    if (!confirm(`检测到全系统备份文件 (创建于 ${timestamp})。\n\n包含：\n- 📚 考试列表库\n- 🎯 目标规划数据\n- 🔬 小题分析库\n- ⚙️ 系统配置\n\n【警告】导入将覆盖当前浏览器的所有历史数据！\n确定要还原吗？`)) {
+                        statusLabel.innerText = "操作已取消";
+                        jsonUploader.value = null;
+                        return;
+                    }
+
+                    statusLabel.innerText = "🔄 正在还原数据...";
+
+                    // 1. 还原 IndexedDB 数据
+                    await Promise.all([
+                        localforage.setItem('G_MultiExam_Collections_V2', data.collections),
+                        localforage.setItem('G_Goal_Archives', data.goalArchives),
+                        localforage.setItem('G_Goal_Session_Meta', data.goalSessionMeta),
+                        localforage.setItem('G_ItemAnalysis_Library', data.itemLibrary),
+                        localforage.setItem('G_SubjectConfigs', data.subjectConfigs)
+                    ]);
+
+                    // 2. 还原 LocalStorage 状态
+                    if (data.meta) {
+                        if (data.meta.activeCollectionId) localStorage.setItem('G_MultiExam_ActiveId', data.meta.activeCollectionId);
+                        if (data.meta.activeGoalSessionId) localStorage.setItem('G_Goal_Current_Session_ID', data.meta.activeGoalSessionId);
+                        if (data.meta.deepSeekKey) localStorage.setItem('G_DeepSeekKey', data.meta.deepSeekKey);
+                        if (data.meta.theme) {
+                            localStorage.setItem('app_theme', data.meta.theme);
+                            if(data.meta.theme === 'dark') document.body.setAttribute('data-theme', 'dark');
+                        }
+                    }
+
+                    alert("✅ 全系统数据还原成功！页面即将刷新。");
+                    location.reload(); // 刷新以应用所有更改
+                } 
+                
+                // --- 情况 B: 识别为旧版备份 (仅考试列表数组) ---
+                else if (Array.isArray(jsonContent) || (jsonContent.length > 0 && jsonContent[0].students)) {
+                    if (!confirm(`检测到旧版备份文件 (仅包含考试列表)。\n\n是否将其导入到当前选中的列表库中？(这不会覆盖目标规划和小题库)`)) {
+                        jsonUploader.value = null;
+                        return;
+                    }
+
+                    // 走旧的逻辑：保存到当前 collection
+                    await saveMultiExamData(jsonContent);
+                    
+                    // 刷新界面
+                    renderMultiExamList(jsonContent);
+                    initializeStudentSearch(jsonContent);
+                    statusLabel.innerText = `✅ 旧版数据已导入 (仅更新考试列表)`;
+                } 
+                
+                else {
+                    throw new Error("无法识别的文件格式。请确保这是由本系统导出的 JSON 备份。");
                 }
-                if (confirm(`您确定要用此文件中的 ${importedData.length} 条数据，覆盖当前所有“多次考试”数据吗？`)) {
-                    saveMultiExamData(importedData);
-                    renderMultiExamList(importedData);
-                    initializeStudentSearch(importedData);
-                    document.getElementById('multi-student-report').style.display = 'none';
-                    statusLabel.innerText = `✅ 成功导入 ${importedData.length} 条考试数据。`;
-                } else {
-                    statusLabel.innerText = '导入操作已取消。';
-                }
+
             } catch (err) {
-                statusLabel.innerText = `❌ 导入失败: ${err.message}`;
                 console.error(err);
+                alert(`❌ 导入失败: ${err.message}`);
+                statusLabel.innerText = "❌ 文件解析错误";
             } finally {
-                jsonUploader.value = null;
+                jsonUploader.value = null; // 重置控件，允许重复上传同名文件
             }
         };
+        
         reader.onerror = () => {
-            statusLabel.innerText = '❌ 文件读取失败。';
+            alert("文件读取失败");
             jsonUploader.value = null;
         };
+        
         reader.readAsText(file);
-    });
+    };
 
     // 3. 初始化数据
     loadMultiExamData().then(initialData => {
