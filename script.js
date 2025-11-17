@@ -2908,7 +2908,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
             <p style="color: var(--text-muted); font-size: 0.9em; margin-top: 0;">
                 点击图中的“节点”或“流向”可查看学生列表。(绿色表示向上流动，红色表示向下流动)
             </p>
-            <div class="chart-container" id="dist-sankey-chart" style="height: 600px;"></div>
+            <div class="chart-container" id="dist-sankey-chart" style="height: 800px;"></div>
         </div>
 
         <div class="main-card-wrapper" id="dist-sankey-results-wrapper" style="display: none; margin-top: 20px;">
@@ -3055,22 +3055,34 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                                 <thead>
                                     <tr>
                                         <th>姓名</th><th>班级</th>
+                                        <th>上次分层</th> <th>本次分层</th>
                                         <th>本次${scoreLabel}</th><th>本次${rankLabel}</th>
                                         <th>上次${scoreLabel}</th><th>上次${rankLabel}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${students.map(s => {
+                        ${students.map(s => {
                         const r = getRanks(s);
-                        const tierOld = rankTiers.findIndex(t => t.name === getRankCategory(r.old));
-                        const tierNew = rankTiers.findIndex(t => t.name === getRankCategory(r.new));
+                        
+                        // [!!] 获取分层名称
+                        const oldTierName = getRankCategory(r.old);
+                        const newTierName = getRankCategory(r.new);
+                        
+                        const tierOld = rankTiers.findIndex(t => t.name === oldTierName);
+                        const tierNew = rankTiers.findIndex(t => t.name === newTierName);
+                        
                         let rowClass = '';
+                        // 索引越小代表排名越靠前 (Top 10% 是 0)，所以 旧索引 > 新索引 = 进步
                         if (tierOld > tierNew) rowClass = 'progress';
                         else if (tierOld < tierNew) rowClass = 'regress';
 
                         return `
                                         <tr class="${rowClass}">
                                             <td>${s.name}</td><td>${s.class}</td>
+                                            
+                                            <td style="color: #888; font-size: 0.9em;">${oldTierName}</td>
+                                            <td style="font-weight: bold;">${newTierName}</td>
+                                            
                                             <td><strong>${r.newScore ?? '-'}</strong></td>
                                             <td>${r.new}</td>
                                             <td>${r.oldScore ?? '-'}</td>
