@@ -1180,6 +1180,11 @@ function renderModule(moduleName, activeData, activeCompareData) {
             renderCommentGenerator(container);
             break;
 
+        // [!! 新增 !!] 错题攻坚本
+        case 'weakness-workbook':
+            renderWeaknessWorkbook(container);
+            break;
+
         default:
             container.innerHTML = `<h2>模块 ${moduleName} (待开发)</h2>`;
     }
@@ -6431,36 +6436,43 @@ function renderMultiExamLineChart(elementId, title, examNames, seriesData, yAxis
 
 /**
  * [修改版] 11. 启动时从 IndexedDB 加载数据
- * 修复了读取字符串可能导致崩溃的问题
+ * 保留了您原有的所有解析逻辑和容错处理
+ * 新增：预加载 G_ItemAnalysisData，确保“错题攻坚本”开机即用
  */
 async function loadDataFromStorage() {
     console.log("🚀 系统启动：正在连接 IndexedDB 加载数据...");
 
     try {
-        // 并行读取数据
+        // 1. [修改] 并行读取数据 (新增了 ItemAnalysisData 等3个Key)
         const [
             storedData,
             storedCompareData,
             storedConfigs,
             storedMainFile,
-            storedCompareFile
+            storedCompareFile,
+            storedItemData,      // [新增]
+            storedItemConfig,    // [新增]
+            storedItemFile       // [新增]
         ] = await Promise.all([
             localforage.getItem('G_StudentsData'),
             localforage.getItem('G_CompareData'),
             localforage.getItem('G_SubjectConfigs'),
             localforage.getItem('G_MainFileName'),
-            localforage.getItem('G_CompareFileName')
+            localforage.getItem('G_CompareFileName'),
+            localforage.getItem('G_ItemAnalysisData'),    // [新增]
+            localforage.getItem('G_ItemAnalysisConfig'),  // [新增]
+            localforage.getItem('G_ItemAnalysisFileName') // [新增]
         ]);
 
-        // 2. 如果没有“本次成绩”，则什么也不做
+        // 2. [保留原有逻辑] 如果没有“本次成绩”，则什么也不做
         if (!storedData) {
             console.log("📭 本地存储为空，等待用户导入...");
             initializeSubjectConfigs();
+            // 如果这里直接 return，小题数据可能也加载不到了，但考虑到没有主数据系统无法运行，保持您原有的 return 逻辑是合理的
             return;
         }
 
-        // [!! 核心修复 !!] 检查数据类型，如果是字符串(降级保存的结果)，必须解析
-        // -----------------------------------------------------------
+        // 3. [保留原有逻辑] 检查数据类型 (兼容性修复)
         if (typeof storedData === 'string') {
             console.log("⚠️ 检测到字符串格式的本次成绩，正在解析...");
             G_StudentsData = JSON.parse(storedData);
@@ -6468,7 +6480,7 @@ async function loadDataFromStorage() {
             G_StudentsData = storedData;
         }
 
-        // 同样检查对比数据
+        // 4. [保留原有逻辑] 检查对比数据
         if (storedCompareData) {
             if (typeof storedCompareData === 'string') {
                 console.log("⚠️ 检测到字符串格式的对比成绩，正在解析...");
@@ -6477,11 +6489,10 @@ async function loadDataFromStorage() {
                 G_CompareData = storedCompareData;
             }
         }
-        // -----------------------------------------------------------
 
         console.log(`✅ 成功加载本次成绩：${G_StudentsData.length} 条记录`);
 
-        // 4. 重建 G_DynamicSubjectList (确保科目列表正确)
+        // 5. [保留原有逻辑] 重建 G_DynamicSubjectList
         if (G_StudentsData.length > 0) {
             const allSubjects = new Set();
             G_StudentsData.forEach(student => {
@@ -6494,14 +6505,14 @@ async function loadDataFromStorage() {
             }
         }
 
-        // 5. 加载配置
+        // 6. [保留原有逻辑] 加载配置
         if (storedConfigs) {
             G_SubjectConfigs = storedConfigs;
         } else {
             initializeSubjectConfigs();
         }
 
-        // 6. 健壮性检查：确保所有科目都有配置
+        // 7. [保留原有逻辑] 健壮性检查：确保所有科目都有配置
         G_DynamicSubjectList.forEach(subject => {
             if (!G_SubjectConfigs[subject]) {
                 const isY_S_W = ['语文', '数学', '英语'].includes(subject);
@@ -6514,7 +6525,24 @@ async function loadDataFromStorage() {
             }
         });
 
-        // 7. UI 更新
+        // ============================================================
+        // [!! 新增 !!] 预加载“学科小题分析”数据
+        // ============================================================
+        if (storedItemData) {
+            G_ItemAnalysisData = storedItemData;
+            console.log(`✅ 成功预加载小题数据: ${Object.keys(storedItemData).length} 科`);
+        }
+        if (storedItemConfig) {
+            G_ItemAnalysisConfig = storedItemConfig;
+        }
+        // 顺便更新一下模块十三那边的状态文字 (如果 DOM 存在)
+        const itemStatusLabel = document.getElementById('item-analysis-status');
+        if (itemStatusLabel && storedItemFile) {
+            itemStatusLabel.innerText = `✅ 已加载: ${storedItemFile}`;
+        }
+        // ============================================================
+
+        // 8. [保留原有逻辑] UI 更新
         populateClassFilter(G_StudentsData);
         if (welcomeScreen) welcomeScreen.style.display = 'none';
 
@@ -6533,10 +6561,11 @@ async function loadDataFromStorage() {
             compareBtnEl.innerHTML = `✅ ${storedCompareFile} (已加载)`;
         }
 
-        // 9. 运行分析
+        // 9. [保留原有逻辑] 运行分析
         runAnalysisAndRender();
 
     } catch (err) {
+        // [保留原有逻辑] 错误处理
         console.error("❌ IndexedDB 读取严重失败:", err);
         alert("读取缓存数据出错。如果问题持续，请点击左下角的“清除所有导入数据”按钮重置系统。");
     }
@@ -13861,7 +13890,7 @@ function renderStudyGroups(container) {
     const subjectOptions = G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('');
 
     container.innerHTML = `
-        <h2>🧩 智能互助分组生成器 (T分版)</h2>
+        <h2>🧩 模块十六：智能互助分组生成器 (T分版)</h2>
         <p style="color: var(--text-muted); margin-top:-10px;">
             利用 <strong>标准分 (T-Score)</strong> 消除学科难度差异，实现更精准的跨学科互补。
         </p>
@@ -14305,7 +14334,7 @@ async function renderCommentGenerator(container) {
 
     if (!multiData || multiData.length === 0) {
         container.innerHTML = `
-            <h2>✍️ 学期综合评语助手</h2>
+            <h2>✍️ 模块十七：学期综合评语助手</h2>
             <div class="main-card-wrapper" style="text-align:center; padding:50px;">
                 <p style="color:#666;">⚠️ 请先在“数据管理中心”导入本学期的考试数据。</p>
             </div>`;
@@ -14341,7 +14370,7 @@ async function renderCommentGenerator(container) {
 
     // 渲染 UI
     container.innerHTML = `
-        <h2>✍️ 学期综合评语助手</h2>
+        <h2>✍️ 模块十七：学期综合评语助手</h2>
         <p style="color: var(--text-muted); margin-top:-10px;">
             结合 <strong>历史成绩趋势</strong> 与 <strong>日常行为表现</strong>，生成有温度的素质教育评语。
         </p>
@@ -14725,4 +14754,581 @@ function calculateTrendSlope(values) {
     // 斜率公式: (nΣxy - ΣxΣy) / (nΣx² - (Σx)²)
     const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
     return slope;
+}
+
+
+
+// =====================================================================
+// [!! NEW !!] 模块十八：个性化错题/薄弱点“攻坚本”生成器
+// =====================================================================
+
+/**
+ * 18.1 渲染主界面 (已升级：批量 AI 生成)
+ */
+function renderWeaknessWorkbook(container) {
+    // 1. 检查数据源
+    if (!G_ItemAnalysisData || Object.keys(G_ItemAnalysisData).length === 0) {
+        container.innerHTML = `<div class="main-card-wrapper" style="text-align:center; padding:50px; color:#666;">⚠️ 请先前往“学科小题分析”导入数据。</div>`;
+        return;
+    }
+
+    const subjects = Object.keys(G_ItemAnalysisData);
+
+    container.innerHTML = `
+        <h2>📝 模块十八：个性化错题攻坚本生成器</h2>
+        <p style="color: var(--text-muted); margin-top:-10px;">
+            自动筛选学生的薄弱题目，支持 AI 批量生成同类变式题，一键打印专属订正单。
+        </p>
+        <p style="color: var(--text-muted); margin-top:-10px;">
+            题目为Ai 生成，请仔细甄别是否有错误！！！
+        </p>
+
+        <div class="main-card-wrapper" style="border-left: 5px solid #fd7e14;">
+            <h4 style="margin-top:0;">🛠️ 生成配置</h4>
+            <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0; flex-wrap: wrap;">
+                
+                <label>选择科目:</label>
+                <select id="wb-subject-select" class="sidebar-select" style="width:auto; min-width:120px;">
+                    ${subjects.map(s => `<option value="${s}">${s}</option>`).join('')}
+                </select>
+
+                <label style="margin-left:15px;">选择班级:</label>
+                <select id="wb-class-select" class="sidebar-select" style="width:auto; min-width:120px;">
+                    <option value="ALL">-- 全体 --</option>
+                </select>
+
+                <label style="margin-left:15px;">薄弱阈值:</label>
+                <select id="wb-threshold" class="sidebar-select" style="width:auto;">
+                    <option value="0.6" selected>得分率 < 60% (不及格)</option>
+                    <option value="0.8">得分率 < 80% (非优秀)</option>
+                    <option value="1.0">所有错题 (得分 < 满分)</option>
+                </select>
+
+                <button id="btn-gen-workbook" class="sidebar-button" style="background-color: #fd7e14; margin-left: 15px;">
+                    📄 生成预览列表
+                </button>
+                
+                <button id="btn-batch-ai-workbook" class="sidebar-button" style="background-color: #6f42c1; margin-left: 10px; display:none;">
+                    🤖 批量生成变式题
+                </button>
+
+                <button id="btn-print-workbook" class="sidebar-button" style="background-color: var(--color-blue); margin-left: 10px; display:none;">
+                    🖨️ 批量打印攻坚本
+                </button>
+            </div>
+            
+            <div id="wb-batch-progress" style="display:none; margin-top:15px; background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #eee;">
+                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9em; margin-bottom:5px;">
+                    <span id="wb-progress-text" style="font-weight:bold; color:#555;">AI 生成中... (0/0)</span>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <button id="btn-stop-wb-ai" style="border:none; background:none; color:#dc3545; cursor:pointer; font-weight:bold;">⏹ 停止</button>
+                        <button id="btn-close-wb-progress" style="border:none; background:none; color:#999; cursor:pointer; font-size:1.2em; line-height:1;">&times;</button>
+                    </div>
+                </div>
+                <div style="width:100%; background:#e9ecef; height:8px; border-radius:4px; overflow:hidden;">
+                    <div id="wb-progress-bar" style="width:0%; height:100%; background:#6f42c1; transition:width 0.3s;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="wb-preview-area" class="main-card-wrapper" style="display:none;">
+            <div style="margin-bottom:10px; font-weight:bold; color:#555;">
+                共筛选出 <span id="wb-student-count" style="color:#fd7e14;">0</span> 名学生有薄弱题，
+                累计 <span id="wb-question-total" style="color:#fd7e14;">0</span> 道错题。
+            </div>
+            <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+                <table id="wb-preview-table">
+                    <thead>
+                        <tr>
+                            <th style="width:80px;">姓名</th>
+                            <th style="width:80px;">薄弱题数</th>
+                            <th>薄弱题目详情 (题号 / 知识点 / 得分率)</th>
+                            <th style="width:100px;">AI 状态</th>
+                            <th style="width:120px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="wb-preview-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // 2. 绑定基础事件
+    const subjectSelect = document.getElementById('wb-subject-select');
+    const classSelect = document.getElementById('wb-class-select');
+    
+    const updateClassList = () => {
+        const sub = subjectSelect.value;
+        if(!sub || !G_ItemAnalysisData[sub]) return;
+        const students = G_ItemAnalysisData[sub].students;
+        const classes = [...new Set(students.map(s => s.class))].sort();
+        classSelect.innerHTML = `<option value="ALL">-- 全体 --</option>` + classes.map(c => `<option value="${c}">${c}</option>`).join('');
+    };
+    subjectSelect.addEventListener('change', updateClassList);
+    updateClassList();
+
+    let workbookData = []; // 数据缓存
+
+    document.getElementById('btn-gen-workbook').addEventListener('click', () => {
+        const subject = subjectSelect.value;
+        const className = classSelect.value;
+        const threshold = parseFloat(document.getElementById('wb-threshold').value);
+        workbookData = calculateWeaknessWorkbook(subject, className, threshold);
+        renderWorkbookPreview(workbookData); // 这里会控制按钮显示
+    });
+
+    document.getElementById('btn-print-workbook').addEventListener('click', () => {
+        if(workbookData.length === 0) return;
+        const subject = subjectSelect.value;
+        if(workbookData.length > 20 && !confirm(`即将生成 ${workbookData.length} 份攻坚本，是否继续？`)) return;
+        printWorkbook(workbookData, subject);
+    });
+
+    // ============================================================
+    // [!! NEW !!] 批量 AI 生成逻辑
+    // ============================================================
+    let wbAiController = null;
+    
+    document.getElementById('btn-batch-ai-workbook').addEventListener('click', async () => {
+        const apiKey = localStorage.getItem('G_DeepSeekKey');
+        if (!apiKey) { alert("请先在【AI 智能分析】模块设置 API Key！"); return; }
+        
+        // 筛选出还没生成的学生
+        const pendingItems = workbookData.map((item, index) => ({ item, index })).filter(obj => !obj.item.aiExercises);
+        
+        if (pendingItems.length === 0) {
+            alert("当前列表中所有学生均已生成变式题，无需重复生成。");
+            return;
+        }
+
+        if(!confirm(`即将为 ${pendingItems.length} 位学生批量生成变式题。\n这需要消耗 Token 并花费一定时间。\n\n确定开始吗？`)) return;
+
+        // UI 初始化
+        const progressBox = document.getElementById('wb-batch-progress');
+        const progressBar = document.getElementById('wb-progress-bar');
+        const progressText = document.getElementById('wb-progress-text');
+        progressBox.style.display = 'block';
+        
+        if (wbAiController) wbAiController.abort();
+        wbAiController = new AbortController();
+
+        let completed = 0;
+        const subject = subjectSelect.value;
+
+        for (const obj of pendingItems) {
+            if (wbAiController.signal.aborted) break;
+
+            const { item, index } = obj;
+            const studentName = item.student.name;
+            
+            // 提取知识点
+            const kps = [...new Set(item.questions.map(q => q.kp).filter(k => k && k !== '未标记'))];
+            
+            if (kps.length === 0) {
+                completed++; // 没知识点跳过，也算进度
+                continue; 
+            }
+
+            progressText.innerText = `🤖 正在出题: ${studentName} (${completed + 1}/${pendingItems.length})`;
+            
+            // 视觉上定位到该行 (可选)
+            const row = document.getElementById(`wb-row-${index}`);
+            if(row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            try {
+                const exercises = await fetchAIExercises(apiKey, studentName, kps, subject); // 复用之前的函数
+                item.aiExercises = exercises; // 保存数据
+                
+                // 更新表格状态 UI
+                if (row && row.cells[3]) {
+                    row.cells[3].innerHTML = `<span style="color:#28a745; font-size:0.8em;">✅ 已生成</span>`;
+                }
+                
+                completed++;
+                progressBar.style.width = `${(completed / pendingItems.length) * 100}%`;
+                
+                // 延时防封
+                await new Promise(r => setTimeout(r, 800)); 
+
+            } catch (err) {
+                if (row && row.cells[3]) row.cells[3].innerHTML = `<span style="color:red; font-size:0.8em;">❌ 失败</span>`;
+            }
+        }
+
+        if (!wbAiController.signal.aborted) {
+            progressText.innerText = "✅ 批量任务完成！";
+            setTimeout(() => { progressBox.style.display = 'none'; }, 3000);
+        }
+    });
+
+    // 停止与关闭
+    document.getElementById('btn-stop-wb-ai').addEventListener('click', () => {
+        if(wbAiController) {
+            wbAiController.abort();
+            document.getElementById('wb-progress-text').innerText = "🛑 已停止";
+        }
+    });
+    document.getElementById('btn-close-wb-progress').addEventListener('click', () => {
+        if(wbAiController) wbAiController.abort();
+        document.getElementById('wb-batch-progress').style.display = 'none';
+    });
+}
+
+/**
+ * 18.2 计算逻辑：筛选薄弱题
+ */
+function calculateWeaknessWorkbook(subject, className, threshold) {
+    const itemData = G_ItemAnalysisData[subject];
+    const itemConfig = G_ItemAnalysisConfig[subject] || {};
+    const recalculatedStats = getRecalculatedItemStats(subject); // 复用模块13的计算逻辑
+    
+    let students = itemData.students;
+    if (className !== 'ALL') {
+        students = students.filter(s => s.class === className);
+    }
+
+    const result = [];
+
+    students.forEach(student => {
+        const weakQuestions = [];
+
+        // 遍历小题
+        (recalculatedStats.minorQuestions || []).forEach(qName => {
+            checkQuestion(student, qName, 'minorScores', recalculatedStats.minorStats, itemConfig, threshold, weakQuestions);
+        });
+
+        // 遍历大题
+        (recalculatedStats.majorQuestions || []).forEach(qName => {
+            checkQuestion(student, qName, 'majorScores', recalculatedStats.majorStats, itemConfig, threshold, weakQuestions);
+        });
+
+        if (weakQuestions.length > 0) {
+            result.push({
+                student: student,
+                questions: weakQuestions
+            });
+        }
+    });
+
+    return result;
+}
+
+// 辅助：检查单题是否薄弱
+function checkQuestion(student, qName, scoreType, statsObj, configObj, threshold, targetArray) {
+    const score = student[scoreType][qName];
+    const stat = statsObj[qName];
+    const config = configObj[qName] || {};
+    
+    // 获取正确满分
+    const fullScore = config.fullScore || stat.maxScore;
+    const kp = config.content || ""; // 知识点
+
+    if (typeof score === 'number' && !isNaN(score) && fullScore > 0) {
+        const rate = score / fullScore;
+        
+        // 判断是否低于阈值
+        // 特殊处理：如果 threshold是1.0，只要 score < fullScore 就算错题
+        let isWeak = false;
+        if (threshold >= 0.99) {
+            isWeak = score < fullScore;
+        } else {
+            isWeak = rate < threshold;
+        }
+
+        if (isWeak) {
+            targetArray.push({
+                qName: qName,
+                kp: kp,
+                score: score,
+                full: fullScore,
+                rate: rate
+            });
+        }
+    }
+}
+
+/**
+ * 18.3 渲染预览表格 (已升级：关联批量按钮)
+ */
+function renderWorkbookPreview(data) {
+    const container = document.getElementById('wb-preview-area');
+    const tbody = document.getElementById('wb-preview-tbody');
+    const printBtn = document.getElementById('btn-print-workbook');
+    const batchAiBtn = document.getElementById('btn-batch-ai-workbook'); // [NEW]
+    const countEl = document.getElementById('wb-student-count');
+    const totalEl = document.getElementById('wb-question-total');
+
+    container.style.display = 'block';
+    
+    if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">当前条件下没有学生需要生成攻坚本。</td></tr>`;
+        printBtn.style.display = 'none';
+        batchAiBtn.style.display = 'none'; // Hide
+        return;
+    }
+
+    printBtn.style.display = 'inline-block';
+    batchAiBtn.style.display = 'inline-block'; // Show
+    
+    let totalQ = 0;
+    data.forEach(d => totalQ += d.questions.length);
+    
+    countEl.innerText = data.length;
+    totalEl.innerText = totalQ;
+
+    tbody.innerHTML = data.map((item, index) => {
+        // 预览前5题
+        const previewQ = item.questions.slice(0, 5).map(q => 
+            `<span style="display:inline-block; background:#fff3cd; padding:2px 6px; border-radius:4px; margin:2px; font-size:0.85em; border:1px solid #ffeeba;">
+                题${q.qName} [${(q.rate*100).toFixed(0)}%] ${q.kp ? '('+q.kp+')' : ''}
+            </span>`
+        ).join('');
+        const more = item.questions.length > 5 ? `...等${item.questions.length}题` : '';
+
+        // 状态检查
+        const aiStatus = item.aiExercises ? `<span style="color:#28a745; font-size:0.8em;">✅ 已生成</span>` : `<span style="color:#ccc; font-size:0.8em;">未生成</span>`;
+
+        return `
+            <tr id="wb-row-${index}">
+                <td style="font-weight:bold;">${item.student.name}</td>
+                <td style="text-align:center;">${item.questions.length}</td>
+                <td>${previewQ} ${more}</td>
+                <td style="text-align:center;">${aiStatus}</td>
+                <td>
+                    <div style="display:flex; gap:5px;">
+                        <button class="sidebar-button" style="font-size:0.8em; padding:4px 8px; background-color:#6f42c1;" onclick="generateSingleAIExercises(${index}, this)">🤖 单独生成</button>
+                        <button class="sidebar-button" style="font-size:0.8em; padding:4px 8px;" onclick="printSingleWorkbook(${index})">🖨️ 打印</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+    
+    // 挂载全局函数
+    window.printSingleWorkbook = (index) => {
+        const subject = document.getElementById('wb-subject-select').value;
+        printWorkbook([data[index]], subject);
+    };
+
+    // [!! 新增 !!] 挂载 AI 生成函数
+    window.generateSingleAIExercises = async (index, btnElement) => {
+        const apiKey = localStorage.getItem('G_DeepSeekKey');
+        if (!apiKey) { alert("请先在【AI 智能分析】模块设置 API Key！"); return; }
+
+        const item = data[index];
+        // 提取知识点列表 (去重)
+        const kps = [...new Set(item.questions.map(q => q.kp).filter(k => k && k !== '未标记'))];
+
+        if (kps.length === 0) {
+            alert("该学生的错题未配置具体“知识点”，AI 无法针对性出题。\n请先去“学科小题分析”模块点击“配置题目”完善考察内容。");
+            return;
+        }
+
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "⏳ 生成中...";
+        btnElement.disabled = true;
+
+        try {
+            // 调用 AI
+            const exercises = await fetchAIExercises(apiKey, item.student.name, kps, document.getElementById('wb-subject-select').value);
+            
+            // 保存结果到数据对象中
+            item.aiExercises = exercises; // 这是一个包含题目文本的字符串
+            
+            btnElement.innerText = "✅ 完成";
+            // 刷新该行状态 (可选)
+            const row = document.getElementById(`wb-row-${index}`);
+            if(row && row.cells[3]) row.cells[3].innerHTML = `<span style="color:#28a745; font-size:0.8em;">✅ 已生成</span>`;
+            
+        } catch (err) {
+            alert("生成失败: " + err.message);
+            btnElement.innerText = originalText;
+            btnElement.disabled = false;
+        }
+    };
+}
+
+/**
+ * 18.5 [NEW] 请求 AI 生成变式题
+ */
+async function fetchAIExercises(apiKey, studentName, kps, subject) {
+    // 限制一下知识点数量
+    const targetKps = kps.slice(0, 5).join('、');
+
+    const prompt = `
+你是一位资深的${subject}老师。学生【${studentName}】在以下知识点掌握薄弱：【${targetKps}】。
+
+请为他设计一套“针对性攻坚练习题”：
+1. 针对上述每个知识点，出一道同等难度的变式题。
+2. 生成所有的题目后再在最后一题的后面附带【答案】和简短【解析】。
+3. 格式与公式要求（非常重要）：
+   - 所有数学、物理、化学符号、公式、单位，请务必使用 LaTeX 格式。
+   - 行内公式用单美元符号包裹，例如：$f(x) = x^2$。
+   - 独立公式用双美元符号包裹，例如：$$ E = mc^2 $$。
+   - 化学式也请用 LaTeX，例如：$\\text{H}_2\\text{O}$ 或 $\\text{Fe}^{2+}$。
+4. 排版要求：
+   - 题号使用 (1), (2)...
+   - 题目和解析之间空一行。
+   - 不要写前言后语，直接出题。
+   - 总字数控制在 800 字以内。
+    `.trim();
+
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model: 'deepseek-chat', // 使用 V3 即可
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.7
+        })
+    });
+
+    if (!response.ok) throw new Error("API 请求失败");
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+}
+
+/**
+ * 18.4 核心打印逻辑 (修复版：确保公式渲染后再打印)
+ */
+function printWorkbook(dataList, subjectName) {
+    let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>错题攻坚本 - ${subjectName}</title>
+        <meta charset="UTF-8">
+        
+        <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.css">
+        <script src="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.js"><\/script>
+        <script src="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"><\/script>
+        
+        <style>
+            body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; padding: 0; margin: 0; color: #333; }
+            .page { 
+                width: 210mm; min-height: 297mm; 
+                padding: 1.5cm; box-sizing: border-box; 
+                margin: 0 auto; background: white;
+                page-break-after: always;
+                position: relative;
+                display: flex;
+                flex-direction: column;
+            }
+            .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; flex-shrink: 0; }
+            .header h1 { margin: 0; font-size: 22px; }
+            .header p { margin: 5px 0 0; color: #666; font-size: 14px; }
+            
+            .content-wrapper { display: flex; flex-grow: 1; gap: 20px; }
+            
+            /* 左侧：错题列表 */
+            .left-column { width: 40%; border-right: 1px dashed #ccc; padding-right: 15px; }
+            .q-item { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee; break-inside: avoid; }
+            .q-num { font-size: 1.1em; font-weight: bold; color: #000; }
+            .q-kp { font-size: 0.9em; color: #666; margin-top: 2px; }
+            .q-score { font-size: 0.9em; color: #dc3545; font-weight:bold; margin-top: 2px; }
+            
+            /* 右侧：订正区 / AI 变式题 */
+            .right-column { width: 60%; position: relative; }
+            .workspace-title { 
+                font-weight: bold; color: #e0e0e0; font-size: 1.5em; 
+                text-align: center; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;
+            }
+            
+            /* AI 内容样式优化 */
+            .ai-content { 
+                font-size: 14px; line-height: 1.6; color: #333; 
+                white-space: pre-wrap; text-align: justify;
+            }
+            /* 修复 KaTeX 字体大小 */
+            .katex { font-size: 1.1em; } 
+            
+            @media print {
+                body { background: none; }
+                .page { margin: 0; border: none; width: auto; height: auto; }
+                .header { -webkit-print-color-adjust: exact; }
+            }
+        </style>
+    </head>
+    <body>
+    `;
+
+    dataList.forEach(d => {
+        let rightContent = '';
+        if (d.aiExercises) {
+            rightContent = `
+                <div class="workspace-title" style="color:#6f42c1;">🤖 AI 智能变式训练</div>
+                <div class="ai-content">${d.aiExercises}</div>
+            `;
+        } else {
+            rightContent = `
+                <div class="workspace-title">✍️ 错题订正 / 归因分析</div>
+                <div style="height: 100%; background-image: linear-gradient(#f5f5f5 1px, transparent 1px); background-size: 100% 2em;"></div>
+            `;
+        }
+
+        let leftContent = '';
+        d.questions.forEach(q => {
+            leftContent += `
+                <div class="q-item">
+                    <div class="q-num">第 ${q.qName} 题</div>
+                    <div class="q-kp">📌 考点：${q.kp || '未标记'}</div>
+                    <div class="q-score">得分：${q.score} / ${q.full} <span style="color:#999; font-weight:normal; font-size:0.9em;">(率 ${(q.rate*100).toFixed(0)}%)</span></div>
+                </div>
+            `;
+        });
+
+        html += `
+        <div class="page">
+            <div class="header">
+                <h1>${subjectName} · 个性化攻坚本</h1>
+                <p>姓名：<strong>${d.student.name}</strong> | 班级：${d.student.class} | 待攻坚题数：${d.questions.length}</p>
+            </div>
+            
+            <div class="content-wrapper">
+                <div class="left-column">
+                    <div style="margin-bottom:10px; font-weight:bold; color:#555;">🚫 我的薄弱点：</div>
+                    ${leftContent}
+                </div>
+                
+                <div class="right-column">
+                    ${rightContent}
+                </div>
+            </div>
+        </div>
+        `;
+    });
+
+    // [核心修复] 将渲染逻辑放在 window.onload 中，确保资源加载完毕后再执行
+    html += `
+        <script>
+            window.onload = function() {
+                // 1. 配置渲染选项
+                const renderOptions = {
+                    delimiters: [
+                        {left: "$$", right: "$$", display: true},
+                        {left: "$", right: "$", display: false},
+                        {left: "\\\\(", right: "\\\\)", display: false},
+                        {left: "\\\\[", right: "\\\\]", display: true}
+                    ],
+                    throwOnError: false
+                };
+
+                // 2. 执行渲染
+                if (window.renderMathInElement) {
+                    renderMathInElement(document.body, renderOptions);
+                }
+
+                // 3. 稍微延迟一点点，确保 DOM 更新完毕后自动打印
+                setTimeout(function() {
+                    window.focus();
+                    window.print();
+                }, 500);
+            };
+        <\/script>
+    </body></html>`;
+
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+    // [!!] 移除了原来的父页面 setTimeout 打印，完全交给子页面控制
 }
