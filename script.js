@@ -15189,14 +15189,23 @@ async function fetchAIExercises(apiKey, studentName, kps, subject) {
 }
 
 /**
- * 18.4 核心打印逻辑 (修复版：确保公式渲染后再打印)
+ * 18.4 核心打印逻辑 (最终修复版：包含考试名称 + AI公式渲染)
  */
-function printWorkbook(dataList, subjectName) {
+async function printWorkbook(dataList, subjectName) {
+    // [!! 新增 !!] 获取考试名称
+    let examName = await localforage.getItem('G_ItemAnalysisFileName');
+    if (!examName) {
+        // 如果小题文件名不存在，尝试获取主文件名
+        examName = await localforage.getItem('G_MainFileName') || "本次考试";
+    }
+    // 去除文件后缀 (.xlsx, .csv 等)
+    examName = examName.replace(/\.(xlsx|xls|csv)$/i, '');
+
     let html = `
     <!DOCTYPE html>
     <html>
     <head>
-        <title>错题攻坚本 - ${subjectName}</title>
+        <title>${examName} - ${subjectName} 攻坚本</title>
         <meta charset="UTF-8">
         
         <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.css">
@@ -15215,31 +15224,27 @@ function printWorkbook(dataList, subjectName) {
                 flex-direction: column;
             }
             .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; flex-shrink: 0; }
-            .header h1 { margin: 0; font-size: 22px; }
-            .header p { margin: 5px 0 0; color: #666; font-size: 14px; }
+            /* [修改] 标题样式微调 */
+            .header h1 { margin: 0 0 8px 0; font-size: 24px; line-height: 1.4; }
+            .header p { margin: 0; color: #666; font-size: 14px; }
             
             .content-wrapper { display: flex; flex-grow: 1; gap: 20px; }
             
-            /* 左侧：错题列表 */
             .left-column { width: 40%; border-right: 1px dashed #ccc; padding-right: 15px; }
             .q-item { margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee; break-inside: avoid; }
             .q-num { font-size: 1.1em; font-weight: bold; color: #000; }
             .q-kp { font-size: 0.9em; color: #666; margin-top: 2px; }
             .q-score { font-size: 0.9em; color: #dc3545; font-weight:bold; margin-top: 2px; }
             
-            /* 右侧：订正区 / AI 变式题 */
             .right-column { width: 60%; position: relative; }
             .workspace-title { 
                 font-weight: bold; color: #e0e0e0; font-size: 1.5em; 
                 text-align: center; margin-bottom: 20px; border-bottom: 2px solid #f0f0f0;
             }
-            
-            /* AI 内容样式优化 */
             .ai-content { 
                 font-size: 14px; line-height: 1.6; color: #333; 
                 white-space: pre-wrap; text-align: justify;
             }
-            /* 修复 KaTeX 字体大小 */
             .katex { font-size: 1.1em; } 
             
             @media print {
@@ -15277,10 +15282,12 @@ function printWorkbook(dataList, subjectName) {
             `;
         });
 
+        // [!! 修改 !!] 在 header 中插入 examName
         html += `
         <div class="page">
             <div class="header">
-                <h1>${subjectName} · 个性化攻坚本</h1>
+                <h1>${examName} · ${subjectName}</h1>
+                <h1>个性化攻坚本</h1>
                 <p>姓名：<strong>${d.student.name}</strong> | 班级：${d.student.class} | 待攻坚题数：${d.questions.length}</p>
             </div>
             
@@ -15289,7 +15296,6 @@ function printWorkbook(dataList, subjectName) {
                     <div style="margin-bottom:10px; font-weight:bold; color:#555;">🚫 我的薄弱点：</div>
                     ${leftContent}
                 </div>
-                
                 <div class="right-column">
                     ${rightContent}
                 </div>
@@ -15298,11 +15304,9 @@ function printWorkbook(dataList, subjectName) {
         `;
     });
 
-    // [核心修复] 将渲染逻辑放在 window.onload 中，确保资源加载完毕后再执行
     html += `
         <script>
             window.onload = function() {
-                // 1. 配置渲染选项
                 const renderOptions = {
                     delimiters: [
                         {left: "$$", right: "$$", display: true},
@@ -15312,13 +15316,9 @@ function printWorkbook(dataList, subjectName) {
                     ],
                     throwOnError: false
                 };
-
-                // 2. 执行渲染
                 if (window.renderMathInElement) {
                     renderMathInElement(document.body, renderOptions);
                 }
-
-                // 3. 稍微延迟一点点，确保 DOM 更新完毕后自动打印
                 setTimeout(function() {
                     window.focus();
                     window.print();
@@ -15330,5 +15330,4 @@ function printWorkbook(dataList, subjectName) {
     const win = window.open('', '_blank');
     win.document.write(html);
     win.document.close();
-    // [!!] 移除了原来的父页面 setTimeout 打印，完全交给子页面控制
 }
