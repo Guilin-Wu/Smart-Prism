@@ -14327,21 +14327,17 @@ const DAILY_TAGS = [
     { text: "🧹 卫生习惯差", type: "bad" }
 ];
 /**
- * 17.1 渲染主界面 (Async)
+ * 17.1 渲染主界面
  */
 async function renderCommentGenerator(container) {
     const multiData = await loadMultiExamData();
 
     if (!multiData || multiData.length === 0) {
-        container.innerHTML = `
-            <h2>✍️ 模块十七：学期综合评语助手</h2>
-            <div class="main-card-wrapper" style="text-align:center; padding:50px;">
-                <p style="color:#666;">⚠️ 请先在“数据管理中心”导入本学期的考试数据。</p>
-            </div>`;
+        container.innerHTML = `<div class="main-card-wrapper" style="text-align:center; padding:50px; color:#666;">⚠️ 请先在“数据管理中心”导入考试数据。</div>`;
         return;
     }
 
-    // 数据聚合 (同上个版本)
+    // 1. 数据聚合
     const studentMap = new Map();
     const classSet = new Set();
 
@@ -14368,44 +14364,56 @@ async function renderCommentGenerator(container) {
 
     const classes = Array.from(classSet).sort();
 
-    // 渲染 UI
+    // [!! 新增 !!] 排序状态变量 (默认为 rank)
+    let currentSortMode = 'rank';
+
+    // 2. 渲染 UI
     container.innerHTML = `
-        <h2>✍️ 模块十七：学期综合评语助手</h2>
-        <p style="color: var(--text-muted); margin-top:-10px;">
-            结合 <strong>历史成绩趋势</strong> 与 <strong>日常行为表现</strong>，生成有温度的素质教育评语。
-        </p>
+        <h2>✍️ 模块十七：综合评语助手</h2>
 
-        <div class="main-card-wrapper" style="border-left: 5px solid #6f42c1;">
+        <div class="main-card-wrapper" style="border-left: 5px solid #20c997; margin-bottom: 20px;">
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:15px;">
-                <div style="display:flex; gap:10px; align-items:center;">
-                    <label style="font-weight:600;">选择班级:</label>
-                    <select id="comment-class-select" class="sidebar-select" style="width:auto; min-width:150px; font-weight:bold;">
-                        ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
-                    </select>
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <div>
+                        <label style="font-weight:600; font-size:0.9em; color:#555;">班级:</label>
+                        <select id="comment-class-select" class="sidebar-select" style="width:auto; min-width:120px; font-weight:bold;">
+                            ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:5px;">
+                        <label style="font-weight:600; font-size:0.9em; color:#6f42c1;">依据:</label>
+                        <select id="comment-gen-mode" class="sidebar-select" style="width:auto; min-width:180px; border-color:#6f42c1; color:#6f42c1; font-weight:bold;">
+                            <option value="comprehensive" selected>🌟 综合 (历史趋势+日常)</option>
+                            <option value="history_only">📈 仅历史成绩趋势</option>
+                            <option value="current_only">🎯 仅本次期末成绩</option>
+                            <option value="daily_only">📝 仅日常行为表现</option>
+                        </select>
+                    </div>
                 </div>
+                <div style="display:flex; gap:8px;">
+                    <button id="btn-toggle-archive" class="sidebar-button" style="background-color: #6c757d; font-size: 0.9em;">📂 评语存档库</button>
+                    <button id="btn-gen-rule" class="sidebar-button" style="background-color: #17a2b8; font-size: 0.9em;">⚡️ 规则生成</button>
+                    <button id="btn-gen-ai-batch" class="sidebar-button" style="background-color: #6f42c1; font-size: 0.9em;">🤖 AI 批量生成</button>
+                    <button id="btn-export-comments" class="sidebar-button" style="background-color: var(--color-green); font-size: 0.9em;">📥 导出</button>
+                </div>
+            </div>
 
-                <div style="display:flex; gap:10px;">
-                    <button id="btn-gen-ai-batch" class="sidebar-button" style="background-color: #6f42c1;">
-                        🤖 AI 融合生成 (推荐)
-                    </button>
-                    <button id="btn-export-comments" class="sidebar-button" style="background-color: var(--color-green);">
-                        📥 导出评语表
-                    </button>
+            <div id="archive-panel" style="display:none; margin-top:15px; padding-top:15px; border-top:1px dashed #ccc; background-color:#fcfcfc; padding:15px; border-radius:6px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h4 style="margin:0; font-size:1em; color:#555;">📚 历史评语存档</h4>
+                    <button id="btn-save-library" class="sidebar-button" style="background-color: #28a745; padding:4px 10px; font-size: 0.8em;">💾 保存当前表格</button>
+                </div>
+                <div id="comment-library-list" style="max-height: 150px; overflow-y: auto; border:1px solid #eee; background:#fff; border-radius:4px;">
+                    <div style="padding:15px; text-align:center; color:#999;">加载中...</div>
                 </div>
             </div>
             
-            <div id="ai-batch-progress" style="display:none; margin-top:15px; background:#f8f9fa; padding:10px; border-radius:6px; border:1px solid #eee;">
+            <div id="ai-batch-progress" style="display:none; margin-top:15px; background:#fff; padding:10px; border:1px solid #e9ecef; border-radius:6px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9em; margin-bottom:5px;">
-                    <span id="ai-progress-text" style="font-weight:bold; color:#555;">AI 生成中... (0/0)</span>
-                    
-                    <div style="display:flex; gap:10px; align-items:center;">
-                        <button id="btn-stop-ai" style="border:none; background:none; color:#dc3545; cursor:pointer; font-weight:bold;">
-                            ⏹ 停止
-                        </button>
-                        
-                        <button id="btn-close-progress" style="border:none; background:none; color:#999; cursor:pointer; font-size:1.2em; line-height:1;" title="关闭面板">
-                            &times;
-                        </button>
+                    <span id="ai-progress-text" style="font-weight:bold; color:#555;">AI 生成中...</span>
+                    <div style="display:flex; gap:10px;">
+                        <button id="btn-stop-ai" style="color:#dc3545; background:none; border:none; font-weight:bold; cursor:pointer;">⏹ 停止</button>
+                        <button id="btn-close-progress" style="color:#999; background:none; border:none; font-size:1.2em; cursor:pointer;">&times;</button>
                     </div>
                 </div>
                 <div style="width:100%; background:#e9ecef; height:8px; border-radius:4px; overflow:hidden;">
@@ -14419,13 +14427,12 @@ async function renderCommentGenerator(container) {
                 <table id="comment-table">
                     <thead>
                         <tr>
-                            <th style="width:70px;">姓名</th>
-                            <th style="width:120px;">成绩趋势</th>
-                            <th style="width:250px; background-color:#fff3cd;">
-                                📝 日常印象 (关键词)
-                                <span style="font-weight:normal; font-size:0.8em; color:#856404; display:block;">点击下方标签快速添加，或手动输入</span>
+                            <th id="th-sort-name" style="width:70px; cursor:pointer; user-select:none;" title="点击切换：按成绩排序 / 按姓名排序">
+                                姓名 <span id="sort-icon" style="font-size:0.8em; color:#ccc;">⇅</span>
                             </th>
-                            <th>评语预览 (AI生成结果)</th>
+                            <th style="width:120px;">成绩趋势</th>
+                            <th style="width:250px; background-color:#fff9db;">📝 日常印象 (关键词)</th>
+                            <th>评语内容 (AI / 规则)</th>
                             <th style="width:60px;">操作</th>
                         </tr>
                     </thead>
@@ -14435,198 +14442,310 @@ async function renderCommentGenerator(container) {
         </div>
     `;
 
-    // 4. 核心渲染逻辑
+    // --- 功能逻辑区域 ---
+
+    // 1. 存档库折叠逻辑
+    const archiveBtn = document.getElementById('btn-toggle-archive');
+    const archivePanel = document.getElementById('archive-panel');
+    archiveBtn.addEventListener('click', () => {
+        if (archivePanel.style.display === 'none') {
+            archivePanel.style.display = 'block';
+            renderLibraryList(); // 展开时刷新列表
+            archiveBtn.style.backgroundColor = '#5a6268'; // 深色表示激活
+        } else {
+            archivePanel.style.display = 'none';
+            archiveBtn.style.backgroundColor = '#6c757d'; // 恢复原色
+        }
+    });
+
+    // --- 内部函数：渲染归档库列表 (已升级：添加重命名按钮) ---
+    const renderLibraryList = async () => {
+        const libContainer = document.getElementById('comment-library-list');
+        const library = await localforage.getItem('G_Comment_Library') || [];
+        
+        if (library.length === 0) {
+            libContainer.innerHTML = `<div style="padding:15px; text-align:center; color:#999;">暂无存档，点击绿色按钮保存当前工作。</div>`;
+            return;
+        }
+
+        libContainer.innerHTML = library.map((item) => `
+            <div class="multi-exam-item" style="padding:8px 12px; border-bottom:1px solid #eee; display:flex; justify-content:space-between; align-items:center;">
+                <div style="flex-grow:1;">
+                    <div style="font-weight:bold; color:#333; font-size:0.95em;">${item.name}</div>
+                    <div style="font-size:0.8em; color:#999;">📅 ${item.date} | 👥 ${item.count} 人</div>
+                </div>
+                <div style="display:flex; gap:5px;">
+                    <button onclick="window.loadCommentLibrary('${item.id}')" class="sidebar-button" style="padding:3px 8px; font-size:0.8em; background-color:#17a2b8;">📥 读取</button>
+                    
+                    <button onclick="window.renameCommentLibrary('${item.id}')" class="sidebar-button" style="padding:3px 8px; font-size:0.8em; background-color:#fd7e14;">✏️ 重命名</button>
+                    
+                    <button onclick="window.deleteCommentLibrary('${item.id}')" class="sidebar-button" style="padding:3px 8px; font-size:0.8em; background-color:#fff; color:#dc3545; border:1px solid #dc3545;">删除</button>
+                </div>
+            </div>
+        `).join('');
+    };
+
+    // 3. 存档操作 (Save/Load/Delete)
+    document.getElementById('btn-save-library').addEventListener('click', async () => {
+        const rows = document.querySelectorAll('.comment-row');
+        if(rows.length === 0) return;
+        const name = prompt("请输入存档名称 (例如：2024秋-期末评语):", "新评语存档");
+        if(!name) return;
+
+        const dataToSave = {};
+        rows.forEach(row => {
+            const rec = JSON.parse(decodeURIComponent(row.dataset.history));
+            dataToSave[rec.info.id] = {
+                daily: row.querySelector('.daily-input').value,
+                comment: row.querySelector('.result-textarea').value
+            };
+        });
+
+        let library = await localforage.getItem('G_Comment_Library') || [];
+        library.unshift({
+            id: Date.now().toString(),
+            name: name,
+            date: new Date().toLocaleString(),
+            count: Object.keys(dataToSave).length,
+            data: dataToSave
+        });
+        await localforage.setItem('G_Comment_Library', library);
+        renderLibraryList();
+        alert("✅ 存档成功！");
+    });
+
+    window.loadCommentLibrary = async (id) => {
+        if(!confirm("确定读取该存档吗？当前表格内容将被覆盖。")) return;
+        const library = await localforage.getItem('G_Comment_Library') || [];
+        const record = library.find(r => r.id === id);
+        if(record) {
+            const rows = document.querySelectorAll('.comment-row');
+            let matchCount = 0;
+            rows.forEach(row => {
+                const rec = JSON.parse(decodeURIComponent(row.dataset.history));
+                const saved = record.data[rec.info.id];
+                if (saved) {
+                    row.querySelector('.daily-input').value = saved.daily || "";
+                    row.querySelector('.result-textarea').value = saved.comment || "";
+                    matchCount++;
+                }
+            });
+            alert(`✅ 已恢复 ${matchCount} 条数据。`);
+        }
+    };
+
+    window.deleteCommentLibrary = async (id) => {
+        if(!confirm("确定删除？")) return;
+        let library = await localforage.getItem('G_Comment_Library') || [];
+        library = library.filter(r => r.id !== id);
+        await localforage.setItem('G_Comment_Library', library);
+        renderLibraryList();
+    };
+
+    // [!! 新增 !!] 全局重命名函数
+    window.renameCommentLibrary = async (id) => {
+        let library = await localforage.getItem('G_Comment_Library') || [];
+        const item = library.find(r => r.id === id);
+        
+        if (!item) return;
+
+        // 弹出输入框，默认显示旧名称
+        const newName = prompt("重命名存档:", item.name);
+        
+        // 校验输入
+        if (newName === null || newName.trim() === "") return;
+
+        // 更新名称并保存
+        item.name = newName.trim();
+        await localforage.setItem('G_Comment_Library', library);
+        
+        // 刷新列表
+        renderLibraryList();
+    };
+
+// --- 核心逻辑：渲染表格 ---
     const renderTable = (className) => {
         const tbody = document.getElementById('comment-tbody');
         let rowsHtml = '';
-
         const classStudents = [];
         studentMap.forEach(record => {
             if (record.info.class === className) classStudents.push(record);
         });
 
-        // 按最新排名排序
-        classStudents.sort((a, b) => {
-            const lastRankA = a.exams[a.exams.length - 1].rank || 9999;
-            const lastRankB = b.exams[b.exams.length - 1].rank || 9999;
-            return lastRankA - lastRankB;
-        });
+        // [!! 修改 !!] 根据 currentSortMode 进行排序
+        if (currentSortMode === 'name') {
+            // 按姓名拼音排序
+            classStudents.sort((a, b) => a.info.name.localeCompare(b.info.name, 'zh-CN'));
+        } else {
+            // 默认：按最新一次考试排名排序
+            classStudents.sort((a, b) => {
+                const lastRankA = a.exams[a.exams.length - 1].rank || 9999;
+                const lastRankB = b.exams[b.exams.length - 1].rank || 9999;
+                return lastRankA - lastRankB;
+            });
+        }
 
         classStudents.forEach(record => {
-            // --- [!! 修改开始 !!] 使用回归斜率计算趋势 ---
             const exams = record.exams;
             const count = exams.length;
             let trendHtml = '<span style="color:#ccc">-</span>';
-
+            
             if (count >= 2) {
-                // 1. 提取所有有效排名 (优先年排)
                 const ranks = exams.map(e => e.gradeRank || e.rank || 0);
-
-                // 2. 计算回归斜率 (Slope)
-                // Slope = -10 表示平均每次考试名次向前(变小)移动 10 名
-                const slope = calculateTrendSlope(ranks);
-
-                // 3. 计算“拟合总进步量” (Slope * 考试间隔数)
-                // 这代表了基于整体走势，该生在一个学期内的“理论进步名次”
-                // 取反 (-)，因为排名数字变小是好事
-                const trendScore = Math.round(slope * (count - 1) * -1);
-
-                // 4. 计算波动性 (标准差) - 可选，用于判断是否稳定
-                // 这里主要用 trendScore 来定性
-
-                if (trendScore > 30) trendHtml = `<span class="progress">🚀 强势上升 (+${trendScore})</span>`;
-                else if (trendScore > 5) trendHtml = `<span class="progress" style="color:#20c997">📈 稳步进步 (+${trendScore})</span>`;
-                else if (trendScore < -30) trendHtml = `<span class="regress">📉 趋势下滑 (${trendScore})</span>`;
-                else if (trendScore < -5) trendHtml = `<span class="regress" style="color:#fd7e14">📉 略有退步 (${trendScore})</span>`;
-                else trendHtml = `<span style="color:#007bff">⚖️ 发挥稳定</span>`;
-
-                // (Debug提示: 鼠标悬停显示斜率)
-                trendHtml = `<span title="平均每场变化: ${(-slope).toFixed(1)}名">${trendHtml}</span>`;
+                // 假设 calculateTrendSlope 函数已存在于 script.js 底部
+                const slope = (typeof calculateTrendSlope === 'function') ? calculateTrendSlope(ranks) : 0;
+                const trendScore = Math.round(slope * (count - 1) * -1); 
+                
+                if (trendScore > 20) trendHtml = `<span class="progress">🚀 升 ${trendScore}</span>`;
+                else if (trendScore > 5) trendHtml = `<span class="progress" style="color:#20c997">📈 升 ${trendScore}</span>`;
+                else if (trendScore < -20) trendHtml = `<span class="regress">📉 降 ${Math.abs(trendScore)}</span>`;
+                else if (trendScore < -5) trendHtml = `<span class="regress" style="color:#fd7e14">📉 降 ${Math.abs(trendScore)}</span>`;
+                else trendHtml = `<span style="color:#007bff">⚖️ 稳定</span>`;
             }
-            const historyJson = encodeURIComponent(JSON.stringify(record));
 
-            // 生成标签按钮 HTML
-            const tagsHtml = DAILY_TAGS.map(tag =>
-                `<span class="quick-tag" onclick="addTag(this, '${tag.text}')">${tag.text}</span>`
-            ).join('');
+            const historyJson = encodeURIComponent(JSON.stringify(record));
+            // [!! 修改 !!] 直接显示文本，并根据类型给一点颜色提示 (可选)
+            const tagsHtml = DAILY_TAGS.map(tag => {
+                let colorStyle = '';
+                if (tag.type === 'good') colorStyle = 'color: #28a745; border-color: #c3e6cb; background-color: #f0fff4;';
+                if (tag.type === 'bad') colorStyle = 'color: #dc3545; border-color: #f5c6cb; background-color: #fff5f5;';
+                if (tag.type === 'neutral') colorStyle = 'color: #6c757d; border-color: #d6d8db; background-color: #f8f9fa;';
+                
+                return `<span class="quick-tag" style="${colorStyle}" onclick="addTag(this, '${tag.text}')" title="${tag.text}">${tag.text}</span>`;
+            }).join('');
+            //const tagsHtml = DAILY_TAGS.map(tag => `<span class="quick-tag" onclick="addTag(this, '${tag.text}')" title="${tag.text}">${tag.text.split(' ')[1]}</span>`).join('');
 
             rowsHtml += `
                 <tr class="comment-row" data-history="${historyJson}">
                     <td style="font-weight:bold;">${record.info.name}</td>
-                    <td>${trendHtml}</td>
-                    
+                    <td style="font-size:0.9em;">${trendHtml}</td>
                     <td style="vertical-align:top;">
-                        <input type="text" class="daily-input sidebar-select" placeholder="例: 乐于助人, 偶尔迟到..." style="width:100%; margin-bottom:5px;">
-                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                        <input type="text" class="daily-input sidebar-select" style="width:90%; margin-bottom:5px; font-size:0.9em;" placeholder="例: 乐于助人...">
+                        
+                        <div style="display:flex; flex-wrap:wrap; gap:10px; max-height:200px; overflow-y:auto;">
                             ${tagsHtml}
                         </div>
                     </td>
-
-                    <td style="padding:5px;">
-                        <textarea class="result-textarea sidebar-select" style="width:100%; height:80px; border:1px solid #eee; resize:vertical;" placeholder="等待生成..."></textarea>
+                    <td style="padding:10px;">
+                        <textarea class="result-textarea sidebar-select" style="width:100%; height:220px; border:1px solid #eee; resize:vertical; font-family:inherit; line-height:1.4;"></textarea>
                     </td>
                     <td>
-                        <button class="btn-single-ai sidebar-button" style="font-size:0.8em; padding:4px 8px; background-color:#6f42c1;">🤖</button>
+                        <button class="btn-single-ai sidebar-button" style="font-size:1.2em; padding:8px 16px; background-color:#6f42c1;">🤖</button>
                     </td>
                 </tr>
             `;
         });
-
         tbody.innerHTML = rowsHtml;
         bindRowEvents();
+
+        // 更新图标状态
+        const sortIcon = document.getElementById('sort-icon');
+        if(sortIcon) {
+            sortIcon.style.color = currentSortMode === 'name' ? '#007bff' : '#ccc';
+            sortIcon.innerText = currentSortMode === 'name' ? '🔤' : '⇅';
+        }
+
     };
 
-    // 5. 绑定事件
+// --- 绑定事件 ---
     const classSelect = document.getElementById('comment-class-select');
     classSelect.addEventListener('change', () => renderTable(classSelect.value));
     if (classes.length > 0) renderTable(classes[0]);
 
-    // 全局函数：点击标签添加到输入框
+    // [!! 新增 !!] 绑定表头点击排序
+    document.getElementById('th-sort-name').addEventListener('click', () => {
+        // 切换模式
+        currentSortMode = (currentSortMode === 'rank') ? 'name' : 'rank';
+        // 重新渲染
+        renderTable(classSelect.value);
+    });
+
+    // 5. 其他按钮绑定
     window.addTag = (span, text) => {
         const row = span.closest('td');
         const input = row.querySelector('input');
-        // 避免重复添加
-        if (!input.value.includes(text.replace(/^[^\s]+\s/, ''))) { // 去掉emoji比较
-            input.value = input.value ? input.value + "，" + text : text;
-        }
+        const clean = text.replace(/^[^\s]+\s/, '');
+        if (!input.value.includes(clean)) input.value = input.value ? input.value + "，" + clean : clean;
     };
 
     document.getElementById('btn-export-comments').addEventListener('click', exportCommentsToExcel);
+    
+// [!! 修改 !!] 规则生成 (支持多模式)
+    document.getElementById('btn-gen-rule').addEventListener('click', () => {
+        const mode = document.getElementById('comment-gen-mode').value; // 获取当前模式
+        
+        document.querySelectorAll('.comment-row').forEach(row => {
+            const record = JSON.parse(decodeURIComponent(row.dataset.history));
+            const dailyText = row.querySelector('.daily-input').value; // 获取日常标签文本
+            
+            // 调用新的分流函数
+            const result = generateModeRuleComment(record, dailyText, mode);
+            row.querySelector('.result-textarea').value = result;
+        });
+    });
 
-    // 批量 AI 生成 (修复停止逻辑版)
+    // 批量 AI
     let aiController = null;
     document.getElementById('btn-gen-ai-batch').addEventListener('click', async () => {
         const apiKey = localStorage.getItem('G_DeepSeekKey');
         if (!apiKey) { alert("请先设置 API Key"); return; }
-
         const rows = Array.from(document.querySelectorAll('.comment-row'));
-        if (rows.length === 0) return;
+        if(rows.length === 0) return;
 
-        if (!confirm(`即将为 ${rows.length} 位学生生成融合评语。\n建议您先简单勾选一些“日常印象”标签，生成效果更佳。`)) return;
+        const mode = document.getElementById('comment-gen-mode').value;
+        const modeText = document.getElementById('comment-gen-mode').selectedOptions[0].text;
 
-        const progressBox = document.getElementById('ai-batch-progress');
-        const progressBar = document.getElementById('ai-progress-bar');
-        const progressText = document.getElementById('ai-progress-text');
-        progressBox.style.display = 'block';
+        if(!confirm(`即将按【${modeText}】模式为 ${rows.length} 人生成评语。\n确定吗？`)) return;
 
-        // 重置控制器
+        document.getElementById('ai-batch-progress').style.display = 'block';
         if (aiController) aiController.abort();
         aiController = new AbortController();
-
         let completed = 0;
 
         for (const row of rows) {
-            // 1. 循环开始检查信号
             if (aiController.signal.aborted) break;
-
             const record = JSON.parse(decodeURIComponent(row.dataset.history));
-            const dailyText = row.querySelector('.daily-input').value || "在校表现中规中矩，遵守纪律";
+            const daily = row.querySelector('.daily-input').value || "";
             const textarea = row.querySelector('.result-textarea');
-
-            progressText.innerText = `🤖 正在生成: ${record.info.name} (${completed + 1}/${rows.length})`;
-
+            
+            document.getElementById('ai-progress-text').innerText = `🤖 正在生成: ${record.info.name} (${completed+1}/${rows.length})`;
+            
             try {
-                // [!! 核心修改 !!] 传入 signal
-                const comment = await fetchHybridAIComment(apiKey, record, dailyText, aiController.signal);
+                const comment = await fetchMultiModeAIComment(apiKey, record, daily, mode, aiController.signal);
                 textarea.value = comment;
                 completed++;
-                progressBar.style.width = `${(completed / rows.length) * 100}%`;
-
-                // 延时防止速率限制
+                document.getElementById('ai-progress-bar').style.width = `${(completed/rows.length)*100}%`;
                 await new Promise(r => setTimeout(r, 600));
-
-            } catch (err) {
-                // [!! 核心修改 !!] 如果是停止信号导致的错误，优雅退出
-                if (err.name === 'AbortError') {
-                    progressText.innerText = "🛑 已停止";
-                    break; // 立即跳出循环
-                }
-                textarea.value = `[失败] ${err.message}`;
-            }
+            } catch(e) { if(e.name!=='AbortError') textarea.value = `[Error] ${e.message}`; }
         }
-
-        // 只有在非手动停止的情况下，才自动隐藏进度条
         if (!aiController.signal.aborted) {
-            setTimeout(() => { progressBox.style.display = 'none'; }, 2000);
+            document.getElementById('ai-progress-text').innerText = "✅ 完成！";
+            setTimeout(() => document.getElementById('ai-batch-progress').style.display = 'none', 3000);
         }
     });
 
+    // 停止/关闭逻辑
     document.getElementById('btn-stop-ai').addEventListener('click', () => {
-        if (aiController) {
-            aiController.abort(); // 发送终止信号
-            // [新增] 立即给用户视觉反馈
-            document.getElementById('ai-progress-text').innerText = "🛑 正在停止...";
-        }
+        if(aiController) { aiController.abort(); document.getElementById('ai-progress-text').innerText = "🛑 已停止"; }
     });
-
-    // [!! 新增 !!] 绑定关闭按钮 (X)
     document.getElementById('btn-close-progress').addEventListener('click', () => {
-        // 强制终止 AI (如果还没停)
         if(aiController) aiController.abort();
-        // 隐藏面板
         document.getElementById('ai-batch-progress').style.display = 'none';
-    });
-
-    // [原有] 停止按钮逻辑
-    document.getElementById('btn-stop-ai').addEventListener('click', () => {
-        if(aiController) {
-            aiController.abort();
-            document.getElementById('ai-progress-text').innerText = "🛑 已停止 (点击右侧 X 关闭)";
-        }
     });
 }
 
 /**
- * 17.2 辅助函数：绑定行内 AI 按钮
+ * 17.2 辅助：绑定行内按钮
  */
 function bindRowEvents() {
     document.querySelectorAll('.btn-single-ai').forEach(btn => {
         btn.addEventListener('click', async (e) => {
             const row = e.target.closest('tr');
             const record = JSON.parse(decodeURIComponent(row.dataset.history));
-            const dailyText = row.querySelector('.daily-input').value || "表现正常";
+            const dailyText = row.querySelector('.daily-input').value || "";
             const textarea = row.querySelector('.result-textarea');
-
+            const mode = document.getElementById('comment-gen-mode').value; // 获取当前模式
+            
             const apiKey = localStorage.getItem('G_DeepSeekKey');
             if (!apiKey) { alert("请设置 API Key"); return; }
 
@@ -14635,7 +14754,7 @@ function bindRowEvents() {
             e.target.disabled = true;
 
             try {
-                const comment = await fetchHybridAIComment(apiKey, record, dailyText);
+                const comment = await fetchMultiModeAIComment(apiKey, record, dailyText, mode);
                 textarea.value = comment;
             } catch (err) {
                 alert(err.message);
@@ -14650,39 +14769,66 @@ function bindRowEvents() {
 
 
 /**
- * 17.4 AI 生成逻辑 (融合版 - 支持立即停止)
- * [!! 修改 !!] 新增 signal 参数，用于接收停止信号
+ * 17.3 [NEW] AI 生成逻辑 (支持 4 种模式)
  */
-async function fetchHybridAIComment(apiKey, record, dailyInfo, signal) {
-    // 构建历史成绩
-    let historyStr = record.exams.map((e, i) => {
-        return `${i + 1}. ${e.label}: 总分${e.totalScore} (班排${e.rank || '-'})`;
-    }).join('\n');
+async function fetchMultiModeAIComment(apiKey, record, dailyInfo, mode, signal) {
+    let promptContext = "";
+    let promptInstruction = "";
+    const exams = record.exams;
+    const hasExams = exams && exams.length > 0;
+
+    // --- 模式 1: 综合评价 (Comprehensive) ---
+    if (mode === 'comprehensive') {
+        // 构建历史成绩串
+        let historyStr = hasExams ? exams.map((e, i) => `${i+1}. ${e.label}: 总分${e.totalScore} (班排${e.rank||'-'})`).join('\n') : "（暂无考试数据）";
+        promptContext = `
+【学习数据】：
+${historyStr}
+【日常表现】：
+${dailyInfo || "（表现中规中矩）"}
+        `;
+        promptInstruction = `请结合【学习成绩变化趋势】和【日常表现】，写一段期末综合评语。学习和生活比重各占50%。将两者自然融合。`;
+    }
+    
+    // --- 模式 2: 仅历史趋势 (History Only) ---
+    else if (mode === 'history_only') {
+        let historyStr = hasExams ? exams.map((e, i) => `${i+1}. ${e.label}: 总分${e.totalScore} (年排${e.gradeRank||'-'}, 班排${e.rank||'-'})`).join('\n') : "（暂无数据）";
+        promptContext = `【历次考试数据】：\n${historyStr}`;
+        promptInstruction = `请仅根据【历次成绩变化趋势】，点评其学习状态的稳定性或进退步情况，给出针对性的学习建议。忽略生活表现。`;
+    }
+
+    // --- 模式 3: 仅本次成绩 (Current Only) ---
+    else if (mode === 'current_only') {
+        let currentStr = "（无数据）";
+        if (hasExams) {
+            const last = exams[exams.length - 1];
+            currentStr = `考试名称：${last.label}\n总分：${last.totalScore}\n班级排名：${last.rank}\n年级排名：${last.gradeRank||'-'}`;
+        }
+        promptContext = `【本次考试数据】：\n${currentStr}`;
+        promptInstruction = `请仅针对【本次考试】的发挥情况进行点评。不要提及之前的考试，也不要提及生活表现。`;
+    }
+
+    // --- 模式 4: 仅日常表现 (Daily Only) ---
+    else if (mode === 'daily_only') {
+        promptContext = `【日常表现关键词】：\n${dailyInfo || "遵守纪律，尊敬师长"}`;
+        promptInstruction = `请仅根据【日常表现关键词】，扩写成一段生动的德育评语。重点描述性格、品德和习惯。忽略成绩数据。`;
+    }
 
     const prompt = `
-你是一位温暖、细致的班主任。请为学生【${record.info.name}】写一段期末评语。
-评语需要包含两个维度，比重各占 50%：
-
-1. 【学习方面】（基于数据）：
-${historyStr}
-(请分析成绩起伏趋势，肯定努力或指出不足)
-
-2. 【生活方面】（基于关键词）：
-关键词：${dailyInfo}
-(请将这些关键词扩展成通顺、温情的语句，描述他在校的品德、性格或习惯)
+你是一位温暖、专业的班主任。请为学生【${record.info.name}】写评语。
+${promptContext}
 
 【写作要求】：
-- 将两部分自然融合，不要生硬拼接。
-- 语气要是“对学生说话”的口吻（第二人称“你”），请统一使用【第二人称“你”】。
-- 字数控制在 80-120 字。
-- 充满教育的温度和期待。
+1. ${promptInstruction}
+2. 语气亲切，使用第二人称“你”。
+3. 字数控制在 80-120 字。
+4. 不要出现“根据数据”、“如图所示”等机械语言。
     `.trim();
 
-    // [!! 核心修改 !!] 将 signal 传递给 fetch
     const response = await fetch('https://api.deepseek.com/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        signal: signal, // <--- 这里是关键
+        signal: signal,
         body: JSON.stringify({
             model: 'deepseek-chat',
             messages: [{ role: "user", content: prompt }],
@@ -14696,33 +14842,159 @@ ${historyStr}
 }
 
 /**
- * 17.5 导出 Excel
+ * 17.5 导出
  */
 function exportCommentsToExcel() {
     const className = document.getElementById('comment-class-select').value;
     const rows = Array.from(document.querySelectorAll('.comment-row'));
-
     const data = [];
     data.push(["班级", "姓名", "日常标签", "最终评语"]);
-
     rows.forEach(row => {
         const record = JSON.parse(decodeURIComponent(row.dataset.history));
         const daily = row.querySelector('.daily-input').value;
         const comment = row.querySelector('.result-textarea').value;
-        data.push([
-            record.info.class,
-            record.info.name,
-            daily,
-            comment
-        ]);
+        data.push([ record.info.class, record.info.name, daily, comment ]);
     });
-
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 80 }];
-
+    ws['!cols'] = [{wch:10}, {wch:10}, {wch:30}, {wch:80}];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "学生评语");
-    XLSX.writeFile(wb, `${className}_期末评语_${new Date().toLocaleDateString()}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "评语");
+    XLSX.writeFile(wb, `${className}_评语表.xlsx`);
+}
+
+// =====================================================================
+// [!! NEW !!] 多模式规则评语生成引擎
+// =====================================================================
+
+/**
+ * 总入口：根据模式分发逻辑
+ */
+function generateModeRuleComment(record, dailyText, mode) {
+    switch (mode) {
+        case 'history_only':
+            return generateHistoryRuleComment(record); // (复用原有逻辑)
+        case 'current_only':
+            return generateCurrentRuleComment(record); // (新增)
+        case 'daily_only':
+            return generateDailyRuleComment(record, dailyText); // (新增)
+        case 'comprehensive':
+        default:
+            return generateComprehensiveRuleComment(record, dailyText); // (新增)
+    }
+}
+
+/**
+ * 1. [仅历史] (这是您原有的逻辑，稍微优化)
+ */
+function generateHistoryRuleComment(record) {
+    const exams = record.exams;
+    if (!exams || exams.length === 0) return "暂无考试数据。";
+    
+    const name = record.info.name;
+    const count = exams.length;
+    const first = exams[0].gradeRank || exams[0].rank;
+    const last = exams[count-1].gradeRank || exams[count-1].rank;
+    const diff = first - last;
+
+    let text = `本学期 ${name} 同学共参加了 ${count} 次大考。`;
+    
+    if (diff > 20) text += `成绩呈现显著的上升趋势，排名从期初的 ${first} 名进步至期末的 ${last} 名，进步幅度很大，值得表扬。`;
+    else if (diff > 5) text += `成绩稳中有升，排名较期初进步了 ${diff} 名，学习状态渐入佳境。`;
+    else if (diff < -20) text += `成绩出现了一定幅度的下滑，排名从 ${first} 名退至 ${last} 名，建议假期好好调整状态，查缺补漏。`;
+    else text += `成绩保持相对稳定，排名始终维持在 ${last} 名左右，基础较为扎实。`;
+
+    return text;
+}
+
+/**
+ * 2. [仅本次] 只关注最后一次考试
+ */
+function generateCurrentRuleComment(record) {
+    const exams = record.exams;
+    if (!exams || exams.length === 0) return "暂无本次考试数据。";
+    
+    const lastExam = exams[exams.length - 1]; // 取最后一次
+    const rank = lastExam.gradeRank || lastExam.rank;
+    const score = lastExam.totalScore;
+    const name = record.info.name;
+
+    let text = `在本次${lastExam.label}中，${name} 同学取得了总分 ${score} 分，年级排名 ${rank} 名的成绩。`;
+
+    // 简单排位判断 (假设年段人数 500，可根据实际调整)
+    if (rank <= 50) text += ` 表现非常优异，名列年段前茅，展现了扎实的学科功底。`;
+    else if (rank <= 150) text += ` 成绩良好，处于年段上游水平，若能补齐弱项，冲击顶尖指日可待。`;
+    else if (rank <= 350) text += ` 成绩处于中游，基础尚可，但部分学科存在失分点，需要更有针对性的练习。`;
+    else text += ` 成绩暂时不理想，基础知识掌握不够牢固，希望你能正视差距，奋起直追。`;
+
+    text += ` 希望你能胜不骄败不馁，在接下来的学习中继续努力。`;
+    return text;
+}
+
+/**
+ * 3. [仅日常] 根据关键词生成德育评语
+ */
+function generateDailyRuleComment(record, dailyText) {
+    const name = record.info.name;
+    if (!dailyText || dailyText.trim() === "") {
+        return `${name} 同学在校表现中规中矩，遵守纪律，尊敬师长，与同学相处融洽。希望今后能更加积极主动地参与班级活动。`;
+    }
+
+    let text = `${name} 同学在校期间表现`;
+    
+    // 简单的关键词匹配逻辑
+    if (dailyText.includes("积极") || dailyText.includes("优") || dailyText.includes("强")) {
+        text += `非常积极。`;
+    } else if (dailyText.includes("差") || dailyText.includes("拖拉")) {
+        text += `有待加强。`;
+    } else {
+        text += `良好。`;
+    }
+
+    // 将输入的关键词串联起来
+    text += ` 老师注意到你：${dailyText}。`;
+
+    // 根据关键词给建议
+    if (dailyText.includes("走神") || dailyText.includes("讲话")) {
+        text += ` 希望你能改掉上课注意力不集中的小毛病，提高课堂效率。`;
+    } else if (dailyText.includes("内向") || dailyText.includes("自信")) {
+        text += ` 希望你今后能更加自信，多与老师同学交流，展现更棒的自己。`;
+    } else if (dailyText.includes("助人") || dailyText.includes("劳动")) {
+        text += ` 这种乐于奉献的精神值得所有同学学习，你是老师得力的小助手。`;
+    } else {
+        text += ` 希望你继续保持优点，改掉不足，做更好的自己。`;
+    }
+
+    return text;
+}
+
+/**
+ * 4. [综合] 历史趋势 + 日常表现 (各取一半)
+ */
+function generateComprehensiveRuleComment(record, dailyText) {
+    // 1. 获取成绩部分
+    const exams = record.exams;
+    let scorePart = "";
+    if (exams && exams.length >= 2) {
+        const first = exams[0].gradeRank || exams[0].rank;
+        const last = exams[exams.length-1].gradeRank || exams[exams.length-1].rank;
+        const diff = first - last;
+        if (diff > 0) scorePart = `本学期成绩稳步提升，排名进步了 ${diff} 名，这与你的努力分不开。`;
+        else if (diff < 0) scorePart = `本学期成绩略有起伏，排名有所下滑，需要反思学习方法。`;
+        else scorePart = `本学期成绩保持稳定，基础较为扎实。`;
+    } else {
+        scorePart = `本学期学习态度端正，能按时完成学习任务。`;
+    }
+
+    // 2. 获取日常部分
+    let dailyPart = "";
+    if (dailyText) {
+        dailyPart = `在生活中，你${dailyText}。`;
+    } else {
+        dailyPart = `在生活中，你尊敬师长，团结同学，遵守校纪校规。`;
+    }
+
+    // 3. 拼接
+    return `${record.info.name} 同学：${scorePart}${dailyPart} 希望你在新的学期里，能够发扬优点，弥补不足，向着更高的目标迈进！`;
 }
 
 

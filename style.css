@@ -1776,3 +1776,27 @@ details.ai-reasoning-box:not([open]) summary::after {
 .sidebar-header {
     overflow: hidden;
 }
+
+/* --- 评语助手标签样式 (彩色版) --- */
+.quick-tag {
+    display: inline-block;
+    font-size: 0.8em; /* 稍微大一点点 */
+    padding: 3px 8px;
+    margin: 2px;
+    border: 1px solid #dee2e6;
+    border-radius: 15px; /* 更圆润 */
+    background-color: #fff;
+    color: #555;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+/* 鼠标悬停效果 */
+.quick-tag:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+/* 也可以通过 JS 动态添加 class 来区分颜色，但最简单的是统一风格 */
+/* 如果您希望点击后变色，可以在 JS 里 toggle class */
