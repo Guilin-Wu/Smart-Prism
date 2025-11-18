@@ -15331,3 +15331,298 @@ async function printWorkbook(dataList, subjectName) {
     win.document.write(html);
     win.document.close();
 }
+
+
+// =====================================================================
+// [!! NEW !!] 侧边栏模块显示管理器
+// =====================================================================
+
+// 1. 定义所有可配置的模块 (ID 对应 data-module 属性, Name 对应显示文本)
+const ALL_MODULE_DEFINITIONS = [
+    { id: 'dashboard', name: '📈 整体成绩分析' },
+    { id: 'student', name: '👩‍🎓 学生个体报告' },
+    { id: 'paper', name: '📝 试卷科目分析' },
+    { id: 'single-subject', name: '🎯 单科成绩分析' },
+    { id: 'boundary', name: '📊 临界生分析' },
+    { id: 'holistic', name: '⚖️ 全科均衡分析' },
+    { id: 'trend-distribution', name: '🌊 成绩分布变动' },
+    { id: 'groups', name: '🎯 学生分层筛选' },
+    { id: 'correlation', name: '🌡️ 学科关联矩阵' },
+    { id: 'weakness', name: '📉 偏科诊断分析' },
+    { id: 'trend', name: '🚀 成绩趋势对比' },
+    { id: 'item-analysis', name: '🔬 学科小题分析' },
+    { id: 'ai-advisor', name: '🤖 AI 智能分析' },
+    { id: 'goal-setting', name: '🎯 目标与规划' },
+    { id: 'exam-arrangement', name: '🧘 考场编排' },
+    { id: 'study-groups', name: '🧩 智能互助分组' },
+    { id: 'comment-gen', name: '✍️ 评语生成助手' },
+    { id: 'weakness-workbook', name: '📝 错题攻坚本' },
+    // 注意：'multi-exam' (数据管理中心) 不建议隐藏，因为它是数据源头，故不列入
+];
+
+// 2. 初始化管理器
+function initModuleSettingsManager() {
+    const openBtn = document.getElementById('module-settings-btn');
+    const modal = document.getElementById('module-settings-modal');
+    const closeBtn = document.getElementById('module-settings-close-btn');
+    const saveBtn = document.getElementById('module-settings-save-btn');
+    const listContainer = document.getElementById('module-checklist-container');
+
+    if (!openBtn) return;
+
+    // 加载已保存的设置 (默认全部显示)
+    // 存储格式: JSON array of visible IDs
+    const getSavedSettings = () => {
+        const json = localStorage.getItem('App_Module_Visibility');
+        if (json) return JSON.parse(json);
+        // 默认所有 ID 都存在
+        return ALL_MODULE_DEFINITIONS.map(m => m.id);
+    };
+
+    // 应用设置 (隐藏/显示侧边栏 LI)
+    const applySettings = () => {
+        const visibleIds = getSavedSettings();
+        const visibleSet = new Set(visibleIds);
+
+        ALL_MODULE_DEFINITIONS.forEach(mod => {
+            // 找到对应的侧边栏链接
+            const link = document.querySelector(`.sidebar a[data-module="${mod.id}"]`);
+            if (link) {
+                // 控制整个 li (link的父级)
+                const li = link.parentElement;
+                if (visibleSet.has(mod.id)) {
+                    li.style.display = ''; // 恢复显示
+                } else {
+                    li.style.display = 'none'; // 隐藏
+                }
+            }
+        });
+    };
+
+    // 渲染模态框内容
+    const renderChecklist = () => {
+        const visibleIds = new Set(getSavedSettings());
+        
+        listContainer.innerHTML = ALL_MODULE_DEFINITIONS.map(mod => {
+            const isChecked = visibleIds.has(mod.id) ? 'checked' : '';
+            return `
+                <label style="display: flex; align-items: center; padding: 8px; background: #faf9f8ff; border-radius: 4px; border: 1px solid #eee; cursor: pointer;">
+                    <input type="checkbox" value="${mod.id}" ${isChecked} style="margin-right: 10px;">
+                    <span>${mod.name}</span>
+                </label>
+            `;
+        }).join('');
+    };
+
+    // 打开模态框
+    openBtn.addEventListener('click', () => {
+        renderChecklist();
+        modal.style.display = 'flex';
+    });
+
+    // 关闭
+    closeBtn.addEventListener('click', () => {
+        modal.style.display = 'none';
+    });
+
+    // 保存
+    saveBtn.addEventListener('click', () => {
+        const checkboxes = listContainer.querySelectorAll('input[type="checkbox"]');
+        const newVisibleIds = [];
+        checkboxes.forEach(cb => {
+            if (cb.checked) newVisibleIds.push(cb.value);
+        });
+
+        // 至少保留一个模块，防止全部隐藏导致不可用
+        if (newVisibleIds.length === 0) {
+            alert("请至少保留一个模块！");
+            return;
+        }
+
+        localStorage.setItem('App_Module_Visibility', JSON.stringify(newVisibleIds));
+        applySettings();
+        modal.style.display = 'none';
+        
+        // 如果当前所在的模块被隐藏了，自动跳转到第一个可见模块
+        const currentActive = document.querySelector('.nav-link.active');
+        if (currentActive && currentActive.dataset.module && !newVisibleIds.includes(currentActive.dataset.module)) {
+             // 找到第一个可见的链接并点击
+             const firstVisibleId = newVisibleIds[0];
+             const firstLink = document.querySelector(`.sidebar a[data-module="${firstVisibleId}"]`);
+             if (firstLink) firstLink.click();
+        }
+    });
+
+    // 初始化时应用一次
+    applySettings();
+}
+
+// 3. 启动
+document.addEventListener('DOMContentLoaded', () => {
+    // 稍微延时一点，确保 DOM 结构完全就绪
+    setTimeout(initModuleSettingsManager, 100);
+});
+
+
+
+// =====================================================================
+// [!! NEW !!] 侧边栏折叠控制器 (悬浮手柄版)
+// =====================================================================
+function initSidebarToggle() {
+    const handle = document.getElementById('sidebar-drag-handle'); // [修改] 获取新 ID
+    const sidebar = document.querySelector('.sidebar');
+    
+    if (!handle || !sidebar) return;
+
+    // 1. 读取用户上次的偏好
+    const isCollapsed = localStorage.getItem('App_Sidebar_Collapsed') === 'true';
+    if (isCollapsed) {
+        sidebar.classList.add('collapsed');
+    }
+
+    // 2. 点击事件
+    handle.addEventListener('click', () => {
+        // 切换 class
+        sidebar.classList.toggle('collapsed');
+        
+        // 保存偏好
+        const collapsed = sidebar.classList.contains('collapsed');
+        localStorage.setItem('App_Sidebar_Collapsed', collapsed);
+
+        // [!! 关键 !!] 触发图表重绘
+        // 因为侧边栏收起有 0.3s 的动画，我们需要在动画过程中或结束后调整图表大小
+        setTimeout(() => {
+            resizeAllCharts();
+        }, 310); 
+    });
+}
+
+// [辅助] 重置所有 ECharts 图表大小
+function resizeAllCharts() {
+    for (const key in echartsInstances) {
+        if (echartsInstances[key]) {
+            echartsInstances[key].resize();
+        }
+    }
+}
+
+// 3. 启动
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSidebarToggle);
+} else {
+    initSidebarToggle();
+}
+
+
+// =====================================================================
+// [!! NEW !!] 侧边栏宽度拖拽功能
+// =====================================================================
+function initSidebarResizer() {
+    const resizer = document.getElementById('sidebar-resizer');
+    const sidebar = document.querySelector('.sidebar');
+    
+    if (!resizer || !sidebar) return;
+
+    let isResizing = false;
+    let lastDownX = 0;
+
+    // 1. 鼠标按下 (Start)
+    resizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        lastDownX = e.clientX;
+        
+        // 添加样式标记
+        resizer.classList.add('resizing');
+        
+        // [关键] 暂时移除过渡动画，让拖动跟手
+        sidebar.classList.add('no-transition');
+        
+        // 防止选中文字
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+    });
+
+    // 2. 鼠标移动 (Move) - 绑定到 document 以防鼠标移出侧边栏
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        // 计算新宽度 (直接使用鼠标的 X 坐标作为宽度)
+        // 因为侧边栏在左侧，鼠标X坐标基本上就是侧边栏的宽度
+        let newWidth = e.clientX;
+
+        // 限制最小/最大宽度 (虽然CSS有写，JS限制更流畅)
+        if (newWidth < 150) newWidth = 150;
+        if (newWidth > 600) newWidth = 600;
+
+        sidebar.style.width = `${newWidth}px`;
+        
+        // 实时重绘图表 (可选，如果觉得卡顿可以去掉这一行，只在mouseup时重绘)
+        // requestAnimationFrame(() => resizeAllCharts()); 
+    });
+
+    // 3. 鼠标松开 (End)
+    document.addEventListener('mouseup', (e) => {
+        if (!isResizing) return;
+        
+        isResizing = false;
+        resizer.classList.remove('resizing');
+        
+        // [关键] 恢复过渡动画
+        sidebar.classList.remove('no-transition');
+        
+        // 恢复鼠标样式
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+
+        // 拖拽结束，必须重绘一次图表以适应新尺寸
+        resizeAllCharts();
+    });
+}
+
+// 启动
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSidebarResizer);
+} else {
+    initSidebarResizer();
+}
+
+
+// =====================================================================
+// [!! NEW !!] 图表自适应增强 (ResizeObserver)
+// =====================================================================
+function initChartAutoResize() {
+    const mainContent = document.querySelector('.main-content');
+    if (!mainContent) return;
+
+    // 创建观察者：只要主内容区大小发生微小变化，就触发图表重绘
+    const observer = new ResizeObserver(() => {
+        // 使用 requestAnimationFrame 避免高频触发导致卡顿
+        window.requestAnimationFrame(() => {
+            resizeAllCharts();
+        });
+    });
+
+    // 开始监听
+    observer.observe(mainContent);
+}
+
+// 启动监听
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initChartAutoResize);
+} else {
+    initChartAutoResize();
+}
+
+// [辅助] 重置所有 ECharts 图表大小 (增强版)
+function resizeAllCharts() {
+    for (const key in echartsInstances) {
+        if (echartsInstances[key]) {
+            // [关键] 传入参数，强制 ECharts 重新读取容器宽度
+            // 否则它可能还会沿用之前的宽 canvas
+            echartsInstances[key].resize({
+                width: 'auto',
+                height: 'auto'
+            });
+        }
+    }
+}

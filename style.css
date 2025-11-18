@@ -102,9 +102,10 @@ h2, h3 {
     border-right: 1px solid var(--border-color);
 }
 .sidebar-header {
-    padding-bottom: 20px;
+    padding-bottom: 30px;
     margin-bottom: 20px;
     border-bottom: 1px solid var(--border-color);
+    overflow: hidden;
 }
 .sidebar-header h2 {
     color: var(--primary-color-dark);
@@ -143,12 +144,23 @@ h2, h3 {
     cursor: not-allowed;
 }
 
+
+.sidebar-logo {
+    display: block;       /* 让图片独占一行 */
+    width: 800px;          /* 设置宽度，根据你的图片大小调整 (建议 60px - 100px) */
+    height: auto;         /* 高度自动，保持比例 */
+    margin: 0 auto 15px;  /* 水平居中，并给下方留出 15px 间距 */
+    border-radius: 12px;  /* 可选：给图片加个圆角，如果想要圆形改成 50% */
+    object-fit: contain;  /* 保证图片内容完整显示 */
+}
+
+
 /* --- 3. 侧边栏配置项 (Config) --- */
 .config-section {
     padding: 0 10px;
 }
 .config-section h4 {
-    margin-top: 15px;
+    margin-top: 10px;
     margin-bottom: 10px;
     color: var(--text-muted);
     font-size: 0.9em;
@@ -192,7 +204,7 @@ h2, h3 {
 }
 #welcome-screen { text-align: center; padding-top: 100px; color: var(--text-muted); }
 
-/* --- 5. “卡片”样式 (美化核心) --- */
+/* [!! 修复 !!] 卡片容器：允许被压缩 */
 .main-card-wrapper {
     background-color: var(--card-background);
     border-radius: var(--border-radius);
@@ -201,6 +213,17 @@ h2, h3 {
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
+    
+    /* [核心] Flex 子项缩小的关键 */
+    min-width: 0 !important; 
+    width: 100%; /* 确保卡片占满网格单元 */
+}
+
+/* 确保 Grid 布局也能自适应 */
+.dashboard-chart-grid-2x2,
+.dashboard-chart-grid-1x1 {
+    /* 确保 Grid 本身不被内容撑爆 */
+    min-width: 0;
 }
 
 /* --- 6. 模块一 (Dashboard) 布局 (已美化) --- */
@@ -329,14 +352,12 @@ td span.regress {
     font-weight: 600;
 }
 
-/* --- 8. ECharts (Charts) --- */
+/* [!! 修复 !!] 图表容器：强制宽度跟随父级，禁止撑开 */
 .chart-container {
-    width: 100%;
+    width: 100% !important; /* 强制填满，不准溢出 */
     height: 350px;
-    background: transparent;
-    padding: 0;
-    border-radius: 0;
-    box-shadow: none;
+    overflow: hidden;       /* [关键] 裁剪溢出，防止 canvas 撑大 flex 容器 */
+    position: relative;     /* 确保 ECharts 定位准确 */
 }
 
 /* --- 9. 模块控制栏 (Controls) & 学生卡片 (Student) --- */
@@ -1529,4 +1550,229 @@ details.ai-reasoning-box:not([open]) summary::after {
 }
 .quick-tag:active {
     transform: scale(0.95);
+}
+
+
+/* =========================================
+   [!! FINAL !!] 布局核心样式 (侧边栏+主内容)
+   包含了：折叠、拖拽、悬浮按钮、图表自适应修复
+   ========================================= */
+
+/* --- 1. 主内容区 (Main Content) --- */
+.main-content {
+    flex-grow: 1;
+    
+    /* [核心修复] 强制宽度为0，配合 flex-grow:1 */
+    /* 这能强制 Flex 容器重新计算空间，防止被内部 ECharts 图表撑大导致溢出 */
+    width: 0 !important; 
+    min-width: 0 !important; 
+    
+    overflow-x: hidden; /* 隐藏横向滚动条 */
+    overflow-y: auto;   /* 保持垂直滚动 */
+    
+    padding: 32px;
+    height: 100vh;
+    box-sizing: border-box;
+    position: relative; /* 为内部定位元素提供基准 */
+}
+
+/* --- 2. 侧边栏容器 (Sidebar) --- */
+.sidebar {
+    width: 260px;
+    background-color: var(--sidebar-bg);
+    color: var(--sidebar-text);
+    height: 100vh;
+    
+    /* [布局模式] Flex 布局，实现头部固定，列表滚动 */
+    display: flex;              
+    flex-direction: column;     
+    
+    /* [关键] 允许溢出，否则右侧悬浮的半圆按钮会被切掉 */
+    overflow: visible !important; 
+    position: relative;         
+    
+    padding: 24px; 
+    box-sizing: border-box;
+    flex-shrink: 0; 
+    z-index: 10;
+    border-right: 1px solid var(--border-color);
+    
+    /* [拖拽限制] */
+    min-width: 150px;
+    max-width: 600px;
+
+    /* [动画] 平滑过渡 */
+    transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), padding 0.3s, opacity 0.3s;
+    white-space: nowrap;
+}
+
+/* --- 3. 侧边栏内部列表 (Menu List) --- */
+.sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    
+    /* [核心] 只有列表区域可以滚动 */
+    flex-grow: 1;        
+    overflow-y: auto;    
+    overflow-x: hidden;  
+    
+    /* 美化：让滚动条离文字稍微远一点 */
+    margin-right: -10px; 
+    padding-right: 10px;
+}
+
+/* 1. 侧边栏容器：折叠时 */
+.sidebar.collapsed {
+    /* 压扁宽度 */
+    width: 0 !important;
+    min-width: 0 !important;
+    
+    /* 去掉边距和边框 */
+    padding: 0 !important;
+    border: none !important;
+    
+    /* [!! 核心关键 !!] */
+    /* 必须设置为 visible，否则挂在右边的 #sidebar-drag-handle 会被切掉看不见 */
+    overflow: visible !important;
+    
+    /* 必须保持不透明，否则按钮也是透明的 */
+    opacity: 1 !important;
+    
+    /* 停止过渡动画，防止拖拽逻辑干扰 */
+    transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.sidebar.collapsed > *:not(#sidebar-drag-handle) {
+    display: none !important;
+    opacity: 0 !important;
+    pointer-events: none;
+}
+
+/* 3. 修正折叠时手柄的位置 */
+/* 当侧边栏宽度为0时，它是贴在屏幕最左边的 */
+.sidebar.collapsed #sidebar-drag-handle {
+    /* 保持挂在右侧 (相对于0宽度的父容器) */
+    right: -24px; /* 手柄宽度是24px，负值让它完全露出来 */
+    left: auto;
+    
+    /* 视觉微调：变成半圆贴在屏幕边缘 */
+    border-radius: 0 20px 20px 0;
+    border-left: 1px solid #dee2e6; /* 补上左边框 */
+}
+
+/* 4. 翻转箭头方向 */
+.sidebar.collapsed #sidebar-drag-handle .handle-icon {
+    transform: rotate(180deg);
+}
+
+/* 拖拽时禁用动画，防止卡顿 */
+.sidebar.no-transition {
+    transition: none !important;
+}
+
+/* --- 5. 侧边栏折叠手柄 (Toggle Handle) --- */
+#sidebar-drag-handle {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    
+    /* [定位] 挂在侧边栏的最右侧外部 */
+    right: -12px; 
+    left: auto;   
+    
+    width: 24px;
+    height: 50px;
+    background-color: #fff;
+    border: 1px solid #dee2e6;
+    border-left: none; /* 去掉左边框，模拟连接感 */
+    border-radius: 0 20px 20px 0; /* 半圆造型 */
+    box-shadow: 4px 0 6px rgba(0,0,0,0.05);
+    
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 1001; /* 层级必须高于拖拽条 */
+    transition: background-color 0.2s;
+    
+    /* 确保按钮内的文字/图标不被选中 */
+    user-select: none; 
+}
+
+/* 手柄悬停效果 */
+#sidebar-drag-handle:hover {
+    background-color: var(--primary-color);
+}
+#sidebar-drag-handle:hover .handle-icon {
+    color: #fff;
+}
+
+/* 当侧边栏折叠时，手柄的形态变化 */
+.sidebar.collapsed #sidebar-drag-handle .handle-icon {
+    transform: rotate(180deg); /* 箭头反转 */
+}
+/* 折叠时手柄的位置微调（可选，保持默认即可，因为父容器宽度变0，它自然会贴到屏幕左边） */
+
+
+/* --- 6. 侧边栏宽度拖拽条 (Resizer) --- */
+#sidebar-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;           /* 高度撑满 */
+    right: 0;            /* 紧贴右边缘 */
+    width: 8px;          /* 热区宽度 */
+    cursor: col-resize;  /* 鼠标样式 */
+    z-index: 1000;       
+    background-color: transparent;
+    transition: background-color 0.2s;
+}
+
+/* 拖拽条激活/悬停样式 */
+#sidebar-resizer:hover,
+#sidebar-resizer.resizing {
+    background-color: var(--primary-color);
+    opacity: 0.5;
+}
+
+/* =========================================
+   [!! NEW !!] 侧边栏文字防溢出优化
+   解决：拖拽变窄时，文字溢出遮挡问题
+   ========================================= */
+
+/* 1. 针对侧边栏内所有可能溢出的文本元素 */
+.sidebar h2,              /* 大标题 */
+.sidebar h4,              /* 小标题 */
+.sidebar a,               /* 菜单链接 */
+.sidebar button,          /* 按钮 */
+.sidebar .upload-label,   /* 上传按钮 */
+.sidebar li,              /* 列表项 */
+.sidebar option,          /* 下拉选项 */
+.sidebar select           /* 下拉框 */
+{
+    white-space: nowrap !important;      /* 强制不换行 */
+    overflow: hidden !important;         /* 超出容器隐藏 */
+    text-overflow: ellipsis !important;  /* 超出部分显示省略号(...) */
+    max-width: 100%;                     /* 宽度不超过父容器 */
+}
+
+/* 2. 针对 Flex 布局的链接 (带图标的菜单) 需要特殊处理 */
+.sidebar .nav-link {
+    display: block !important;  /* 临时改为 block 以支持 ellipsis */
+    /* 如果您希望保持图标垂直居中，可以用下面的 flex 兼容写法，但在极窄宽度下 block 更稳定 */
+}
+.sidebar .upload-label { 
+    display: block !important;  
+    /* 垂直居中微调 (因为变成block后flex居中失效，用行高补救) */
+    line-height: 1.5; 
+}
+
+/* 3. 针对列表项的微调 */
+.multi-exam-label {
+    width: 100%; /* 确保输入框也能自适应缩小 */
+}
+
+/* 4. 标题区域微调 (防止 SMART PRISM 撑开) */
+.sidebar-header {
+    overflow: hidden;
 }
