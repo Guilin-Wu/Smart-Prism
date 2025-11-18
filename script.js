@@ -3023,8 +3023,9 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
     // 6. 初始绘制
     drawHistogram();
-
-    renderTrendCompositionChart('dist-composition-compare-chart', currentStats, compareStats);
+    if (typeof renderTrendCompositionChart === 'function') {
+        renderTrendCompositionChart('dist-composition-compare-chart', currentData, compareData);
+    }
     drawSankey();
 
 
@@ -3033,28 +3034,24 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         exportCompositionDetails(mergedData);
     });
 
-    // [内部辅助函数] 导出逻辑
+// [内部辅助函数] 导出逻辑 (已升级为 T 分版)
     const exportCompositionDetails = (data) => {
         const exportData = [];
         const subjects = G_DynamicSubjectList;
         
-        // 定义表头
-        exportData.push(["科目", "本次等级", "班级", "姓名", "本次分数", "上次等级", "上次分数", "变动情况"]);
+        exportData.push(["科目", "本次T分等级", "班级", "姓名", "本次T分", "上次T分等级", "上次T分", "变动情况"]);
 
         subjects.forEach(subject => {
-            const config = G_SubjectConfigs[subject];
-            if (!config) return;
-
-            // 辅助：计算等级
-            const getLevel = (score) => {
-                if (typeof score !== 'number' || isNaN(score)) return '缺考';
-                if (score >= config.excel) return 'A (优秀)';
-                if (score >= config.good) return 'B (良好)';
-                if (score >= config.pass) return 'C (及格)';
+            // [!! 修改 !!] 基于 T 分判断等级 (A>=60, B>=50, C>=40)
+            const getTLevel = (tScore) => {
+                if (tScore === undefined || tScore === null || isNaN(tScore)) return '无数据';
+                if (tScore >= 60) return 'A (优秀)';
+                if (tScore >= 50) return 'B (良好)';
+                if (tScore >= 40) return 'C (及格)';
                 return 'D (不及格)';
             };
 
-            // 辅助：等级转数字用于比较 (A=4, D=1)
+            // 等级转数字用于比较
             const levelVal = (l) => {
                 if(l.startsWith('A')) return 4;
                 if(l.startsWith('B')) return 3;
@@ -3064,11 +3061,34 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
             };
 
             data.forEach(s => {
-                const currScore = s.scores[subject];
-                const oldScore = s.oldScores[subject];
+                // [!! 修改 !!] 获取 T 分而不是原始分
+                // 注意：mergedData 里需要有 tScores。
+                // currentData 和 compareData 都有，mergedData 是 map 出来的，需要确保 tScores 被携带
+                // 如果之前的 map 逻辑漏了 tScores，这里用 s.tScores 可能取不到。
+                // 更稳妥的方法是从 currentData/compareData 重新查找，或者依赖 map 逻辑。
                 
-                const currLevel = getLevel(currScore);
-                const oldLevel = getLevel(oldScore);
+                // 假设 s 是 mergedData 的项。
+                // 我们需要确保 mergedData 生成时携带了 tScores。
+                // 如果没有，我们可以直接在这里读 s.tScores (如果是浅拷贝或包含原始数据)
+                // 如果 s.tScores 不存在，我们需要去 currentData/compareData 找。
+                
+                // 简便起见，我们在 s 对象中应该能访问到原始分数对象，或者我们在 map 时加上。
+                // 检查一下 renderTrendDistribution 开头的 mergedData 逻辑...
+                // 发现 mergedData 确实没有显式拷贝 tScores。
+                // 补救措施：直接用原始分重新计算？不，太麻烦。
+                // 最好是在 renderTrendDistribution 开头生成 mergedData 时，把 tScores 也带上。
+                
+                // 但为了不改动太多，我们这里直接用 s.id 去 currentData 和 compareData 找最稳妥。
+                const currObj = currentData.find(c => String(c.id) === String(s.id));
+                const compObj = compareData.find(c => String(c.id) === String(s.id));
+                
+                const currT = (currObj && currObj.tScores) ? currObj.tScores[subject] : null;
+                // compareData 的 tScores 可能没计算? (calculateAllStatistics 会算)
+                // 确保 runAnalysisAndRender 里对 compareData 也调用了 calculateStandardScores
+                const compT = (compObj && compObj.tScores) ? compObj.tScores[subject] : null;
+
+                const currLevel = getTLevel(currT);
+                const oldLevel = getTLevel(compT);
 
                 let changeText = '-';
                 const v1 = levelVal(currLevel);
@@ -3078,34 +3098,29 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                     if (v1 > v2) changeText = '⬆️ 升级';
                     else if (v1 < v2) changeText = '⬇️ 降级';
                     else changeText = '➡️ 保持';
-                } else if (v1 > 0 && v2 === 0) {
-                    changeText = '🆕 新增';
                 }
 
-                // 只有当本次有成绩时才导出，或者上次有成绩
                 if (v1 > 0 || v2 > 0) {
                     exportData.push([
                         subject,
                         currLevel,
                         s.class,
                         s.name,
-                        currScore ?? '-',
+                        currT !== null ? currT.toFixed(1) : '-',
                         oldLevel,
-                        oldScore ?? '-',
+                        compT !== null ? compT.toFixed(1) : '-',
                         changeText
                     ]);
                 }
             });
             
-            // 每个科目之间加个空行，方便阅读
             exportData.push([]);
         });
 
-        // 导出 Excel
         const ws = XLSX.utils.aoa_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "等级分布明细");
-        XLSX.writeFile(wb, `各科等级分布名单_${new Date().toLocaleDateString()}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "T分等级分布");
+        XLSX.writeFile(wb, `T分等级变动_${new Date().toLocaleDateString()}.xlsx`);
     };
 
 
@@ -16013,10 +16028,10 @@ function resizeAllCharts() {
 }
 
 /**
- * [NEW] 渲染等级构成对比图 (分组堆叠柱状图)
- * 核心逻辑：每个科目两根柱子，每根柱子内部堆叠 A/B/C/D
+ * [修改版] 渲染等级构成对比图 (基于 T 分计算)
+ * 逻辑：A(T>=60), B(50-60), C(40-50), D(<40)
  */
-function renderTrendCompositionChart(elementId, currentStats, compareStats) {
+function renderTrendCompositionChart(elementId, currentData, compareData) {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
 
@@ -16033,54 +16048,74 @@ function renderTrendCompositionChart(elementId, currentStats, compareStats) {
         comp: { A: [], B: [], C: [], D: [] }
     };
 
-    subjects.forEach(sub => {
-        // 1. 获取本次数据
-        const cStat = currentStats[sub];
-        if (cStat) {
-            dataMap.curr.A.push(cStat.excellentRate); // A (优秀)
-            dataMap.curr.B.push(cStat.goodRate);      // B (良好)
-            dataMap.curr.C.push(cStat.cRate);         // C (及格)
-            dataMap.curr.D.push(cStat.failRate);      // D (不及格)
-        } else {
-            [dataMap.curr.A, dataMap.curr.B, dataMap.curr.C, dataMap.curr.D].forEach(arr => arr.push(0));
-        }
+    // 辅助：计算一组学生某科的 T 分分布率
+    const calcDistribution = (studentList, subject) => {
+        let countA=0, countB=0, countC=0, countD=0;
+        let totalValid = 0;
 
-        // 2. 获取对比数据
-        const pStat = compareStats[sub];
-        if (pStat) {
-            dataMap.comp.A.push(pStat.excellentRate);
-            dataMap.comp.B.push(pStat.goodRate);
-            dataMap.comp.C.push(pStat.cRate);
-            dataMap.comp.D.push(pStat.failRate);
-        } else {
-            [dataMap.comp.A, dataMap.comp.B, dataMap.comp.C, dataMap.comp.D].forEach(arr => arr.push(0));
-        }
-    });
+        studentList.forEach(s => {
+            // 确保 tScores 存在
+            const tScore = (s.tScores && s.tScores[subject] !== undefined) ? s.tScores[subject] : null;
+            
+            if (tScore !== null && !isNaN(tScore)) {
+                totalValid++;
+                if (tScore >= 60) countA++;
+                else if (tScore >= 50) countB++;
+                else if (tScore >= 40) countC++;
+                else countD++;
+            }
+        });
 
-    // 颜色定义
-    const colors = {
-        A: '#28a745', // 绿
-        B: '#007bff', // 蓝
-        C: '#ffc107', // 黄
-        D: '#dc3545'  // 红
+        if (totalValid === 0) return { A:0, B:0, C:0, D:0 };
+
+        return {
+            A: parseFloat(((countA / totalValid) * 100).toFixed(1)),
+            B: parseFloat(((countB / totalValid) * 100).toFixed(1)),
+            C: parseFloat(((countC / totalValid) * 100).toFixed(1)),
+            D: parseFloat(((countD / totalValid) * 100).toFixed(1))
+        };
     };
 
+    subjects.forEach(sub => {
+        // 1. 计算本次
+        const currDist = calcDistribution(currentData, sub);
+        dataMap.curr.A.push(currDist.A);
+        dataMap.curr.B.push(currDist.B);
+        dataMap.curr.C.push(currDist.C);
+        dataMap.curr.D.push(currDist.D);
+
+        // 2. 计算对比
+        const compDist = calcDistribution(compareData, sub);
+        dataMap.comp.A.push(compDist.A);
+        dataMap.comp.B.push(compDist.B);
+        dataMap.comp.C.push(compDist.C);
+        dataMap.comp.D.push(compDist.D);
+    });
+
+    // 颜色定义 (保持一致)
+    const colors = { A: '#28a745', B: '#007bff', C: '#ffc107', D: '#dc3545' };
+
     const option = {
+        title: {
+            text: '各科 T分等级构成 (A: T≥60, B: ≥50, C: ≥40, D: <40)', // 标题更新
+            left: 'center',
+            textStyle: { fontSize: 14, fontWeight: 'normal', color: '#666' },
+            top: 10
+        },
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'shadow' },
             formatter: function (params) {
-                // 自定义 Tooltip，区分本次和上次
                 let html = `<strong>${params[0].name}</strong><br/>`;
+                // Tooltip 逻辑保持不变，显示堆叠数据
                 html += `<div style="display:inline-block; width:49%; vertical-align:top;">`;
-                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px;">📘 本次</div>`;
+                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px;">📘 本次 (T分)</div>`;
                 params.filter(p => p.seriesName.startsWith('本次')).reverse().forEach(p => {
                     html += `${p.marker} ${p.seriesName.split('-')[1]}: ${p.value}%<br/>`;
                 });
                 html += `</div>`;
-                
                 html += `<div style="display:inline-block; width:49%; vertical-align:top; margin-left:2%;">`;
-                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px; color:#999;">📓 上次</div>`;
+                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px; color:#999;">📓 上次 (T分)</div>`;
                 params.filter(p => p.seriesName.startsWith('上次')).reverse().forEach(p => {
                     html += `${p.marker} ${p.seriesName.split('-')[1]}: ${p.value}%<br/>`;
                 });
@@ -16088,36 +16123,22 @@ function renderTrendCompositionChart(elementId, currentStats, compareStats) {
                 return html;
             }
         },
-        legend: {
-            data: ['A (优秀)', 'B (良好)', 'C (及格)', 'D (不及格)'],
-            bottom: 0
-        },
-        grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
-        xAxis: {
-            type: 'category',
-            data: subjects,
-            axisLabel: { rotate: 30, interval: 0 }
-        },
-        yAxis: {
-            type: 'value',
-            max: 100,
-            name: '百分比 (%)'
-        },
+        legend: { data: ['A (优秀)', 'B (良好)', 'C (及格)', 'D (不及格)'], bottom: 0 },
+        grid: { left: '3%', right: '4%', bottom: '10%', top: '15%', containLabel: true },
+        xAxis: { type: 'category', data: subjects, axisLabel: { rotate: 30, interval: 0 } },
+        yAxis: { type: 'value', max: 100, name: '百分比 (%)' },
         series: [
-            // --- 本次成绩 (Stack: current) ---
             { name: '本次-D (不及格)', stack: 'current', type: 'bar', data: dataMap.curr.D, itemStyle: { color: colors.D }, barGap: 0 },
             { name: '本次-C (及格)',   stack: 'current', type: 'bar', data: dataMap.curr.C, itemStyle: { color: colors.C } },
             { name: '本次-B (良好)',   stack: 'current', type: 'bar', data: dataMap.curr.B, itemStyle: { color: colors.B } },
             { name: '本次-A (优秀)',   stack: 'current', type: 'bar', data: dataMap.curr.A, itemStyle: { color: colors.A } },
 
-            // --- 上次成绩 (Stack: compare) ---
-            // 为了区分，给上次成绩加上透明度 (opacity) 或 纹理
             { name: '上次-D (不及格)', stack: 'compare', type: 'bar', data: dataMap.comp.D, itemStyle: { color: colors.D, opacity: 0.4 } },
             { name: '上次-C (及格)',   stack: 'compare', type: 'bar', data: dataMap.comp.C, itemStyle: { color: colors.C, opacity: 0.4 } },
             { name: '上次-B (良好)',   stack: 'compare', type: 'bar', data: dataMap.comp.B, itemStyle: { color: colors.B, opacity: 0.4 } },
             { name: '上次-A (优秀)',   stack: 'compare', type: 'bar', data: dataMap.comp.A, itemStyle: { color: colors.A, opacity: 0.4 } },
             
-            // 代理图例系列 (用于显示正确的 Legend 颜色和名称，不画实际图形)
+            // 代理图例
             { name: 'A (优秀)', type: 'bar', data: [], itemStyle: { color: colors.A } },
             { name: 'B (良好)', type: 'bar', data: [], itemStyle: { color: colors.B } },
             { name: 'C (及格)', type: 'bar', data: [], itemStyle: { color: colors.C } },
