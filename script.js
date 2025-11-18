@@ -2871,37 +2871,41 @@ function renderHolisticBalance(container, activeData, stats) {
  * @param {Object} compareStats - G_CompareStatistics
  */
 /**
- * [!! FINAL MERGED !!] 模块七：成绩分布变动 (整合了直方图自定义、等级对比、桑基图)
+ * [!! UPGRADED V4 !!] 模块七：成绩分布变动 (直方图也支持 T分/原始分 切换)
  */
 function renderTrendDistribution(container, currentData, compareData, currentStats, compareStats, currentFilter) {
 
-    // 1. 检查是否有对比数据
+    // 1. 检查数据
     if (!compareData || compareData.length === 0) {
         container.innerHTML = `<h2>模块七：成绩分布变动</h2><p>请先在侧边栏导入 "对比成绩" 数据。</p>`;
         return;
     }
-
     // 自动补全排名数据
     if (compareData.length > 0 && !compareData[0].gradeRanks) {
-        console.warn("检测到对比数据缺少单科排名，正在自动补全...");
         compareData = addSubjectRanksToData(compareData);
         localStorage.setItem('G_CompareData', JSON.stringify(compareData));
     }
 
-    // 2. 渲染完整 HTML 结构 (包含3个图表)
+    // 2. 渲染 HTML
     container.innerHTML = `
         <h2>模块七：成绩分布变动 (当前筛选: ${G_CurrentClassFilter})</h2>
-        <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
-            对比两次考试的“群体形态”变化。
-        </p>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <div class="controls-bar chart-controls" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                
                 <div>
                     <label for="dist-subject-select">选择科目:</label>
                     <select id="dist-subject-select" class="sidebar-select" style="min-width: 120px;">
                         <option value="totalScore">总分</option>
                         ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                </div>
+
+                <div>
+                    <label>统计模式:</label>
+                    <select id="dist-hist-mode" class="sidebar-select" style="width:auto; font-weight:bold; color:#20c997; border-color:#20c997;">
+                        <option value="raw">📊 原始分</option>
+                        <option value="tscore">⚖️ T分 (标准分)</option>
                     </select>
                 </div>
 
@@ -2916,41 +2920,42 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <div class="controls-bar chart-controls" style="border-bottom: none; padding-bottom: 0; margin-bottom: 10px; flex-wrap: wrap; justify-content: space-between;">
-                <div style="display:flex; align-items:center;">
-                    <h4 style="margin: 0;">各科等级构成对比 (A/B/C/D)</h4>
-                    <span style="font-size: 0.8em; color: var(--text-muted); margin-left: 10px;">
-                        左柱: 本次 | 右柱: 上次 (透明度较低)
-                    </span>
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <h4 style="margin: 0;">各科等级构成对比</h4>
+                    <select id="dist-comp-mode" class="sidebar-select" style="width:auto; font-weight:bold; color:#007bff; border-color:#007bff;">
+                        <option value="raw">📊 原始分模式</option>
+                        <option value="tscore">⚖️ T分模式</option>
+                    </select>
                 </div>
                 <button id="dist-export-composition-btn" class="sidebar-button" style="padding: 4px 12px; font-size: 0.85em; background-color: var(--color-green);">
-                    📥 导出等级分段名单
+                    📥 导出名单
                 </button>
             </div>
+            <p style="font-size: 0.8em; color: var(--text-muted); margin-top: -5px; margin-bottom: 10px;" id="dist-comp-desc">
+                * 原始分模式：A(优秀线), B(良好线), C(及格线) | T分模式：A(T≥60), B(T≥50), C(T≥40)
+            </p>
             <div class="chart-container" id="dist-composition-compare-chart" style="height: 450px;"></div>
         </div>
 
         <div class="main-card-wrapper">
             <div class="controls-bar chart-controls" style="border-bottom: none; padding-bottom: 0; margin-bottom: 10px;">
-                <h4 style="margin: 0; margin-right: 20px;">排名分层流动图 (桑基图)</h4>
-                <label for="dist-sankey-subject-select">分析对象:</label>
+                <h4 style="margin: 0; margin-right: 20px;">排名分层流动图</h4>
+                <label>分析对象:</label>
                 <select id="dist-sankey-subject-select" class="sidebar-select" style="width: auto;">
                     <option value="totalScore">总分排名</option>
                     ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}排名</option>`).join('')}
                 </select>
             </div>
-            <p style="color: var(--text-muted); font-size: 0.9em; margin-top: 0;">
-                点击图中的“节点”或“流向”可查看学生列表。(绿色表示向上流动，红色表示向下流动)
-            </p>
             <div class="chart-container" id="dist-sankey-chart" style="height: 600px;"></div>
         </div>
-
+        
         <div class="main-card-wrapper" id="dist-sankey-results-wrapper" style="display: none; margin-top: 20px;">
             <h4 id="dist-sankey-results-title">学生列表</h4>
             <div class="table-container" id="dist-sankey-results-table"></div>
         </div>
     `;
 
-    // 3. 匹配两个数据源
+    // 3. 数据预处理
     const mergedData = currentData.map(student => {
         const oldStudent = compareData.find(s => String(s.id) === String(student.id));
         if (!oldStudent) return null;
@@ -2960,38 +2965,58 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
             oldRank: oldStudent.rank,
             oldGradeRank: oldStudent.gradeRank || 0,
             oldScores: oldStudent.scores || {},
+            oldTScores: oldStudent.tScores || {}, // [关键] 携带旧T分
             oldClassRanks: oldStudent.classRanks || {},
             oldGradeRanks: oldStudent.gradeRanks || {}
         };
     }).filter(s => s !== null);
 
-
-    // 4. 绑定直方图事件 (支持自定义 Bin)
+    // 4. 逻辑 A: 直方图 (修复版 - 移除冗余变量)
     const subjectSelect = document.getElementById('dist-subject-select');
+    const histModeSelect = document.getElementById('dist-hist-mode');
     const binInput = document.getElementById('dist-bin-size');
     const redrawBtn = document.getElementById('dist-redraw-btn');
 
     const drawHistogram = () => {
         const subject = subjectSelect.value;
-        const binSize = parseFloat(binInput.value); // 获取用户输入
+        const mode = histModeSelect.value; // 'raw' or 'tscore'
+        const binSize = parseFloat(binInput.value);
         
-        const currentScores = (subject === 'totalScore')
-            ? currentData.map(s => s.totalScore)
-            : currentData.map(s => s.scores[subject]);
-
-        const compareScores = (subject === 'totalScore')
-            ? compareData.map(s => s.totalScore)
-            : compareData.map(s => s.scores[subject]);
-
-        // [!! 修改 !!] 传入 binSize
-        renderOverlappingHistogram('dist-overlap-histogram-chart', currentScores, compareScores, subject, binSize);
+        // [!! 核心修复 !!] 
+        // 直接将完整数据 (currentData, compareData) 传给绘图函数。
+        // 内部会自动根据 mode 提取 scores 或 tScores。
+        // 之前这里有多余的 currentScores 计算代码，导致报错，现已删除。
+        renderOverlappingHistogram('dist-overlap-histogram-chart', currentData, compareData, subject, binSize, mode);
     };
     
-    subjectSelect.addEventListener('change', () => {
-        binInput.value = ''; // 切换科目时重置为自动
-        drawHistogram();
+    // 绑定事件 (保持不变)
+    subjectSelect.addEventListener('change', () => { binInput.value = ''; drawHistogram(); });
+    histModeSelect.addEventListener('change', () => { binInput.value = ''; drawHistogram(); });
+    redrawBtn.addEventListener('click', drawHistogram);
+
+    // 5. [!! NEW !!] 逻辑 B: 等级对比图 (支持切换)
+    const compModeSelect = document.getElementById('dist-comp-mode');
+    const exportBtn = document.getElementById('dist-export-composition-btn');
+    const descText = document.getElementById('dist-comp-desc');
+
+    const drawComposition = () => {
+        const mode = compModeSelect.value; // 'raw' or 'tscore'
+        
+        // 更新说明文字
+        if (mode === 'raw') descText.innerText = '* 原始分模式：基于“科目配置”中的 优秀线(A)、良好线(B)、及格线(C) 进行统计。';
+        else descText.innerText = '* T分模式 (标准分)：A (T≥60, 前16%), B (T≥50, 前50%), C (T≥40, 前84%), D (T<40)。消除试卷难度差异。';
+
+        // 调用绘图
+        renderTrendCompositionChart('dist-composition-compare-chart', currentData, compareData, mode);
+    };
+
+    compModeSelect.addEventListener('change', drawComposition);
+
+    // 绑定导出
+    exportBtn.addEventListener('click', () => {
+        const mode = compModeSelect.value;
+        exportCompositionDetails(mergedData, mode); // 传入当前模式
     });
-    redrawBtn.addEventListener('click', drawHistogram); // 绑定重绘按钮
 
     // 5. 桑基图逻辑
     const sankeySubjectSelect = document.getElementById('dist-sankey-subject-select');
@@ -3023,9 +3048,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
     // 6. 初始绘制
     drawHistogram();
-    if (typeof renderTrendCompositionChart === 'function') {
-        renderTrendCompositionChart('dist-composition-compare-chart', currentData, compareData);
-    }
+    drawComposition();
     drawSankey();
 
 
@@ -3034,66 +3057,57 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         exportCompositionDetails(mergedData);
     });
 
-// [内部辅助函数] 导出逻辑 (已升级为 T 分版)
-    const exportCompositionDetails = (data) => {
+// [修改版] 导出逻辑
+    const exportCompositionDetails = (data, mode = 'raw') => {
         const exportData = [];
         const subjects = G_DynamicSubjectList;
+        const label = mode === 'tscore' ? 'T分' : '原始分';
         
-        exportData.push(["科目", "本次T分等级", "班级", "姓名", "本次T分", "上次T分等级", "上次T分", "变动情况"]);
+        exportData.push(["科目", "本次等级", "班级", "姓名", `本次${label}`, "上次等级", `上次${label}`, "变动情况"]);
 
         subjects.forEach(subject => {
-            // [!! 修改 !!] 基于 T 分判断等级 (A>=60, B>=50, C>=40)
-            const getTLevel = (tScore) => {
-                if (tScore === undefined || tScore === null || isNaN(tScore)) return '无数据';
-                if (tScore >= 60) return 'A (优秀)';
-                if (tScore >= 50) return 'B (良好)';
-                if (tScore >= 40) return 'C (及格)';
-                return 'D (不及格)';
+            const config = G_SubjectConfigs[subject] || {};
+
+            // 等级判断 (内部根据 mode 分流)
+            const getLevel = (val) => {
+                if (val === undefined || val === null || isNaN(val)) return '无数据';
+                if (mode === 'tscore') {
+                    if (val >= 60) return 'A (优秀)';
+                    if (val >= 50) return 'B (良好)';
+                    if (val >= 40) return 'C (及格)';
+                    return 'D (不及格)';
+                } else {
+                    if (val >= config.excel) return 'A (优秀)';
+                    if (val >= config.good) return 'B (良好)';
+                    if (val >= config.pass) return 'C (及格)';
+                    return 'D (不及格)';
+                }
             };
 
-            // 等级转数字用于比较
             const levelVal = (l) => {
-                if(l.startsWith('A')) return 4;
-                if(l.startsWith('B')) return 3;
-                if(l.startsWith('C')) return 2;
-                if(l.startsWith('D')) return 1;
+                if(l.startsWith('A')) return 4; if(l.startsWith('B')) return 3;
+                if(l.startsWith('C')) return 2; if(l.startsWith('D')) return 1;
                 return 0;
             };
 
             data.forEach(s => {
-                // [!! 修改 !!] 获取 T 分而不是原始分
-                // 注意：mergedData 里需要有 tScores。
-                // currentData 和 compareData 都有，mergedData 是 map 出来的，需要确保 tScores 被携带
-                // 如果之前的 map 逻辑漏了 tScores，这里用 s.tScores 可能取不到。
-                // 更稳妥的方法是从 currentData/compareData 重新查找，或者依赖 map 逻辑。
-                
-                // 假设 s 是 mergedData 的项。
-                // 我们需要确保 mergedData 生成时携带了 tScores。
-                // 如果没有，我们可以直接在这里读 s.tScores (如果是浅拷贝或包含原始数据)
-                // 如果 s.tScores 不存在，我们需要去 currentData/compareData 找。
-                
-                // 简便起见，我们在 s 对象中应该能访问到原始分数对象，或者我们在 map 时加上。
-                // 检查一下 renderTrendDistribution 开头的 mergedData 逻辑...
-                // 发现 mergedData 确实没有显式拷贝 tScores。
-                // 补救措施：直接用原始分重新计算？不，太麻烦。
-                // 最好是在 renderTrendDistribution 开头生成 mergedData 时，把 tScores 也带上。
-                
-                // 但为了不改动太多，我们这里直接用 s.id 去 currentData 和 compareData 找最稳妥。
-                const currObj = currentData.find(c => String(c.id) === String(s.id));
-                const compObj = compareData.find(c => String(c.id) === String(s.id));
-                
-                const currT = (currObj && currObj.tScores) ? currObj.tScores[subject] : null;
-                // compareData 的 tScores 可能没计算? (calculateAllStatistics 会算)
-                // 确保 runAnalysisAndRender 里对 compareData 也调用了 calculateStandardScores
-                const compT = (compObj && compObj.tScores) ? compObj.tScores[subject] : null;
+                // 根据模式获取分数
+                let currVal, oldVal;
+                if (mode === 'tscore') {
+                    currVal = (s.tScores && s.tScores[subject]); 
+                    oldVal = (s.oldTScores && s.oldTScores[subject]);
+                } else {
+                    currVal = s.scores[subject];
+                    oldVal = s.oldScores[subject];
+                }
 
-                const currLevel = getTLevel(currT);
-                const oldLevel = getTLevel(compT);
-
+                const currLevel = getLevel(currVal);
+                const oldLevel = getLevel(oldVal);
+                
+                // 变动判断
                 let changeText = '-';
                 const v1 = levelVal(currLevel);
                 const v2 = levelVal(oldLevel);
-                
                 if (v1 > 0 && v2 > 0) {
                     if (v1 > v2) changeText = '⬆️ 升级';
                     else if (v1 < v2) changeText = '⬇️ 降级';
@@ -3106,21 +3120,20 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                         currLevel,
                         s.class,
                         s.name,
-                        currT !== null ? currT.toFixed(1) : '-',
+                        currVal !== undefined && currVal !== null ? currVal.toFixed(1) : '-',
                         oldLevel,
-                        compT !== null ? compT.toFixed(1) : '-',
+                        oldVal !== undefined && oldVal !== null ? oldVal.toFixed(1) : '-',
                         changeText
                     ]);
                 }
             });
-            
             exportData.push([]);
         });
 
         const ws = XLSX.utils.aoa_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "T分等级分布");
-        XLSX.writeFile(wb, `T分等级变动_${new Date().toLocaleDateString()}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, `${label}等级分布`);
+        XLSX.writeFile(wb, `${label}等级变动名单_${new Date().toLocaleDateString()}.xlsx`);
     };
 
 
@@ -5775,16 +5788,28 @@ function renderFailureCountChart(elementId, failureCounts) {
 }
 
 /**
- * (修改版) 10.22. 渲染重叠直方图 (支持自定义分段)
+ * [修改版] 渲染重叠直方图 (支持点击下钻查看名单)
  */
-function renderOverlappingHistogram(elementId, currentScores, compareScores, subjectName, customBinSize) {
+function renderOverlappingHistogram(elementId, currentData, compareData, subjectName, customBinSize, mode = 'raw') {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
 
     if (echartsInstances[elementId]) {
         echartsInstances[elementId].dispose();
     }
-    echartsInstances[elementId] = echarts.init(chartDom);
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 1. 内部辅助：从数据对象中提取分数数组
+    const getScores = (list) => {
+        return list.map(s => {
+            if (mode === 'tscore') return s.tScores ? s.tScores[subjectName] : null;
+            return (subjectName === 'totalScore') ? s.totalScore : s.scores[subjectName];
+        });
+    };
+
+    const currentScores = getScores(currentData);
+    const compareScores = getScores(compareData);
 
     const cleanCurrent = currentScores.filter(s => typeof s === 'number' && !isNaN(s));
     const cleanCompare = compareScores.filter(s => typeof s === 'number' && !isNaN(s));
@@ -5794,9 +5819,9 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
         return;
     }
 
-    // 1. 计算统计指标
+    // 2. 计算统计指标 (保持不变)
     const calcStats = (scores) => {
-        if (scores.length === 0) return { avg: 0, diff: 0 };
+        if (scores.length === 0) return { avg: 0, full: 100 };
         const sum = scores.reduce((a, b) => a + b, 0);
         const avg = sum / scores.length;
         let fullScore = 100;
@@ -5807,54 +5832,53 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
         }
         return {
             avg: parseFloat(avg.toFixed(1)),
-            difficulty: parseFloat((avg / fullScore).toFixed(2)),
             full: fullScore
         };
     };
-
     const currStats = calcStats(cleanCurrent);
     const compStats = calcStats(cleanCompare);
 
-    // 2. 确定分箱逻辑
+    // 3. 确定分箱逻辑 (Binning)
     const allScores = [...cleanCurrent, ...cleanCompare];
     const min = Math.min(...allScores);
     const max = Math.max(...allScores);
 
-    // [!! 修改 !!] 优先使用用户自定义的 binSize
     let binSize;
     if (customBinSize && customBinSize > 0) {
         binSize = customBinSize;
     } else {
-        // 自动计算 (默认)
-        const fullScore = currStats.full;
-        binSize = Math.max(5, Math.round(fullScore / 20));
+        if (mode === 'tscore') binSize = 5; // T分默认5分一段
+        else {
+            const fullScore = currStats.full;
+            binSize = Math.max(5, Math.round(fullScore / 20));
+        }
     }
 
-    // 优化 X 轴起点
     const startBin = Math.floor(min / binSize) * binSize;
-    const endBinLimit = Math.ceil((max + 0.01) / binSize) * binSize;
+    const endBinLimit = Math.ceil((max + 0.001) / binSize) * binSize;
 
     const labels = [];
     const binsCurrent = {};
     const binsCompare = {};
 
     for (let i = startBin; i < endBinLimit; i += binSize) {
-        const label = `${i}-${i + binSize}`;
+        // 修正浮点数精度
+        const rangeStart = parseFloat(i.toFixed(2));
+        const rangeEnd = parseFloat((i + binSize).toFixed(2));
+        const label = `${rangeStart}-${rangeEnd}`;
         labels.push(label);
         binsCurrent[label] = 0;
         binsCompare[label] = 0;
     }
 
+    // 填充数据
     const fillBins = (scores, bins) => {
         scores.forEach(score => {
-            if (score >= endBinLimit) { 
-                const lastLabel = labels[labels.length - 1];
-                if (lastLabel) bins[lastLabel]++;
-            } else {
-                const binIndex = Math.floor((score - startBin) / binSize);
-                const label = labels[binIndex];
-                if (label) bins[label]++;
-            }
+            if (score < startBin) return;
+            let binIndex = Math.floor((score - startBin) / binSize);
+            if (binIndex >= labels.length) binIndex = labels.length - 1;
+            const label = labels[binIndex];
+            if (label) bins[label]++;
         });
     };
 
@@ -5864,28 +5888,32 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
     const dataCurrent = labels.map(label => binsCurrent[label]);
     const dataCompare = labels.map(label => binsCompare[label]);
 
-    // 3. ECharts 配置
+    // 4. 配置图表
+    let titleText = `${subjectName} 成绩分布对比`;
+    let subTitleText = "";
+    if (mode === 'tscore') {
+        titleText += " (T分模式)";
+        subTitleText = `本次T分均值: ${currStats.avg}  vs  上次T分均值: ${compStats.avg}`;
+    } else {
+        titleText += " (原始分模式)";
+        subTitleText = `本次均分: ${currStats.avg}  vs  上次均分: ${compStats.avg}`;
+    }
+
     const option = {
         title: {
-            text: `${subjectName === 'totalScore' ? '总分' : subjectName} 成绩分布对比`,
-            subtext: `本次均分: ${currStats.avg} (难度:${currStats.difficulty})  vs  上次均分: ${compStats.avg} (难度:${compStats.difficulty})`,
+            text: titleText,
+            subtext: subTitleText,
             left: 'center',
             textStyle: { fontSize: 16, fontWeight: 'normal' },
             subtextStyle: { fontSize: 12, color: '#666' }
         },
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'shadow' }
-        },
-        legend: {
-            data: ['本次成绩', '对比成绩'],
-            top: 50
-        },
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        legend: { data: ['本次成绩', '对比成绩'], top: 50 },
         grid: { left: '3%', right: '4%', bottom: '10%', top: 80, containLabel: true },
         xAxis: {
             type: 'category',
             data: labels,
-            name: '分数段',
+            name: mode === 'tscore' ? 'T分段' : '分数段',
             axisLabel: { interval: 'auto', rotate: 30 }
         },
         yAxis: { type: 'value', name: '人数' },
@@ -5897,15 +5925,7 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
                 itemStyle: { color: '#ccc' },
                 markLine: {
                     symbol: 'none',
-                    data: [
-                        {
-                            name: '上次平均分',
-                            xAxis: (compStats.avg - startBin) / binSize, 
-                            lineStyle: { color: '#999', type: 'dashed', width: 2 },
-                            label: { formatter: '上次均分\n{c}', position: 'start' },
-                            value: compStats.avg
-                        }
-                    ],
+                    data: [{ xAxis: (compStats.avg - startBin) / binSize, lineStyle: { color: '#999', type: 'dashed' }, label: { formatter: `{c}`, position: 'start' } }],
                     silent: true
                 }
             },
@@ -5916,25 +5936,60 @@ function renderOverlappingHistogram(elementId, currentScores, compareScores, sub
                 itemStyle: { color: '#4285f4' },
                 markLine: {
                     symbol: 'none',
-                    data: [
-                        {
-                            name: '本次平均分',
-                            xAxis: (currStats.avg - startBin) / binSize,
-                            lineStyle: { color: '#4285f4', type: 'dashed', width: 2 },
-                            label: { formatter: '本次均分\n{c}', position: 'end' },
-                            value: currStats.avg
-                        }
-                    ],
+                    data: [{ xAxis: (currStats.avg - startBin) / binSize, lineStyle: { color: '#4285f4', type: 'dashed' }, label: { formatter: `{c}`, position: 'end' } }],
                     silent: true
                 }
             }
         ]
     };
-    echartsInstances[elementId].setOption(option);
+    myChart.setOption(option);
+
+    // ============================================================
+    // [!! 新增 !!] 绑定点击事件，显示名单弹窗
+    // ============================================================
+    myChart.on('click', function (params) {
+        const label = params.name; // 例如 "75-80"
+        const seriesName = params.seriesName; // "本次成绩" 或 "对比成绩"
+        
+        if (!label || !label.includes('-')) return;
+
+        const [minStr, maxStr] = label.split('-');
+        const minVal = parseFloat(minStr);
+        const maxVal = parseFloat(maxStr);
+
+        // 确定数据源 (本次还是上次)
+        const isCurrent = (seriesName === '本次成绩');
+        const sourceData = isCurrent ? currentData : compareData;
+        
+        // 筛选学生逻辑
+        const drilledStudents = sourceData.filter(s => {
+            let val;
+            if (mode === 'tscore') {
+                val = s.tScores ? s.tScores[subjectName] : null;
+            } else {
+                val = (subjectName === 'totalScore') ? s.totalScore : s.scores[subjectName];
+            }
+            
+            if (typeof val !== 'number' || isNaN(val)) return false;
+
+            // 范围判断 [min, max)
+            // 为了包含最后一个区间的最大值，如果点击的是最后一个柱子，则改为闭区间
+            const isLastBin = (label === labels[labels.length - 1]);
+            if (isLastBin) {
+                return val >= minVal && val <= maxVal + 0.001;
+            } else {
+                return val >= minVal && val < maxVal;
+            }
+        });
+
+        // 调用通用弹窗显示名单
+        const typeText = mode === 'tscore' ? 'T分' : '分';
+        const title = `${subjectName} ${typeText}段 [${label}] 学生名单 (${seriesName})`;
+        
+        // 注意：showDrillDownModal 默认显示的是原始分，这正好方便老师核对
+        showDrillDownModal(title, drilledStudents, subjectName);
+    });
 }
-
-
-
 
 /**
  * (新增) 10.24. 渲染临界生模块 - 单个学生科目详情
@@ -16028,97 +16083,81 @@ function resizeAllCharts() {
 }
 
 /**
- * [修改版] 渲染等级构成对比图 (基于 T 分计算)
- * 逻辑：A(T>=60), B(50-60), C(40-50), D(<40)
+ * [修改版] 渲染等级构成图 (支持 Raw / TScore 双模式)
  */
-function renderTrendCompositionChart(elementId, currentData, compareData) {
+function renderTrendCompositionChart(elementId, currentData, compareData, mode = 'raw') {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
-
-    if (echartsInstances[elementId]) {
-        echartsInstances[elementId].dispose();
-    }
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
     echartsInstances[elementId] = echarts.init(chartDom);
 
     const subjects = G_DynamicSubjectList;
-    
-    // 准备数据容器
-    const dataMap = {
-        curr: { A: [], B: [], C: [], D: [] },
-        comp: { A: [], B: [], C: [], D: [] }
-    };
+    const dataMap = { curr: { A: [], B: [], C: [], D: [] }, comp: { A: [], B: [], C: [], D: [] } };
 
-    // 辅助：计算一组学生某科的 T 分分布率
-    const calcDistribution = (studentList, subject) => {
-        let countA=0, countB=0, countC=0, countD=0;
-        let totalValid = 0;
+    // 内部辅助：获取单科统计
+    const calcDist = (list, subject) => {
+        let cA=0, cB=0, cC=0, cD=0, total=0;
+        const config = G_SubjectConfigs[subject] || {}; // 获取分数线配置
 
-        studentList.forEach(s => {
-            // 确保 tScores 存在
-            const tScore = (s.tScores && s.tScores[subject] !== undefined) ? s.tScores[subject] : null;
-            
-            if (tScore !== null && !isNaN(tScore)) {
-                totalValid++;
-                if (tScore >= 60) countA++;
-                else if (tScore >= 50) countB++;
-                else if (tScore >= 40) countC++;
-                else countD++;
+        list.forEach(s => {
+            let val, isGood;
+            if (mode === 'tscore') {
+                val = (s.tScores && s.tScores[subject]); // T分
+                // T分标准：A>=60, B>=50, C>=40
+                if (val !== undefined && val !== null && !isNaN(val)) {
+                    total++;
+                    if (val >= 60) cA++;
+                    else if (val >= 50) cB++;
+                    else if (val >= 40) cC++;
+                    else cD++;
+                }
+            } else {
+                val = s.scores[subject]; // 原始分
+                // 原始分标准：读取 Config
+                if (val !== undefined && val !== null && !isNaN(val)) {
+                    total++;
+                    if (val >= config.excel) cA++;
+                    else if (val >= config.good) cB++;
+                    else if (val >= config.pass) cC++;
+                    else cD++;
+                }
             }
         });
 
-        if (totalValid === 0) return { A:0, B:0, C:0, D:0 };
-
+        if (total === 0) return { A:0, B:0, C:0, D:0 };
         return {
-            A: parseFloat(((countA / totalValid) * 100).toFixed(1)),
-            B: parseFloat(((countB / totalValid) * 100).toFixed(1)),
-            C: parseFloat(((countC / totalValid) * 100).toFixed(1)),
-            D: parseFloat(((countD / totalValid) * 100).toFixed(1))
+            A: parseFloat(((cA/total)*100).toFixed(1)),
+            B: parseFloat(((cB/total)*100).toFixed(1)),
+            C: parseFloat(((cC/total)*100).toFixed(1)),
+            D: parseFloat(((cD/total)*100).toFixed(1))
         };
     };
 
     subjects.forEach(sub => {
-        // 1. 计算本次
-        const currDist = calcDistribution(currentData, sub);
-        dataMap.curr.A.push(currDist.A);
-        dataMap.curr.B.push(currDist.B);
-        dataMap.curr.C.push(currDist.C);
-        dataMap.curr.D.push(currDist.D);
-
-        // 2. 计算对比
-        const compDist = calcDistribution(compareData, sub);
-        dataMap.comp.A.push(compDist.A);
-        dataMap.comp.B.push(compDist.B);
-        dataMap.comp.C.push(compDist.C);
-        dataMap.comp.D.push(compDist.D);
+        const curr = calcDist(currentData, sub);
+        const comp = calcDist(compareData, sub);
+        ['A','B','C','D'].forEach(k => {
+            dataMap.curr[k].push(curr[k]);
+            dataMap.comp[k].push(comp[k]);
+        });
     });
 
-    // 颜色定义 (保持一致)
     const colors = { A: '#28a745', B: '#007bff', C: '#ffc107', D: '#dc3545' };
+    const titleText = mode === 'tscore' ? '各科 T分等级构成 (A:T≥60, B:≥50, C:≥40)' : '各科 原始分等级构成 (基于优秀/良好/及格线)';
 
     const option = {
-        title: {
-            text: '各科 T分等级构成 (A: T≥60, B: ≥50, C: ≥40, D: <40)', // 标题更新
-            left: 'center',
-            textStyle: { fontSize: 14, fontWeight: 'normal', color: '#666' },
-            top: 10
-        },
+        title: { text: titleText, left: 'center', textStyle: { fontSize: 14, fontWeight: 'normal', color: '#666' }, top: 5 },
         tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'shadow' },
-            formatter: function (params) {
+            trigger: 'axis', axisPointer: { type: 'shadow' },
+            formatter: (params) => {
                 let html = `<strong>${params[0].name}</strong><br/>`;
-                // Tooltip 逻辑保持不变，显示堆叠数据
                 html += `<div style="display:inline-block; width:49%; vertical-align:top;">`;
-                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px;">📘 本次 (T分)</div>`;
-                params.filter(p => p.seriesName.startsWith('本次')).reverse().forEach(p => {
-                    html += `${p.marker} ${p.seriesName.split('-')[1]}: ${p.value}%<br/>`;
-                });
+                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px;">📘 本次</div>`;
+                params.filter(p => p.seriesName.startsWith('本次')).reverse().forEach(p => html += `${p.marker} ${p.seriesName.split('-')[1]}: ${p.value}%<br/>`);
                 html += `</div>`;
                 html += `<div style="display:inline-block; width:49%; vertical-align:top; margin-left:2%;">`;
-                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px; color:#999;">📓 上次 (T分)</div>`;
-                params.filter(p => p.seriesName.startsWith('上次')).reverse().forEach(p => {
-                    html += `${p.marker} ${p.seriesName.split('-')[1]}: ${p.value}%<br/>`;
-                });
+                html += `<div style="border-bottom:1px solid #eee; margin-bottom:5px; color:#999;">📓 上次</div>`;
+                params.filter(p => p.seriesName.startsWith('上次')).reverse().forEach(p => html += `${p.marker} ${p.seriesName.split('-')[1]}: ${p.value}%<br/>`);
                 html += `</div>`;
                 return html;
             }
@@ -16145,6 +16184,5 @@ function renderTrendCompositionChart(elementId, currentData, compareData) {
             { name: 'D (不及格)', type: 'bar', data: [], itemStyle: { color: colors.D } }
         ]
     };
-
     echartsInstances[elementId].setOption(option);
 }

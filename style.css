@@ -101,11 +101,18 @@ h2, h3 {
     z-index: 10;
     border-right: 1px solid var(--border-color);
 }
+/* [!! 修改 !!] 侧边栏头部 */
 .sidebar-header {
-    padding-bottom: 30px;
+    /* [关键] 增加底部内边距，把下面的线“顶”远一点 */
+    padding-bottom: 50px; 
+    
+    /* 保持原有的外边距和边框 */
     margin-bottom: 20px;
     border-bottom: 1px solid var(--border-color);
+    
+    /* 防止标题文字太长溢出 */
     overflow: hidden;
+    text-align: center;
 }
 .sidebar-header h2 {
     color: var(--primary-color-dark);
@@ -160,8 +167,8 @@ h2, h3 {
     padding: 0 10px;
 }
 .config-section h4 {
-    margin-top: 10px;
-    margin-bottom: 10px;
+    margin-top: 0px;
+    margin-bottom: 5px;
     color: var(--text-muted);
     font-size: 0.9em;
     font-weight: 600;
