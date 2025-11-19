@@ -16257,3 +16257,93 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
     };
     echartsInstances[elementId].setOption(option);
 }
+
+
+/**
+ * 13.9. 批量导入知识点配置
+ * 读取文本框内容，按行匹配表格中的小题。
+ */
+function batchImportKnowledge() {
+    const textarea = document.getElementById('item-config-batch-knowledge');
+    const inputContent = textarea.value.trim();
+
+    if (!inputContent) {
+        alert("请先在文本框中粘贴知识点内容。");
+        return;
+    }
+
+    // 1. 按行分割内容
+    const knowledgeList = inputContent.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+    if (knowledgeList.length === 0) {
+        alert("粘贴的内容为空或无法识别换行。");
+        return;
+    }
+
+    // 2. 获取配置表格中的小题行
+    const tbody = document.getElementById('item-config-table-body');
+    if (!tbody) return;
+
+    // 筛选出表格中实际的小题行 (通过 .item-config-content 元素来定位)
+    const qRows = Array.from(tbody.querySelectorAll('tr')).filter(row => {
+        // 排除掉没有知识点输入框的“大题”行（如果大题行没有 input）
+        return row.querySelector('.item-config-content');
+    });
+
+    let matchCount = 0;
+    
+    // 3. 遍历知识点列表并匹配
+    for (let i = 0; i < knowledgeList.length; i++) {
+        const knowledge = knowledgeList[i];
+        const row = qRows[i]; // 按顺序匹配
+
+        if (row) {
+            // 找到对应的知识点输入框并赋值
+            const contentInput = row.querySelector('.item-config-content');
+            if (contentInput) {
+                contentInput.value = knowledge;
+                matchCount++;
+            }
+        } else {
+            // 知识点数量多于表格中的小题数量，停止匹配
+            break;
+        }
+    }
+
+    if (matchCount > 0) {
+        alert(`🎉 成功导入 ${matchCount} 个知识点！\n请点击下方的【保存配置】按钮以生效。`);
+        // 清空文本框，方便下次使用
+        textarea.value = ''; 
+    } else {
+        alert("⚠️ 未能匹配到任何小题。请确认表格中存在小题，且粘贴内容格式正确（每行一个知识点）。");
+    }
+}
+
+
+/**
+ * 13.10. 清空所有题目的知识点配置
+ */
+function clearAllKnowledgeConfig() {
+    if (!confirm("⚠️ 确定要清空当前科目配置中所有题目的【考察内容（知识点）】吗？此操作不可撤销，需要手动保存后才会生效！")) {
+        return;
+    }
+
+    const tbody = document.getElementById('item-config-table-body');
+    if (!tbody) return;
+
+    const contentInputs = tbody.querySelectorAll('.item-config-content');
+
+    if (contentInputs.length === 0) {
+        alert("配置表格中没有找到可清空的知识点输入框。");
+        return;
+    }
+    
+    let clearCount = 0;
+    contentInputs.forEach(input => {
+        if (input.value !== "") {
+            input.value = "";
+            clearCount++;
+        }
+    });
+
+    alert(`🗑️ 成功清空了 ${clearCount} 个知识点的配置！\n请务必点击下方的【保存配置】按钮以生效。`);
+}

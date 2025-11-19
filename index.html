@@ -415,6 +415,31 @@
                     </p>
                 </div>
 
+
+                <div style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+                    <h4>知识点批量配置工具</h4>
+                    <p style="font-size: 0.85em; color: #888; margin-bottom: 5px;">
+                        请在此粘贴小题对应的知识点内容，**每行对应一个题目的知识点**。系统将按表格顺序依次匹配小题。
+                        <br>(例如：第1行内容对应表格中的第1道小题。)
+                    </p>
+
+                    <textarea id="item-config-batch-knowledge"
+                        placeholder="粘贴知识点内容，按回车换行区分：&#10;牛顿第二定律&#10;万有引力公式&#10;动量守恒"
+                        style="width: 100%; height: 100px; padding: 5px; border: 1px solid #ccc; box-sizing: border-box; resize: vertical; margin-bottom: 10px;"></textarea>
+
+                    <div style="display: flex; gap: 10px;">
+                        <button class="sidebar-button" style="background-color: var(--color-blue); flex-grow: 1;"
+                            onclick="batchImportKnowledge()">
+                            ✨ 批量导入知识点
+                        </button>
+                        <button class="sidebar-button" style="background-color: #dc3545; flex-grow: 1;"
+                            onclick="clearAllKnowledgeConfig()">
+                            🗑️ 清空所有知识点配置
+                        </button>
+                    </div>
+                </div>
+
+
                 <p style="color:#666; font-size:0.9em;">
                     “满分”：留空则使用自动检测的满分。手动填写数字将覆盖自动检测。<br>
                     “考察内容”：填写本题知识点，用“；”隔开。
