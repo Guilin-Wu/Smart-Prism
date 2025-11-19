@@ -2108,9 +2108,7 @@ function renderSingleSubject(container, activeData, stats) {
 }
 
 /**
- * 9.4. 模块四：成绩趋势对比
- * [!!] 已修改：删除 "进退步一览" 图，布局变为 1x1
- * [!!] (已合并) "年排" 列, "姓名/考号" 排序, "学生进退步条形图"
+ * 9.4. [升级版 V2] 模块十一：成绩趋势对比 (班级筛选联动表格)
  */
 function renderTrend(container, currentData, compareData) {
 
@@ -2119,7 +2117,7 @@ function renderTrend(container, currentData, compareData) {
         return;
     }
 
-    // 1. (核心) 匹配两个数据源 (不变)
+    // 1. 匹配数据并保留单科排名信息
     const mergedData = currentData.map(student => {
         const oldStudent = compareData.find(s => String(s.id) === String(student.id));
 
@@ -2127,6 +2125,7 @@ function renderTrend(container, currentData, compareData) {
             return {
                 ...student,
                 oldTotalScore: null, oldRank: null, oldGradeRank: null,
+                oldClassRanks: {}, oldGradeRanks: {},
                 scoreDiff: 0, rankDiff: 0, gradeRankDiff: 0
             };
         }
@@ -2140,14 +2139,18 @@ function renderTrend(container, currentData, compareData) {
             oldTotalScore: oldStudent.totalScore,
             oldRank: oldStudent.rank,
             oldGradeRank: oldStudent.gradeRank || null,
+            oldClassRanks: oldStudent.classRanks || {}, 
+            oldGradeRanks: oldStudent.gradeRanks || {},
             scoreDiff: parseFloat(scoreDiff.toFixed(2)),
             rankDiff: rankDiff,
             gradeRankDiff: gradeRankDiff
         };
     });
 
-    // 2. (新增) 这是一个辅助函数，用于根据数据生成表格行 (不变)
+    // 2. 表格行渲染逻辑
     const renderTableRows = (dataToRender) => {
+        if (dataToRender.length === 0) return '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">无匹配学生</td></tr>';
+        
         return dataToRender.map(s => `
             <tr>
                <td>${s.id}</td>
@@ -2168,11 +2171,19 @@ function renderTrend(container, currentData, compareData) {
         `).join('');
     };
 
-    // 3. (新增) 核心：排序和渲染表格的函数 (不变)
+    // 3. [核心修改] 排序和表格刷新逻辑 (增加了班级过滤)
     const drawTable = () => {
         const searchTerm = document.getElementById('trend-search').value.toLowerCase();
+        // [!! 新增 !!] 获取当前选择的班级
+        const selectedClass = document.getElementById('trend-class-filter').value;
 
         const filteredData = mergedData.filter(s => {
+            // [!! 新增 !!] 班级过滤逻辑
+            if (selectedClass !== 'ALL' && s.class !== selectedClass) {
+                return false;
+            }
+
+            // 搜索过滤逻辑
             return String(s.name).toLowerCase().includes(searchTerm) ||
                 String(s.id).toLowerCase().includes(searchTerm);
         });
@@ -2194,7 +2205,7 @@ function renderTrend(container, currentData, compareData) {
         });
 
         document.getElementById('trend-table-body').innerHTML = renderTableRows(filteredData);
-
+        
         document.querySelectorAll('#trend-table-header th[data-sort-key]').forEach(th => {
             th.classList.remove('sort-asc', 'sort-desc');
             if (th.dataset.sortKey === key) {
@@ -2203,53 +2214,60 @@ function renderTrend(container, currentData, compareData) {
         });
     };
 
-    // 4. (新增) 绘制图表的函数
+    // 4. 绘制图表函数
     const drawCharts = () => {
         const classFilter = document.getElementById('trend-class-filter').value;
-        const sortFilter = document.getElementById('trend-sort-filter').value; // [!!] (新增) 获取排序值
+        const sortFilter = document.getElementById('trend-sort-filter').value;
+        const subjectFilter = document.getElementById('trend-subject-select').value;
 
         const scatterData = (classFilter === 'ALL')
             ? mergedData
             : mergedData.filter(s => s.class === classFilter);
 
-        // [!!] (修改) 传入排序参数
-        renderRankChangeBarChart('trend-rank-change-bar-chart', scatterData, sortFilter);
+        renderRankChangeBarChart('trend-rank-change-bar-chart', scatterData, sortFilter, subjectFilter);
     };
 
-    // 5. (重构) 渲染基础HTML
+    // 5. 渲染 UI
     container.innerHTML = `
         <h2>模块十一：成绩趋势对比 (当前筛选: ${G_CurrentClassFilter})</h2>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
-                <div class="controls-bar chart-controls">
-                    <label for="trend-class-filter">班级:</label>
-                    <select id="trend-class-filter" class="sidebar-select" style="min-width: 120px;">
-                        <option value="ALL">-- 全体年段 --</option>
-                        ${[...new Set(currentData.map(s => s.class))].sort().map(c => `<option value="${c}">${c}</option>`).join('')}
-                    </select>
+            <div class="controls-bar chart-controls" style="flex-wrap: wrap;">
+                
+                <label for="trend-subject-select" style="font-weight:bold;">图表统计对象:</label>
+                <select id="trend-subject-select" class="sidebar-select" style="min-width: 120px; margin-right: 15px; color: #6f42c1; font-weight: bold;">
+                    <option value="totalScore">总分排名</option>
+                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}排名</option>`).join('')}
+                </select>
 
-                    <label for="trend-sort-filter">排序:</label>
-                    <select id="trend-sort-filter" class="sidebar-select" style="min-width: 150px;">
-                        <option value="name">按学生姓名 (默认)</option>
-                        <option value="rankDiff_desc">按班排变化 (进步最多)</option>
-                        <option value="rankDiff_asc">按班排变化 (退步最多)</option>
-                        <option value="gradeRankDiff_desc">按年排变化 (进步最多)</option>
-                        <option value="gradeRankDiff_asc">按年排变化 (退步最多)</option>
-                    </select>
-                </div>
+                <label for="trend-class-filter">班级:</label>
+                <select id="trend-class-filter" class="sidebar-select" style="min-width: 120px;">
+                    <option value="ALL">-- 全体年段 --</option>
+                    ${[...new Set(currentData.map(s => s.class))].sort().map(c => `<option value="${c}">${c}</option>`).join('')}
+                </select>
+
+                <label for="trend-sort-filter">排序:</label>
+                <select id="trend-sort-filter" class="sidebar-select" style="min-width: 150px;">
+                    <option value="name">按学生姓名 (默认)</option>
+                    <option value="rankDiff_desc">按进步幅度 (进步最多)</option>
+                    <option value="rankDiff_asc">按进步幅度 (退步最多)</option>
+                </select>
+            </div>
             <div class="chart-container" id="trend-rank-change-bar-chart" style="height: 350px;"></div>
         </div>
+
         <div class="main-card-wrapper">
             <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0 0 15px 0;">
                 <label for="trend-search">搜索学生:</label>
                 <input type="text" id="trend-search" placeholder="输入姓名或考号...">
+                <span style="margin-left:auto; font-size:0.8em; color:#999;">* 下方表格固定显示“总分”变动情况</span>
             </div>
 
             <div class="table-container">
                 <table>
                     <thead id="trend-table-header">
                         <tr>
-                             <th data-sort-key="id">考号</th>
+                            <th data-sort-key="id">考号</th>
                             <th data-sort-key="name">姓名</th>
                             <th data-sort-key="totalScore">总分</th>
                             <th data-sort-key="scoreDiff">分数变化</th>
@@ -2259,30 +2277,35 @@ function renderTrend(container, currentData, compareData) {
                             <th data-sort-key="gradeRankDiff">年排变化</th>
                         </tr>
                     </thead>
-                    <tbody id="trend-table-body">
-                        </tbody>
+                    <tbody id="trend-table-body"></tbody>
                 </table>
             </div>
         </div>
     `;
 
-    // 6. (新增) 绑定事件监听器 (不变)
+    // 6. 绑定事件
     const searchInput = document.getElementById('trend-search');
     const tableHeader = document.getElementById('trend-table-header');
     const classFilterSelect = document.getElementById('trend-class-filter');
-    const sortFilterSelect = document.getElementById('trend-sort-filter'); // [!!] (新增)
+    const sortFilterSelect = document.getElementById('trend-sort-filter');
+    const subjectFilterSelect = document.getElementById('trend-subject-select');
 
     searchInput.addEventListener('input', drawTable);
-    classFilterSelect.addEventListener('change', drawCharts);
+
+    // [!! 核心修改 !!] 班级变化时，同时更新 图表 和 表格
+    classFilterSelect.addEventListener('change', () => {
+        drawCharts();
+        drawTable();
+    });
+
     sortFilterSelect.addEventListener('change', drawCharts);
+    subjectFilterSelect.addEventListener('change', drawCharts);
 
     tableHeader.addEventListener('click', (e) => {
         const th = e.target.closest('th[data-sort-key]');
         if (!th) return;
-
         const newKey = th.dataset.sortKey;
         const { key, direction } = G_TrendSort;
-
         if (newKey === key) {
             G_TrendSort.direction = (direction === 'asc') ? 'desc' : 'asc';
         } else {
@@ -2292,12 +2315,11 @@ function renderTrend(container, currentData, compareData) {
         drawTable();
     });
 
-    // 7. 初始绘制 (不变)
+    // 7. 初始绘制
     G_TrendSort = { key: 'rank', direction: 'asc' };
     drawTable();
     drawCharts();
 }
-
 
 /**
  * 9.5. 模块五：学生分层筛选
@@ -5146,11 +5168,9 @@ function renderTrendRankHistogram(elementId, allRankDiffs) {
 
 /**
  * (已修改) 10.11. 渲染学生进退步条形图
- * [!!] X轴 已修改为按 "学生姓名" 排序
- * [!!] 强制显示所有 X 轴标签 (interval: 0)
+ * [!!] 支持单科排名变化 (subject 参数)
  */
-// [!!] (修改) 增加 sortBy 参数, 默认为 'name'
-function renderRankChangeBarChart(elementId, students, sortBy = 'name') {
+function renderRankChangeBarChart(elementId, students, sortBy = 'name', subject = 'totalScore') {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
 
@@ -5159,39 +5179,75 @@ function renderRankChangeBarChart(elementId, students, sortBy = 'name') {
     }
     echartsInstances[elementId] = echarts.init(chartDom);
 
-    // 1. 过滤掉没有对比数据的学生
-    const data = students.filter(s => s.oldRank !== null || s.oldGradeRank !== null);
+    // 1. 准备数据：计算指定科目的排名变化
+    // 我们先映射出一个包含 "displayRankDiff" 的临时数组
+    let chartData = students.map(s => {
+        let classDiff = 0;
+        let gradeDiff = 0;
+        let valid = false; // 标记是否有对比数据
 
-    // [!!] (修改) 2. 根据 sortBy 参数动态排序
-    const sortOption = sortBy.split('_');
-    const sortKey = sortOption[0];
-    const sortDir = sortOption[1] || 'asc'; // 'asc' for name, 'desc' for ranks by default
+        if (subject === 'totalScore') {
+            // 总分逻辑 (直接用算好的)
+            if (s.oldRank !== null) {
+                classDiff = s.rankDiff;
+                gradeDiff = s.gradeRankDiff;
+                valid = true;
+            }
+        } else {
+            // 单科逻辑 (实时计算: 旧 - 新 = 进步)
+            const oldCR = s.oldClassRanks ? s.oldClassRanks[subject] : null;
+            const newCR = s.classRanks ? s.classRanks[subject] : null;
+            
+            const oldGR = s.oldGradeRanks ? s.oldGradeRanks[subject] : null;
+            const newGR = s.gradeRanks ? s.gradeRanks[subject] : null;
 
-    data.sort((a, b) => {
-        if (sortKey === 'name') {
-            return a.name.localeCompare(b.name);
+            if (oldCR !== null && newCR !== null && oldCR !== undefined && newCR !== undefined) {
+                classDiff = oldCR - newCR;
+                valid = true;
+            }
+            if (oldGR !== null && newGR !== null && oldGR !== undefined && newGR !== undefined) {
+                gradeDiff = oldGR - newGR;
+            }
         }
 
-        // (处理 null/undefined)
-        let valA = a[sortKey];
-        let valB = b[sortKey];
+        return {
+            name: s.name,
+            rank: s.rank, // 用于排序
+            rankDiff: classDiff, // 排序依据
+            displayClassDiff: classDiff,
+            displayGradeDiff: gradeDiff,
+            valid: valid
+        };
+    }).filter(item => item.valid); // 过滤掉没有对比数据的
 
-        // 将 null 视为最末尾
-        valA = (valA === null || valA === undefined) ? (sortDir === 'asc' ? Infinity : -Infinity) : valA;
-        valB = (valB === null || valB === undefined) ? (sortDir === 'asc' ? Infinity : -Infinity) : valB;
+    // 2. 排序
+    const sortOption = sortBy.split('_');
+    const sortKey = sortOption[0]; // 'name' or 'rankDiff'
+    const sortDir = sortOption[1] || 'asc';
 
-        return sortDir === 'asc' ? valA - valB : valB - valA;
+    chartData.sort((a, b) => {
+        if (sortKey === 'name') {
+            return a.name.localeCompare(b.name);
+        } else if (sortKey === 'rankDiff') {
+            // 按进步幅度排序 (注意：displayClassDiff 正数是进步)
+            return sortDir === 'asc' 
+                ? a.displayClassDiff - b.displayClassDiff 
+                : b.displayClassDiff - a.displayClassDiff;
+        }
+        return 0;
     });
 
     // 3. 准备 ECharts 数据
-    const studentNames = data.map(s => s.name);
-    const classRankDiffs = data.map(s => s.rankDiff);
-    const gradeRankDiffs = data.map(s => s.gradeRankDiff);
+    const studentNames = chartData.map(s => s.name);
+    const classRankDiffs = chartData.map(s => s.displayClassDiff);
+    const gradeRankDiffs = chartData.map(s => s.displayGradeDiff);
+
+    const subjectText = (subject === 'totalScore') ? '总分' : subject;
 
     const option = {
         title: {
-            text: '学生 班排/年排 变化',
-            subtext: '按学生姓名排序',
+            text: `学生 ${subjectText} 班排/年排 变化`,
+            subtext: `当前排序: ${sortKey === 'name' ? '姓名' : (sortDir === 'desc' ? '进步最多优先' : '退步最多优先')}`,
             left: 'center',
             textStyle: { fontSize: 16, fontWeight: 'normal' }
         },
@@ -5200,7 +5256,7 @@ function renderRankChangeBarChart(elementId, students, sortBy = 'name') {
             axisPointer: { type: 'shadow' },
             formatter: (params) => {
                 const studentName = params[0].name;
-                let tip = `<strong>${studentName}</strong><br/>`;
+                let tip = `<strong>${studentName} (${subjectText})</strong><br/>`;
                 params.forEach(p => {
                     const value = p.value;
                     const change = value > 0 ? `进步 ${value} 名` : (value < 0 ? `退步 ${Math.abs(value)} 名` : '不变');
@@ -5213,13 +5269,13 @@ function renderRankChangeBarChart(elementId, students, sortBy = 'name') {
             data: ['班排变化', '年排变化'],
             top: 50
         },
-        grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true, top: 100 }, // [!!] 调整 bottom
+        grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true, top: 100 },
         xAxis: {
             type: 'category',
             data: studentNames,
             axisLabel: {
-                rotate: 30, // 旋转标签
-                interval: 0 // [!!] 核心修正：强制显示所有标签
+                rotate: 30,
+                interval: 0 
             }
         },
         yAxis: {
@@ -5227,42 +5283,30 @@ function renderRankChangeBarChart(elementId, students, sortBy = 'name') {
             name: '排名变化 (正数为进步)'
         },
         dataZoom: [
-            {
-                type: 'inside',
-                xAxisIndex: [0]
-            },
-            {
-                type: 'slider',
-                xAxisIndex: [0],
-                bottom: 10, // [!!] 调整 dataZoom 位置
-                height: 20
-            }
+            { type: 'inside', xAxisIndex: [0] },
+            { type: 'slider', xAxisIndex: [0], bottom: 10, height: 20 }
         ],
         series: [
             {
                 name: '班排变化',
                 type: 'bar',
-                barWidth: '50%',
+                barWidth: '40%', // 稍微变窄一点以便并排
                 emphasis: { focus: 'series' },
                 data: classRankDiffs,
-                itemStyle: {
-                    color: '#007bff' // 蓝色
-                }
+                itemStyle: { color: '#007bff' }
             },
             {
                 name: '年排变化',
                 type: 'bar',
-                barWidth: '50%',
+                barWidth: '40%',
                 emphasis: { focus: 'series' },
                 data: gradeRankDiffs,
-                itemStyle: {
-                    color: '#ffc107' // 黄色
-                }
+                itemStyle: { color: '#ffc107' }
             }
         ]
     };
-    // [!!] 调整 grid 和 dataZoom 的位置
-    option.grid.bottom = (data.length > 20 ? 50 : 30) + 'px'; // 如果人多，为 slider 留空间
+    
+    option.grid.bottom = (chartData.length > 20 ? 50 : 30) + 'px';
     option.dataZoom[1].bottom = 10;
 
     echartsInstances[elementId].setOption(option);
