@@ -1319,20 +1319,24 @@ function saveSubjectConfigsFromModal() {
 // 9. 各模块具体实现
 // ---------------------------------
 /**
- * 9.1. 模块一：班级整体分析 (已重构为 2x2 网格，新增班级对比)
- * [!!] drawHistogram 已修改，以支持新版 renderHistogram
+ * 9.1. [完整旗舰版] 模块一：班级整体分析
+ * - 包含 KPI 卡片
+ * - 包含 [新增] 成绩分段平滑曲线 (支持单科/全科对比)
+ * - 包含 全科统计表
+ * - 包含 2x2 核心图表网格
  */
 function renderDashboard(container, stats, activeData) {
     const totalStats = stats.totalScore || {};
 
-    // [!!] (核心修改) 计算总人数、参考人数、缺考人数
-    const totalStudentCount = activeData.length; // (总人数 = 筛选器内的所有学生)
-    const participantCount = totalStats.count || 0; // (考试人数 = 有总分的学生)
-    const missingCount = totalStudentCount - participantCount; // (缺考人数)
+    // 1. 计算基础 KPI
+    const totalStudentCount = activeData.length; // 总人数
+    const participantCount = totalStats.count || 0; // 参考人数
+    const missingCount = totalStudentCount - participantCount; // 缺考人数
 
-    // 1. 渲染 KPI 卡片 (已修改)
+    // 2. 构建 HTML 结构
     container.innerHTML = `
         <h2>模块一：整体成绩分析 (当前筛选: ${G_CurrentClassFilter})</h2>
+        
         <div class="kpi-grid">
             <div class="kpi-card"><h3>总人数</h3><div class="value">${totalStudentCount}</div></div>
             <div class="kpi-card"><h3>考试人数</h3><div class="value">${participantCount}</div></div>
@@ -1346,6 +1350,30 @@ function renderDashboard(container, stats, activeData) {
             <div class="kpi-card"><h3>总分及格率 (%)</h3><div class="value">${totalStats.passRate || 0}</div></div>
             <div class="kpi-card"><h3>总分不及格率 (%)</h3><div class="value">${totalStats.failRate || 0}</div></div>
             <div class="kpi-card"><h3>总分标准差</h3><div class="value">${totalStats.stdDev || 0}</div></div>
+        </div>
+
+        <div class="main-card-wrapper" style="margin-bottom: 20px; border-left: 5px solid #20c997;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
+                <h3 style="margin:0; color:#333;">📈 成绩分段人数分布 (曲线图)</h3>
+                <div class="controls-bar" style="background:transparent; box-shadow:none; padding:0; margin:0;">
+                    <label>科目:</label>
+                    <select id="curve-subject-select" class="sidebar-select" style="width:auto; min-width:100px;">
+                        <option value="totalScore">总分</option>
+                        <option value="ALL_SUBJECTS" style="color:#6f42c1; font-weight:bold;">📌 全科对比 (All)</option>
+                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                    
+                    <label style="margin-left:10px;">分段间隔:</label>
+                    <input type="number" id="curve-bin-size" value="50" style="width:60px; text-align:center;" class="sidebar-select">
+                    
+                    <button id="btn-update-curve" class="sidebar-button" style="margin-left:10px; padding:5px 15px; background-color:#20c997;">确定</button>
+                </div>
+            </div>
+            
+            <div class="chart-container" id="score-distribution-curve" style="height: 400px;"></div>
+            
+            <div id="curve-analysis-text" style="background:#f8f9fa; padding:15px; border-radius:6px; margin-top:10px; color:#555; font-size:0.95em; line-height:1.6;">
+                </div>
         </div>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
@@ -1457,37 +1485,70 @@ function renderDashboard(container, stats, activeData) {
                 <div class="chart-container" id="stacked-bar-chart" style="height: 350px;"></div>
             </div>
 
-            <div class="main-card-wrapper" style="grid-column: span 2;"> <div class="controls-bar chart-controls">
+            <div class="main-card-wrapper" style="grid-column: span 2;"> 
+                <div class="controls-bar chart-controls">
                     <h4 style="margin:0;">各科对总分差距的贡献度分析 (Contribution)</h4>
                     <span style="font-size: 0.8em; color: var(--text-muted);">(正值表示该科均分高于年级，拉高了总分；负值表示拉低了总分)</span>
-                  </div>
+                </div>
                  <div class="chart-container" id="contribution-chart" style="height: 400px;"></div>
             </div>
 
         </div>
     `;
 
-    // 4. 渲染图表
+    // ============================================
+    // 3. 绑定事件逻辑
+    // ============================================
+
+    // --- 新增：曲线图逻辑 ---
+    const curveSubjectSelect = document.getElementById('curve-subject-select');
+    const curveBinInput = document.getElementById('curve-bin-size');
+    const curveUpdateBtn = document.getElementById('btn-update-curve');
+
+    const updateCurveChart = () => {
+        const subject = curveSubjectSelect.value;
+        const binSize = parseInt(curveBinInput.value) || 50;
+        
+        // 调用渲染函数 (确保 renderScoreCurve 已在 script.js 中定义)
+        if (typeof renderScoreCurve === 'function') {
+            renderScoreCurve('score-distribution-curve', activeData, subject, binSize);
+        }
+    };
+
+    curveUpdateBtn.addEventListener('click', updateCurveChart);
+    curveSubjectSelect.addEventListener('change', () => {
+        // 智能调整分段默认值
+        if (curveSubjectSelect.value === 'totalScore') {
+            curveBinInput.value = 50;
+        } else {
+            curveBinInput.value = 10;
+        }
+        updateCurveChart();
+    });
+    // 初始绘制曲线图
+    updateCurveChart();
+
+
+    // --- 原有：直方图逻辑 ---
     const drawHistogram = () => {
-        // [!!] 核心修改
         if (totalStats.scores && totalStats.scores.length > 0) {
             const fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
             const binSize = parseInt(document.getElementById('histogram-bin-size').value) || 30;
             renderHistogram(
                 'histogram-chart',
-                activeData,     // [!!] 传入完整学生数据
-                'totalScore',   // [!!] 告知函数使用哪个分数key
+                activeData,
+                'totalScore',
                 fullScore,
                 `总分分数段直方图 (分段=${binSize})`,
                 binSize
             );
         }
     };
+    document.getElementById('histogram-redraw-btn').addEventListener('click', drawHistogram);
 
-    // 5. (新增) 班级对比图的事件
+    // --- 原有：班级对比图逻辑 ---
     const classSubjectSelect = document.getElementById('class-compare-subject');
     const classMetricSelect = document.getElementById('class-compare-metric');
-
     const drawClassCompareChart = () => {
         const subject = classSubjectSelect.value;
         const metric = classMetricSelect.value;
@@ -1500,65 +1561,51 @@ function renderDashboard(container, stats, activeData) {
             document.getElementById('class-compare-chart').innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">请在侧边栏选择 "全体年段" 以查看班级对比。</p>`;
         }
     };
+    classSubjectSelect.addEventListener('change', drawClassCompareChart);
+    classMetricSelect.addEventListener('change', drawClassCompareChart);
 
-    // (新增) 散点图的事件
+    // --- 原有：散点图逻辑 ---
     const scatterXSelect = document.getElementById('scatter-x-subject');
     const scatterYSelect = document.getElementById('scatter-y-subject');
-
     const drawScatterPlot = () => {
         const xSubject = scatterXSelect.value;
         const ySubject = scatterYSelect.value;
         renderCorrelationScatterPlot('correlation-scatter-chart', activeData, xSubject, ySubject);
     };
+    scatterXSelect.addEventListener('change', drawScatterPlot);
+    scatterYSelect.addEventListener('change', drawScatterPlot);
 
-
-    // [!! 新增 !!] 绘制贡献度图表
+    // --- 原有：贡献度图逻辑 ---
     const drawContributionChart = () => {
         if (G_CurrentClassFilter === 'ALL') {
             document.getElementById('contribution-chart').innerHTML =
                 `<p style="text-align:center; padding-top:50px; color:#999;">请选择具体班级以查看贡献度分析。</p>`;
             return;
         }
-
-        // 计算贡献度： (班级均分 - 年级均分)
-        // 注意：这里需要重新计算一下"年级"的统计数据作为基准
-        // 简单起见，如果当前 G_Statistics 是班级的，我们需要全校数据。
-        // 比较好的做法是：runAnalysisAndRender 里应该始终保留一份 G_GlobalStatistics (全校)。
-
-        // 这里做一个临时计算全校均分的补丁：
-        const globalStats = calculateAllStatistics(G_StudentsData); // 计算全校数据
-
+        // 计算全校数据作为基准
+        const globalStats = calculateAllStatistics(G_StudentsData); 
         const subjects = G_DynamicSubjectList;
         const contributionData = subjects.map(sub => {
             const classAvg = stats[sub] ? stats[sub].average : 0;
             const gradeAvg = globalStats[sub] ? globalStats[sub].average : 0;
             return parseFloat((classAvg - gradeAvg).toFixed(2));
         });
-
-        // 计算总分差距
         const totalDiff = contributionData.reduce((a, b) => a + b, 0).toFixed(2);
-
         renderContributionChart('contribution-chart', subjects, contributionData, totalDiff);
     };
 
-    drawContributionChart(); // 调用绘图
 
-    // 6. 绑定事件
-    document.getElementById('histogram-redraw-btn').addEventListener('click', drawHistogram);
-    scatterXSelect.addEventListener('change', drawScatterPlot);
-    scatterYSelect.addEventListener('change', drawScatterPlot);
-    classSubjectSelect.addEventListener('change', drawClassCompareChart);
-    classMetricSelect.addEventListener('change', drawClassCompareChart);
-
-    // 7. 初始绘制
+    // ============================================
+    // 4. 执行初始绘制
+    // ============================================
     drawHistogram();
     drawClassCompareChart();
     renderAverageRadar('radar-chart', stats);
-    renderSubjectBoxPlot('subject-boxplot-chart', G_Statistics, activeData); // [!!] (新增) 传入 activeData
+    renderSubjectBoxPlot('subject-boxplot-chart', G_Statistics, activeData);
     renderStackedBar('stacked-bar-chart', G_Statistics, G_SubjectConfigs);
     drawScatterPlot();
+    drawContributionChart();
 }
-
 /**
  * (修改后) 9.2. 模块二：学生个体报告 (新增：隐藏排名按钮)
  */
@@ -16440,4 +16487,204 @@ function clearAllKnowledgeConfig() {
     });
 
     alert(`🗑️ 成功清空了 ${clearCount} 个知识点的配置！\n请务必点击下方的【保存配置】按钮以生效。`);
+}
+
+/**
+ * [新增] 10.22. 渲染分数段平滑曲线图 (支持单科 & 全科对比)
+ */
+function renderScoreCurve(elementId, students, subject, binSize) {
+    const chartDom = document.getElementById(elementId);
+    const analysisDiv = document.getElementById('curve-analysis-text');
+    if (!chartDom) return;
+
+    if (echartsInstances[elementId]) {
+        echartsInstances[elementId].dispose();
+    }
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    const isAll = (subject === 'ALL_SUBJECTS');
+    let series = [];
+    let categories = [];
+    let analysisText = "";
+
+    // --- 情况 A: 全科对比模式 ---
+    if (isAll) {
+        // 1. 确定全局最大分 (为了统一 X 轴)
+        let globalMax = 0;
+        G_DynamicSubjectList.forEach(sub => {
+            const subScores = students.map(s => s.scores[sub]).filter(v => typeof v === 'number');
+            if(subScores.length > 0) globalMax = Math.max(globalMax, Math.max(...subScores));
+        });
+        
+        // 2. 生成统一的 X 轴分段
+        const endBin = Math.ceil((globalMax + 1) / binSize) * binSize;
+        const binMapTemplate = {};
+        
+        for (let i = 0; i < endBin; i += binSize) {
+            const label = `[${i},${i + binSize})`;
+            categories.push(label);
+            binMapTemplate[label] = 0;
+        }
+
+        // 3. 循环生成每科的 Series
+        const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
+        
+        G_DynamicSubjectList.forEach((sub, idx) => {
+            const subScores = students.map(s => s.scores[sub]).filter(v => typeof v === 'number');
+            const currentBinMap = { ...binMapTemplate }; // 复制模板
+            
+            subScores.forEach(score => {
+                let binStart = Math.floor(score / binSize) * binSize;
+                if (binStart >= endBin) binStart = endBin - binSize; // 边界保护
+                const label = `[${binStart},${binStart + binSize})`;
+                if (currentBinMap[label] !== undefined) currentBinMap[label]++;
+            });
+
+            const data = categories.map(cat => currentBinMap[cat]);
+            
+            series.push({
+                name: sub,
+                type: 'line',
+                smooth: 0.4,
+                symbol: 'none', // 多条线时隐藏点，减少杂乱
+                data: data,
+                itemStyle: { color: colors[idx % colors.length] },
+                lineStyle: { width: 2.5 }
+            });
+        });
+        
+        analysisText = "全科分数分布对比图展示了不同学科的成绩分布形态。<strong>曲线峰值越靠右，说明该学科高分人数越多（试卷较易）；曲线越扁平，说明学生分化程度越大。</strong> 您可以点击上方图例隐藏/显示特定科目，以便单独观察。";
+
+    } 
+    // --- 情况 B: 单科/总分模式 (原有逻辑) ---
+    else {
+        // 1. 提取分数
+        const scores = students.map(s => {
+            return subject === 'totalScore' ? s.totalScore : s.scores[subject];
+        }).filter(val => typeof val === 'number' && !isNaN(val));
+
+        if (scores.length === 0) {
+            chartDom.innerHTML = `<p style="text-align:center; padding-top:50px; color:#999;">无有效分数数据</p>`;
+            return;
+        }
+
+        // 2. 计算分段
+        const min = Math.min(...scores);
+        const max = Math.max(...scores);
+        const startBin = Math.floor(min / binSize) * binSize;
+        const endBin = Math.ceil((max + 1) / binSize) * binSize;
+        
+        // 初始化 Map
+        const binMap = {};
+        for (let i = startBin; i < endBin; i += binSize) {
+            const label = `[${i},${i + binSize})`;
+            categories.push(label);
+            binMap[label] = 0;
+        }
+
+        scores.forEach(score => {
+            let binStart = Math.floor(score / binSize) * binSize;
+            if (binStart < startBin) binStart = startBin;
+            if (binStart >= endBin) binStart = endBin - binSize;
+            const label = `[${binStart},${binStart + binSize})`;
+            if (binMap[label] !== undefined) binMap[label]++;
+        });
+
+        const data = categories.map(cat => binMap[cat]);
+
+        // 3. 生成分析文案 (同原逻辑)
+        let maxCount = Math.max(...data);
+        let peakIndex = data.indexOf(maxCount);
+        let peakLabel = categories[peakIndex];
+        const midIndex = Math.floor(categories.length / 2);
+        
+        if (data.length < 3) {
+            analysisText = `本次考试成绩分布较为集中，主要分布在 <strong>${peakLabel}</strong> 区间。`;
+        } else {
+            if (peakIndex < midIndex - 1) {
+                analysisText = `本次考试成绩整体分布<strong>偏左（低分段较多）</strong>。峰值出现在 <strong>${peakLabel}</strong>，有 <strong>${maxCount}</strong> 人。建议关注基础薄弱学生，加强基础知识巩固。`;
+            } else if (peakIndex > midIndex + 1) {
+                 analysisText = `本次考试成绩整体分布<strong>偏右（高分段较多）</strong>。峰值出现在 <strong>${peakLabel}</strong>，有 <strong>${maxCount}</strong> 人。整体掌握情况良好，建议适当增加培优难度。`;
+            } else {
+                 analysisText = `本次考试成绩呈<strong>正态分布（中间多两头少）</strong>。中等水平学生居多（峰值在 <strong>${peakLabel}</strong>）。中等生的可塑性最大，后续教学要在中等生群体上多花功夫，抓中间促两头。`;
+            }
+        }
+
+        // 4. 构建单条 Series (带漂亮的面积渐变)
+        series.push({
+            name: '人数',
+            type: 'line',
+            smooth: 0.4,
+            symbol: 'circle',
+            symbolSize: 8,
+            showSymbol: true,
+            itemStyle: { color: '#20c997', borderColor: '#fff', borderWidth: 2 },
+            lineStyle: { width: 3, color: '#20c997' },
+            areaStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: 'rgba(32, 201, 151, 0.3)' },
+                    { offset: 1, color: 'rgba(32, 201, 151, 0.05)' }
+                ])
+            },
+            data: data,
+            label: { show: true, position: 'top', color: '#20c997', fontSize: 12, fontWeight: 'bold' },
+            markPoint: { data: [{ type: 'max', name: '最大值' }], itemStyle: { color: '#ffc107' } }
+        });
+    }
+
+    // 更新文案
+    if (analysisDiv) analysisDiv.innerHTML = analysisText;
+
+    // ECharts 配置
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            backgroundColor: 'rgba(255, 255, 255, 0.9)',
+            borderColor: '#ccc',
+            textStyle: { color: '#333' },
+            formatter: (params) => {
+                let html = `<strong>${params[0].name}</strong><br/>`;
+                params.forEach(p => {
+                    const marker = p.marker || `<span style="display:inline-block;margin-right:4px;border-radius:10px;width:10px;height:10px;background-color:${p.color};"></span>`;
+                    html += `${marker} ${p.seriesName}: <strong>${p.value}</strong>人<br/>`;
+                });
+                return html;
+            }
+        },
+        legend: {
+            show: isAll, // 只有全科模式显示图例
+            top: 0,
+            type: 'scroll'
+        },
+        grid: {
+            left: '3%',
+            right: '4%',
+            bottom: '10%',
+            top: isAll ? '15%' : '10%', // 全科模式给图例留空间
+            containLabel: true
+        },
+        xAxis: {
+            type: 'category',
+            boundaryGap: false,
+            data: categories,
+            axisLabel: {
+                interval: 'auto',
+                rotate: categories.length > 10 ? 30 : 0,
+                color: '#666'
+            },
+            axisLine: { lineStyle: { color: '#ccc' } },
+            axisTick: { show: false }
+        },
+        yAxis: {
+            type: 'value',
+            name: '人数',
+            splitLine: { lineStyle: { type: 'dashed', color: '#eee' } },
+            axisLine: { show: false },
+            axisTick: { show: false }
+        },
+        series: series
+    };
+
+    myChart.setOption(option);
 }
