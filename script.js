@@ -16264,7 +16264,8 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
 
 /**
  * 13.9. 批量导入知识点配置
- * 读取文本框内容，按行匹配表格中的小题。
+ * 读取文本框内容，按行匹配表格中的【小题】。
+ * [!! 修复点 !!] 仅匹配包含数字题号的“小题”行。
  */
 function batchImportKnowledge() {
     const textarea = document.getElementById('item-config-batch-knowledge');
@@ -16282,22 +16283,29 @@ function batchImportKnowledge() {
         return;
     }
 
-    // 2. 获取配置表格中的小题行
+    // 2. 获取配置表格中的所有行
     const tbody = document.getElementById('item-config-table-body');
     if (!tbody) return;
-
-    // 筛选出表格中实际的小题行 (通过 .item-config-content 元素来定位)
+    
+    // 3. [核心修改] 筛选出需要填充的【小题】行
     const qRows = Array.from(tbody.querySelectorAll('tr')).filter(row => {
-        // 排除掉没有知识点输入框的“大题”行（如果大题行没有 input）
-        return row.querySelector('.item-config-content');
+        // 获取第一列的文本，检查它是否以数字开头 (例如 "1 (小题)", "10 (小题)")
+        const firstCellText = row.cells[0]?.textContent.trim() || '';
+        // 使用正则表达式判断：必须以数字开头，并且包含括号和“小题”字样
+        return /^\d+\s*\(小题\)$/i.test(firstCellText);
     });
+
+    if (qRows.length === 0) {
+        alert("⚠️ 错误：表格中没有检测到可配置的小题。");
+        return;
+    }
 
     let matchCount = 0;
     
-    // 3. 遍历知识点列表并匹配
+    // 4. 遍历知识点列表并按顺序匹配筛选后的行
     for (let i = 0; i < knowledgeList.length; i++) {
         const knowledge = knowledgeList[i];
-        const row = qRows[i]; // 按顺序匹配
+        const row = qRows[i]; // 按顺序匹配【小题】
 
         if (row) {
             // 找到对应的知识点输入框并赋值
@@ -16313,11 +16321,11 @@ function batchImportKnowledge() {
     }
 
     if (matchCount > 0) {
-        alert(`🎉 成功导入 ${matchCount} 个知识点！\n请点击下方的【保存配置】按钮以生效。`);
+        alert(`🎉 成功导入 ${matchCount} 个知识点到小题。`);
         // 清空文本框，方便下次使用
         textarea.value = ''; 
     } else {
-        alert("⚠️ 未能匹配到任何小题。请确认表格中存在小题，且粘贴内容格式正确（每行一个知识点）。");
+        alert("⚠️ 导入失败，请确认粘贴的知识点数量与小题数量是否匹配。");
     }
 }
 
