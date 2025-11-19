@@ -28,6 +28,7 @@ let G_ItemOutlierList = [];
 let G_ItemDetailSort = { key: 'deviation', direction: 'asc' }; // [!! NEW !!] 缓存学生详情表的排序状态
 let G_CompareStatistics = {};
 let G_TrendSort = { key: 'rank', direction: 'asc' }; // [!!] (新增) 趋势模块的排序状态
+let G_DashboardTableSort = { key: 'totalScore', direction: 'desc' };
 let currentAIController = null;
 // 全局变量：存储 AI 对话历史
 let G_AIChatHistory = [];
@@ -1322,11 +1323,13 @@ function saveSubjectConfigsFromModal() {
 // 9. 各模块具体实现
 // ---------------------------------
 /**
+/**
  * 9.1. [完整旗舰版] 模块一：班级整体分析
  * - 包含 KPI 卡片
- * - 包含 [新增] 成绩分段平滑曲线 (支持单科/全科对比)
+ * - 包含 成绩分段平滑曲线
  * - 包含 全科统计表
  * - 包含 2x2 核心图表网格
+ * - [新增] 包含 所有学生成绩明细表 (支持排序/筛选)
  */
 function renderDashboard(container, stats, activeData) {
     const totalStats = stats.totalScore || {};
@@ -1374,9 +1377,7 @@ function renderDashboard(container, stats, activeData) {
             </div>
             
             <div class="chart-container" id="score-distribution-curve" style="height: 400px;"></div>
-            
-            <div id="curve-analysis-text" style="background:#f8f9fa; padding:15px; border-radius:6px; margin-top:10px; color:#555; font-size:0.95em; line-height:1.6;">
-                </div>
+            <div id="curve-analysis-text" style="background:#f8f9fa; padding:15px; border-radius:6px; margin-top:10px; color:#555; font-size:0.95em; line-height:1.6;"></div>
         </div>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
@@ -1427,7 +1428,6 @@ function renderDashboard(container, stats, activeData) {
         </div>
 
         <div class="dashboard-chart-grid-2x2">
-            
             <div class="main-card-wrapper">
                 <div class="controls-bar chart-controls">
                     <h4 style="margin:0;">全科分数分布箱形图</h4>
@@ -1495,7 +1495,34 @@ function renderDashboard(container, stats, activeData) {
                 </div>
                  <div class="chart-container" id="contribution-chart" style="height: 400px;"></div>
             </div>
+        </div>
 
+<div class="main-card-wrapper" style="margin-top: 20px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap: 15px; margin-bottom:15px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
+                <h3 style="margin:0; white-space: nowrap;">📋 所有学生成绩明细表</h3>
+                
+                <div style="display:flex; align-items:center; gap:10px; background-color: #f8f9fa; padding: 6px 15px; border-radius: 20px; border: 1px solid #e9ecef;">
+                    <span style="font-size:1.1em;">🔍</span>
+                    
+                    <select id="dashboard-table-filter" class="sidebar-select" style="width:auto; min-width:130px; padding: 4px 8px; height: 34px; margin:0;">
+                        <option value="ALL">-- 全部班级 --</option>
+                    </select>
+                    
+                    <input type="text" id="dashboard-table-search" placeholder="输入姓名或考号..." class="sidebar-select" style="width: 160px; padding: 4px 8px; height: 34px; margin:0;">
+                </div>
+            </div>
+            
+            <div class="table-container" style="max-height: 600px; overflow-y: auto;">
+                <table id="dashboard-full-table">
+                    <thead id="dashboard-table-head">
+                        </thead>
+                    <tbody id="dashboard-full-tbody">
+                        </tbody>
+                </table>
+            </div>
+            <div style="margin-top:8px; font-size:0.85em; color:#999; text-align:right; border-top: 1px dashed #eee; padding-top: 5px;">
+                * 点击表头文字可进行排序 (切换升/降序)。表中展示 "分数 (年排)"。
+            </div>
         </div>
     `;
 
@@ -1503,7 +1530,7 @@ function renderDashboard(container, stats, activeData) {
     // 3. 绑定事件逻辑
     // ============================================
 
-    // --- 新增：曲线图逻辑 ---
+    // --- 1. 曲线图逻辑 ---
     const curveSubjectSelect = document.getElementById('curve-subject-select');
     const curveBinInput = document.getElementById('curve-bin-size');
     const curveUpdateBtn = document.getElementById('btn-update-curve');
@@ -1511,8 +1538,6 @@ function renderDashboard(container, stats, activeData) {
     const updateCurveChart = () => {
         const subject = curveSubjectSelect.value;
         const binSize = parseInt(curveBinInput.value) || 50;
-        
-        // 调用渲染函数 (确保 renderScoreCurve 已在 script.js 中定义)
         if (typeof renderScoreCurve === 'function') {
             renderScoreCurve('score-distribution-curve', activeData, subject, binSize);
         }
@@ -1520,36 +1545,23 @@ function renderDashboard(container, stats, activeData) {
 
     curveUpdateBtn.addEventListener('click', updateCurveChart);
     curveSubjectSelect.addEventListener('change', () => {
-        // 智能调整分段默认值
-        if (curveSubjectSelect.value === 'totalScore') {
-            curveBinInput.value = 50;
-        } else {
-            curveBinInput.value = 10;
-        }
+        if (curveSubjectSelect.value === 'totalScore') curveBinInput.value = 50;
+        else curveBinInput.value = 10;
         updateCurveChart();
     });
-    // 初始绘制曲线图
     updateCurveChart();
 
-
-    // --- 原有：直方图逻辑 ---
+    // --- 2. 直方图逻辑 ---
     const drawHistogram = () => {
         if (totalStats.scores && totalStats.scores.length > 0) {
             const fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
             const binSize = parseInt(document.getElementById('histogram-bin-size').value) || 30;
-            renderHistogram(
-                'histogram-chart',
-                activeData,
-                'totalScore',
-                fullScore,
-                `总分分数段直方图 (分段=${binSize})`,
-                binSize
-            );
+            renderHistogram('histogram-chart', activeData, 'totalScore', fullScore, `总分分数段直方图 (分段=${binSize})`, binSize);
         }
     };
     document.getElementById('histogram-redraw-btn').addEventListener('click', drawHistogram);
 
-    // --- 原有：班级对比图逻辑 ---
+    // --- 3. 班级对比图逻辑 ---
     const classSubjectSelect = document.getElementById('class-compare-subject');
     const classMetricSelect = document.getElementById('class-compare-metric');
     const drawClassCompareChart = () => {
@@ -1567,25 +1579,21 @@ function renderDashboard(container, stats, activeData) {
     classSubjectSelect.addEventListener('change', drawClassCompareChart);
     classMetricSelect.addEventListener('change', drawClassCompareChart);
 
-    // --- 原有：散点图逻辑 ---
+    // --- 4. 散点图逻辑 ---
     const scatterXSelect = document.getElementById('scatter-x-subject');
     const scatterYSelect = document.getElementById('scatter-y-subject');
     const drawScatterPlot = () => {
-        const xSubject = scatterXSelect.value;
-        const ySubject = scatterYSelect.value;
-        renderCorrelationScatterPlot('correlation-scatter-chart', activeData, xSubject, ySubject);
+        renderCorrelationScatterPlot('correlation-scatter-chart', activeData, scatterXSelect.value, scatterYSelect.value);
     };
     scatterXSelect.addEventListener('change', drawScatterPlot);
     scatterYSelect.addEventListener('change', drawScatterPlot);
 
-    // --- 原有：贡献度图逻辑 ---
+    // --- 5. 贡献度图逻辑 ---
     const drawContributionChart = () => {
         if (G_CurrentClassFilter === 'ALL') {
-            document.getElementById('contribution-chart').innerHTML =
-                `<p style="text-align:center; padding-top:50px; color:#999;">请选择具体班级以查看贡献度分析。</p>`;
+            document.getElementById('contribution-chart').innerHTML = `<p style="text-align:center; padding-top:50px; color:#999;">请选择具体班级以查看贡献度分析。</p>`;
             return;
         }
-        // 计算全校数据作为基准
         const globalStats = calculateAllStatistics(G_StudentsData); 
         const subjects = G_DynamicSubjectList;
         const contributionData = subjects.map(sub => {
@@ -1597,6 +1605,145 @@ function renderDashboard(container, stats, activeData) {
         renderContributionChart('contribution-chart', subjects, contributionData, totalDiff);
     };
 
+    // --- 6. [新增] 综合成绩表格逻辑 ---
+    const initDashboardTable = () => {
+        const tableHead = document.getElementById('dashboard-table-head');
+        const tableBody = document.getElementById('dashboard-full-tbody');
+        const filterSelect = document.getElementById('dashboard-table-filter');
+        const searchInput = document.getElementById('dashboard-table-search');
+
+        // A. 填充班级筛选 (使用全局数据)
+        const allClassSet = new Set(G_StudentsData.map(s => s.class));
+        const allClasses = Array.from(allClassSet).sort();
+        filterSelect.innerHTML = `<option value="ALL">-- 全部班级 --</option>` + 
+            allClasses.map(c => `<option value="${c}">${c}</option>`).join('');
+        
+        // 如果左侧已选班级，这里默认同步，但允许用户修改
+        if (G_CurrentClassFilter !== 'ALL') {
+            filterSelect.value = G_CurrentClassFilter;
+        }
+
+        // B. 生成表头
+        let theadHtml = `
+            <tr>
+                <th data-sort="id" style="cursor:pointer;">学号 ⇅</th>
+                <th data-sort="name" style="cursor:pointer;">姓名 ⇅</th>
+                <th data-sort="class" style="cursor:pointer;">班级 ⇅</th>
+        `;
+        G_DynamicSubjectList.forEach(sub => {
+            theadHtml += `<th data-sort="scores.${sub}" style="cursor:pointer;">${sub}<br><span style="font-size:0.8em; font-weight:normal;">分数 (年排)</span> ⇅</th>`;
+        });
+        theadHtml += `
+                <th data-sort="totalScore" style="cursor:pointer; background-color:#e8f0fe;">总分 ⇅</th>
+                <th data-sort="gradeRank" style="cursor:pointer; background-color:#e8f0fe;">总年排 ⇅</th>
+            </tr>
+        `;
+        tableHead.innerHTML = theadHtml;
+
+        // C. 渲染数据函数
+        const renderTableData = () => {
+            const filterClass = filterSelect.value;
+            const searchText = searchInput.value.toLowerCase().trim();
+            
+            // 1. 筛选 (基于 G_StudentsData 全局数据，不受模块限制)
+            let filtered = G_StudentsData.filter(s => {
+                // 班级筛选
+                if (filterClass !== 'ALL' && s.class !== filterClass) return false;
+                // 搜索筛选
+                if (searchText) {
+                    if (!s.name.includes(searchText) && !String(s.id).includes(searchText)) return false;
+                }
+                return true;
+            });
+
+            // 2. 排序
+            const { key, direction } = G_DashboardTableSort;
+            filtered.sort((a, b) => {
+                let valA, valB;
+
+                // 提取值
+                if (key.startsWith('scores.')) {
+                    const sub = key.split('.')[1];
+                    valA = a.scores[sub];
+                    valB = b.scores[sub];
+                } else {
+                    valA = a[key];
+                    valB = b[key];
+                }
+
+                // 处理空值
+                if (valA === undefined || valA === null) valA = -Infinity;
+                if (valB === undefined || valB === null) valB = -Infinity;
+
+                // 数字 vs 字符串比较
+                if (typeof valA === 'string') {
+                    return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return direction === 'asc' ? valA - valB : valB - valA;
+                }
+            });
+
+            // 3. 生成 HTML
+            // 性能优化：如果数据量过大，限制显示前 500 条
+            const displayData = filtered.slice(0, 500);
+            
+            if (displayData.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="${4 + G_DynamicSubjectList.length}" style="text-align:center; padding:20px; color:#999;">未找到匹配数据</td></tr>`;
+                return;
+            }
+
+            tableBody.innerHTML = displayData.map(s => {
+                let row = `<tr>
+                    <td>${s.id}</td>
+                    <td style="font-weight:bold;">${s.name}</td>
+                    <td>${s.class}</td>`;
+                
+                G_DynamicSubjectList.forEach(sub => {
+                    const score = s.scores[sub];
+                    const rank = s.gradeRanks ? s.gradeRanks[sub] : '-';
+                    // 高亮显示：不及格标红
+                    const pass = G_SubjectConfigs[sub]?.pass || 60;
+                    const color = (score !== undefined && score < pass) ? 'color:#dc3545;' : '';
+                    
+                    row += `<td style="${color}">${score !== undefined ? score : '-'} <span style="font-size:0.8em; color:#999;">(${rank})</span></td>`;
+                });
+
+                row += `<td style="font-weight:bold; color:#007bff;">${s.totalScore}</td>
+                        <td style="font-weight:bold;">${s.gradeRank || '-'}</td>
+                    </tr>`;
+                return row;
+            }).join('');
+            
+            if (filtered.length > 500) {
+                tableBody.innerHTML += `<tr><td colspan="${4 + G_DynamicSubjectList.length}" style="text-align:center; color:#999; font-size:0.8em;">(仅显示前 500 条，请使用筛选或搜索缩小范围)</td></tr>`;
+            }
+        };
+
+        // D. 绑定事件
+        filterSelect.addEventListener('change', renderTableData);
+        searchInput.addEventListener('input', renderTableData);
+
+        tableHead.addEventListener('click', (e) => {
+            const th = e.target.closest('th');
+            if (!th) return;
+            const sortKey = th.dataset.sort;
+            if (sortKey) {
+                if (G_DashboardTableSort.key === sortKey) {
+                    G_DashboardTableSort.direction = G_DashboardTableSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    G_DashboardTableSort.key = sortKey;
+                    G_DashboardTableSort.direction = 'desc'; // 默认降序（看高分）
+                }
+                // 更新表头样式
+                tableHead.querySelectorAll('th').forEach(t => t.style.backgroundColor = '');
+                th.style.backgroundColor = '#fff3cd';
+                renderTableData();
+            }
+        });
+
+        // 初始渲染
+        renderTableData();
+    };
 
     // ============================================
     // 4. 执行初始绘制
@@ -1608,6 +1755,9 @@ function renderDashboard(container, stats, activeData) {
     renderStackedBar('stacked-bar-chart', G_Statistics, G_SubjectConfigs);
     drawScatterPlot();
     drawContributionChart();
+    
+    // 初始化新表格
+    initDashboardTable();
 }
 /**
  * (修改后) 9.2. 模块二：学生个体报告 (新增：隐藏排名按钮)
