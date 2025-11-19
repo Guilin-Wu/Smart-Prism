@@ -2981,14 +2981,14 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         const subject = subjectSelect.value;
         const mode = histModeSelect.value; // 'raw' or 'tscore'
         const binSize = parseFloat(binInput.value);
-        
+
         // [!! 核心修复 !!] 
         // 直接将完整数据 (currentData, compareData) 传给绘图函数。
         // 内部会自动根据 mode 提取 scores 或 tScores。
         // 之前这里有多余的 currentScores 计算代码，导致报错，现已删除。
         renderOverlappingHistogram('dist-overlap-histogram-chart', currentData, compareData, subject, binSize, mode);
     };
-    
+
     // 绑定事件 (保持不变)
     subjectSelect.addEventListener('change', () => { binInput.value = ''; drawHistogram(); });
     histModeSelect.addEventListener('change', () => { binInput.value = ''; drawHistogram(); });
@@ -3001,7 +3001,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
     const drawComposition = () => {
         const mode = compModeSelect.value; // 'raw' or 'tscore'
-        
+
         // 更新说明文字
         if (mode === 'raw') descText.innerText = '* 原始分模式：基于“科目配置”中的 优秀线(A)、良好线(B)、及格线(C) 进行统计。';
         else descText.innerText = '* T分模式 (标准分)：A (T≥60, 前16%), B (T≥50, 前50%), C (T≥40, 前84%), D (T<40)。消除试卷难度差异。';
@@ -3057,12 +3057,12 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
         exportCompositionDetails(mergedData);
     });
 
-// [修改版] 导出逻辑
+    // [修改版] 导出逻辑
     const exportCompositionDetails = (data, mode = 'raw') => {
         const exportData = [];
         const subjects = G_DynamicSubjectList;
         const label = mode === 'tscore' ? 'T分' : '原始分';
-        
+
         exportData.push(["科目", "本次等级", "班级", "姓名", `本次${label}`, "上次等级", `上次${label}`, "变动情况"]);
 
         subjects.forEach(subject => {
@@ -3085,8 +3085,8 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
             };
 
             const levelVal = (l) => {
-                if(l.startsWith('A')) return 4; if(l.startsWith('B')) return 3;
-                if(l.startsWith('C')) return 2; if(l.startsWith('D')) return 1;
+                if (l.startsWith('A')) return 4; if (l.startsWith('B')) return 3;
+                if (l.startsWith('C')) return 2; if (l.startsWith('D')) return 1;
                 return 0;
             };
 
@@ -3094,7 +3094,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                 // 根据模式获取分数
                 let currVal, oldVal;
                 if (mode === 'tscore') {
-                    currVal = (s.tScores && s.tScores[subject]); 
+                    currVal = (s.tScores && s.tScores[subject]);
                     oldVal = (s.oldTScores && s.oldTScores[subject]);
                 } else {
                     currVal = s.scores[subject];
@@ -3103,7 +3103,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 
                 const currLevel = getLevel(currVal);
                 const oldLevel = getLevel(oldVal);
-                
+
                 // 变动判断
                 let changeText = '-';
                 const v1 = levelVal(currLevel);
@@ -5950,7 +5950,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
     myChart.on('click', function (params) {
         const label = params.name; // 例如 "75-80"
         const seriesName = params.seriesName; // "本次成绩" 或 "对比成绩"
-        
+
         if (!label || !label.includes('-')) return;
 
         const [minStr, maxStr] = label.split('-');
@@ -5960,7 +5960,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
         // 确定数据源 (本次还是上次)
         const isCurrent = (seriesName === '本次成绩');
         const sourceData = isCurrent ? currentData : compareData;
-        
+
         // 筛选学生逻辑
         const drilledStudents = sourceData.filter(s => {
             let val;
@@ -5969,7 +5969,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
             } else {
                 val = (subjectName === 'totalScore') ? s.totalScore : s.scores[subjectName];
             }
-            
+
             if (typeof val !== 'number' || isNaN(val)) return false;
 
             // 范围判断 [min, max)
@@ -5985,7 +5985,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
         // 调用通用弹窗显示名单
         const typeText = mode === 'tscore' ? 'T分' : '分';
         const title = `${subjectName} ${typeText}段 [${label}] 学生名单 (${seriesName})`;
-        
+
         // 注意：showDrillDownModal 默认显示的是原始分，这正好方便老师核对
         showDrillDownModal(title, drilledStudents, subjectName);
     });
@@ -7458,16 +7458,26 @@ function renderItemAnalysis(container) {
         renderItemAnalysisCharts();
     };
 
-    // 4. 绑定文件上传事件 (不变)
+    // 4. 绑定文件上传事件 (修复版：允许连续导入)
     uploader.addEventListener('change', async (event) => {
         const file = event.target.files[0];
         if (!file) return;
         statusLabel.innerText = `🔄 正在解析 ${file.name}...`;
         try {
-            const itemData = await loadItemAnalysisExcel(file);
+            // [修复] 确保传递的是包含 _global_settings_ 的完整配置对象
+            // 优先使用内存中的 G_ItemAnalysisConfig，如果为空则尝试从空对象开始
+            let fullConfig = window.G_ItemAnalysisConfig || {};
+
+            // [建议新增] 如果内存为空，尝试同步读取一下本地存储(虽然通常已加载，但为了保险)
+            if (Object.keys(fullConfig).length === 0) {
+                const stored = await localforage.getItem('G_ItemAnalysisConfig');
+                if (stored) fullConfig = stored;
+            }
+
+            const itemData = await loadItemAnalysisExcel(file, fullConfig);
+
             G_ItemAnalysisData = itemData;
 
-            // [修改] 保存到 IndexedDB (这是最关键的优化)
             await localforage.setItem('G_ItemAnalysisData', itemData);
             await localforage.setItem('G_ItemAnalysisFileName', file.name);
 
@@ -7475,7 +7485,6 @@ function renderItemAnalysis(container) {
             if (subjects.length === 0) {
                 throw new Error("在文件中未找到任何包含有效数据的工作表。");
             }
-            // [!! 修改 !!] 显示文件名
             statusLabel.innerText = `✅ 已加载: ${file.name} (共 ${subjects.length} 科)`;
             populateItemAnalysisUI(itemData);
 
@@ -7485,9 +7494,11 @@ function renderItemAnalysis(container) {
             console.error(err);
             statusLabel.innerText = `❌ 解析失败: ${err.message}`;
             alert(`解析失败: ${err.message}`);
+        } finally {
+            // [!! 核心修复 !!] 无论成功或失败，都重置文件输入框的值，允许连续触发 change 事件
+            event.target.value = '';
         }
     });
-
     // 5. 绑定下拉框切换事件 (主触发器) (不变)
     subjectSelect.addEventListener('change', () => {
         classFilter.value = 'ALL';
@@ -7870,11 +7881,9 @@ function refreshLibraryUI(library) {
 
 /**
  * 13.2. [核心] 解析小题分 Excel 文件
- * * [!! 修正版 7 !!] - 2025-11-11
- * - (Bug) 增加了 .slice(..., -3) 来移除最后三行非学生数据。
- * - (其余 Bug 修复保持不变)
+ * [!! 最终完整版 !!] 支持动态跳过末尾统计行，并接收配置上下文。
  */
-function loadItemAnalysisExcel(file) {
+function loadItemAnalysisExcel(file, globalConfig = {}) { // [关键修改] 接收配置对象
     return new Promise((resolve, reject) => {
 
         // [!! 内部辅助函数 !!] (不变)
@@ -7895,6 +7904,7 @@ function loadItemAnalysisExcel(file) {
                 const qAvg = qScores.reduce((a, b) => a + b, 0) / qScores.length;
                 const maxQScore = Math.max(...qScores);
                 const qDifficulty = (maxQScore > 0) ? (qAvg / maxQScore) : 0;
+                // 假设 calculateCorrelation 已在全局定义
                 const qDiscrimination = calculateCorrelation(qScores, tScores);
                 stats[qName] = {
                     avg: parseFloat(qAvg.toFixed(2)),
@@ -7918,11 +7928,12 @@ function loadItemAnalysisExcel(file) {
                     const worksheet = workbook.Sheets[sheetName];
                     const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
-                    if (rawData.length < 5) { // (至少1表头 + 1数据 + 3统计行)
+                    if (rawData.length < 5) {
                         console.warn(`工作表 "${sheetName}" 数据行数不足，已跳过。`);
                         continue;
                     }
 
+                    // 1. 定位表头行
                     let keyRowIndex = -1;
                     const REQUIRED_METRICS = ["姓名", "班级", "总分"];
                     for (let i = 0; i < Math.min(rawData.length, 5); i++) {
@@ -7943,9 +7954,10 @@ function loadItemAnalysisExcel(file) {
                     const colMap = {};
                     const majorQuestionColumns = [];
                     const minorQuestionColumns = [];
-                    const isMinorQuestion = /^\d/; // (以数字开头)
+                    const isMinorQuestion = /^\d/;
                     let foundTotalScore = false;
 
+                    // 2. 映射列
                     for (let i = 0; i < keyHeader.length; i++) {
                         const key = keyHeader[i];
                         if (key === "") continue;
@@ -7971,10 +7983,22 @@ function loadItemAnalysisExcel(file) {
                         }
                     }
 
-                    // 4. 解析学生数据行
-                    // [!! 修正 !!] (Bug) 移除最后三行 (非学生数据)
-                    const studentRows = rawData.slice(studentDataStartRow, -3);
+
+                    // 3. 动态确定要跳过的行数 (健壮版)
+                    const skipSetting = globalConfig._global_settings_ || {};
+
+                    // 如果设置了值且不是NaN，则使用该值；否则使用默认值 3
+                    const rowsToSkipCount = skipSetting.rowsToSkip !== undefined && !isNaN(parseInt(skipSetting.rowsToSkip)) ?
+                        parseInt(skipSetting.rowsToSkip) :
+                        3;
+
+                    // 如果 rowsToSkipCount > 0, 则 slice(start, -skipCount); 否则 slice(start, end)
+                    const skipSliceEnd = rowsToSkipCount > 0 ? -rowsToSkipCount : rawData.length;
+
+                    // 4. 解析学生数据行 (使用修正后的 slice 终点)
+                    const studentRows = rawData.slice(studentDataStartRow, skipSliceEnd);
                     const processedData = [];
+
 
                     for (const row of studentRows) {
                         const student = { minorScores: {}, majorScores: {} };
@@ -8001,7 +8025,7 @@ function loadItemAnalysisExcel(file) {
                         }
                         if (!student.id && student.name) student.id = student.name;
 
-                        // [!! 修正 !!] 确保学生有姓名 和 有效的总分
+                        // 确保学生有姓名 和 有效的总分
                         if (student.id && hasName && student.totalScore !== null) {
                             processedData.push(student);
                         }
@@ -8012,6 +8036,7 @@ function loadItemAnalysisExcel(file) {
                         continue;
                     }
 
+                    // 5. 计算统计数据
                     const minorQuestionStats = _calculateQuestionStats(minorQuestionColumns, 'minorScores', processedData);
                     const majorQuestionStats = _calculateQuestionStats(majorQuestionColumns, 'majorScores', processedData);
 
@@ -8371,6 +8396,13 @@ function populateItemAnalysisConfigModal() {
     const tableBody = document.getElementById('item-config-table-body');
     const paperTextarea = document.getElementById('item-config-full-paper'); // [!!] 获取文本框
 
+
+    // 在 populateItemAnalysisConfigModal 函数内部，增加以下代码：
+    const skipRowsInput = document.getElementById('item-config-skip-rows');
+    // 读取全局设置，如果不存在则默认为 3
+    const globalSettings = G_ItemAnalysisConfig._global_settings_ || {};
+    skipRowsInput.value = globalSettings.rowsToSkip !== undefined ? globalSettings.rowsToSkip : 3;
+
     // [!! NEW !!] 回显已保存的试卷文本
     // 我们使用一个特殊的 key "_full_paper_context_" 来存储试卷文本
     paperTextarea.value = subjectConfig['_full_paper_context_'] || "";
@@ -8416,6 +8448,21 @@ function saveItemAnalysisConfigFromModal() {
     if (!subjectName) return;
 
     let allConfigs = G_ItemAnalysisConfig;
+
+    // --- [核心修改 START] ---
+    // 获取旧的跳过行数（用于对比）
+    const oldSkipRows = allConfigs._global_settings_ ? allConfigs._global_settings_.rowsToSkip : 3;
+
+    const skipRowsInput = document.getElementById('item-config-skip-rows').value;
+    const newSkipRows = parseInt(skipRowsInput);
+
+    allConfigs._global_settings_ = allConfigs._global_settings_ || {};
+
+    // 确保值是整数
+    allConfigs._global_settings_.rowsToSkip = isNaN(newSkipRows) ? 3 : newSkipRows;
+
+    // --- [核心修改 END] ---
+
     let subjectConfig = allConfigs[subjectName] || {};
 
     // [!! NEW !!] 保存试卷文本到特殊字段
@@ -8442,11 +8489,20 @@ function saveItemAnalysisConfigFromModal() {
 
     allConfigs[subjectName] = subjectConfig;
     G_ItemAnalysisConfig = allConfigs;
-    localforage.setItem('G_ItemAnalysisConfig', allConfigs);
 
-    modal.style.display = 'none';
-    renderItemAnalysisCharts();
-    alert("配置已保存！(试卷内容已连接至 AI 模块)");
+    // 保存到数据库
+    localforage.setItem('G_ItemAnalysisConfig', allConfigs).then(() => {
+        modal.style.display = 'none';
+        renderItemAnalysisCharts(); // 重绘图表 (应用满分修改)
+
+        // --- [核心修改 START] 智能提示 ---
+        if (oldSkipRows !== allConfigs._global_settings_.rowsToSkip) {
+            alert(`✅ 配置已保存！\n\n⚠️ 检测到您修改了“末尾跳过行数” (从 ${oldSkipRows} 改为 ${allConfigs._global_settings_.rowsToSkip})。\n\n请务必【重新导入】Excel 文件，该设置才会生效！`);
+        } else {
+            alert("✅ 配置已保存！(试卷内容/满分设置已更新)");
+        }
+        // --- [核心修改 END] ---
+    });
 }
 
 // =====================================================================
@@ -8508,10 +8564,11 @@ function calculateLayeredItemStats(subjectName, numGroups, filteredStudents) {
             const fullScore = stat.manualFullScore || stat.maxScore;
 
             if (!fullScore || fullScore === 0) {
+                // [!! 关键修复点 !!] 如果满分为0，则该题的平均得分率也必须为0，不能中断循环
                 studentGroups.forEach((_, index) => {
                     const groupName = `G${index + 1}`;
                     if (!groupStats[groupName]) groupStats[groupName] = {};
-                    groupStats[groupName][qName] = 0;
+                    groupStats[groupName][qName] = 0; // 确保设置为0
                 });
                 return;
             }
@@ -10291,56 +10348,70 @@ async function initAIModule() {
     // 监听科目变化
     itemSubjectSelect.addEventListener('change', updateClassList);
 
-    // 监听模式变化
-    // 监听模式变化
-    modeSelect.addEventListener('change', () => {
+    // 监听模式变化 [!! 修复 !!] 改为 async 以支持从数据库补录数据
+    modeSelect.addEventListener('change', async () => {
         const val = modeSelect.value;
         if (qCountWrapper) qCountWrapper.style.display = (val === 'question') ? 'inline-flex' : 'none';
 
-        // [!! 修复开始 !!] 控制按钮的可用状态
+        // 控制按钮可用状态
         if (val === 'teaching_guide') {
-            // 教师模式不需要选学生，直接激活按钮
             analyzeBtn.disabled = false;
         } else {
-            // 其他模式：如果没有选过学生，则禁用按钮；如果选过（dataset有值），则保持激活
             if (searchInput.dataset.selectedId) {
                 analyzeBtn.disabled = false;
             } else {
                 analyzeBtn.disabled = true;
             }
         }
-        // [!! 修复结束 !!]
 
+        // 如果选择了需要“学科小题数据”的模式
         if (val === 'item_diagnosis' || val === 'teaching_guide') {
             itemSubjectWrapper.style.display = 'inline-flex';
 
-            // [!!] 强制加载数据
-            if (!window.G_ItemAnalysisData) {
-                const stored = localStorage.getItem('G_ItemAnalysisData');
-                if (stored) {
-                    try {
-                        window.G_ItemAnalysisData = JSON.parse(stored);
-                        const cfg = localStorage.getItem('G_ItemAnalysisConfig');
-                        if (cfg) window.G_ItemAnalysisConfig = JSON.parse(cfg);
-                    } catch (e) { console.error(e); }
+            // ============================================================
+            // [!! 核心修复 !!] 尝试从 localforage (IndexedDB) 加载数据
+            // 之前只读了 localStorage，导致新版数据无法被 AI 模块识别
+            // ============================================================
+            if (!window.G_ItemAnalysisData || Object.keys(window.G_ItemAnalysisData).length === 0) {
+                try {
+                    // 显示临时加载状态
+                    itemSubjectSelect.innerHTML = `<option>⌛️ 加载中...</option>`;
+
+                    const storedData = await localforage.getItem('G_ItemAnalysisData');
+                    const storedConfig = await localforage.getItem('G_ItemAnalysisConfig');
+
+                    if (storedData) {
+                        window.G_ItemAnalysisData = storedData;
+                        window.G_ItemAnalysisConfig = storedConfig || {};
+                        console.log("AI模块：已从数据库成功补载小题数据");
+                    }
+                } catch (e) {
+                    console.error("AI模块加载数据失败:", e);
                 }
             }
+            // ============================================================
 
-            // [!!] 填充科目并立即触发班级更新
-            if (window.G_ItemAnalysisData) {
+            // 填充科目并立即触发班级更新
+            if (window.G_ItemAnalysisData && Object.keys(window.G_ItemAnalysisData).length > 0) {
                 const subjects = Object.keys(window.G_ItemAnalysisData);
                 const currentVal = itemSubjectSelect.value;
-                if (subjects.length > 0) {
-                    itemSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
-                    if (currentVal && subjects.includes(currentVal)) itemSubjectSelect.value = currentVal;
 
-                    // [!! 核心修复 !!] 手动调用一次更新班级，确保班级列表不为空
-                    updateClassList();
+                itemSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+
+                // 保持选中状态或默认选中第一个
+                if (currentVal && subjects.includes(currentVal)) {
+                    itemSubjectSelect.value = currentVal;
                 } else {
-                    itemSubjectSelect.innerHTML = `<option value="">无数据</option>`;
+                    // 默认选中第一个，并触发 change 事件以更新班级列表
+                    itemSubjectSelect.value = subjects[0];
                 }
+
+                // [!!] 手动调用一次更新班级，确保班级列表不为空
+                if (typeof updateClassList === 'function') updateClassList();
+
             } else {
                 itemSubjectSelect.innerHTML = `<option value="">请先导入数据</option>`;
+                itemClassSelect.innerHTML = `<option value="ALL">-- 全体年段 --</option>`;
             }
 
             if (val === 'teaching_guide') {
@@ -14645,7 +14716,7 @@ async function renderCommentGenerator(container) {
     const renderLibraryList = async () => {
         const libContainer = document.getElementById('comment-library-list');
         const library = await localforage.getItem('G_Comment_Library') || [];
-        
+
         if (library.length === 0) {
             libContainer.innerHTML = `<div style="padding:15px; text-align:center; color:#999;">暂无存档，点击绿色按钮保存当前工作。</div>`;
             return;
@@ -14671,9 +14742,9 @@ async function renderCommentGenerator(container) {
     // 3. 存档操作 (Save/Load/Delete)
     document.getElementById('btn-save-library').addEventListener('click', async () => {
         const rows = document.querySelectorAll('.comment-row');
-        if(rows.length === 0) return;
+        if (rows.length === 0) return;
         const name = prompt("请输入存档名称 (例如：2024秋-期末评语):", "新评语存档");
-        if(!name) return;
+        if (!name) return;
 
         const dataToSave = {};
         rows.forEach(row => {
@@ -14698,10 +14769,10 @@ async function renderCommentGenerator(container) {
     });
 
     window.loadCommentLibrary = async (id) => {
-        if(!confirm("确定读取该存档吗？当前表格内容将被覆盖。")) return;
+        if (!confirm("确定读取该存档吗？当前表格内容将被覆盖。")) return;
         const library = await localforage.getItem('G_Comment_Library') || [];
         const record = library.find(r => r.id === id);
-        if(record) {
+        if (record) {
             const rows = document.querySelectorAll('.comment-row');
             let matchCount = 0;
             rows.forEach(row => {
@@ -14718,7 +14789,7 @@ async function renderCommentGenerator(container) {
     };
 
     window.deleteCommentLibrary = async (id) => {
-        if(!confirm("确定删除？")) return;
+        if (!confirm("确定删除？")) return;
         let library = await localforage.getItem('G_Comment_Library') || [];
         library = library.filter(r => r.id !== id);
         await localforage.setItem('G_Comment_Library', library);
@@ -14729,24 +14800,24 @@ async function renderCommentGenerator(container) {
     window.renameCommentLibrary = async (id) => {
         let library = await localforage.getItem('G_Comment_Library') || [];
         const item = library.find(r => r.id === id);
-        
+
         if (!item) return;
 
         // 弹出输入框，默认显示旧名称
         const newName = prompt("重命名存档:", item.name);
-        
+
         // 校验输入
         if (newName === null || newName.trim() === "") return;
 
         // 更新名称并保存
         item.name = newName.trim();
         await localforage.setItem('G_Comment_Library', library);
-        
+
         // 刷新列表
         renderLibraryList();
     };
 
-// --- 核心逻辑：渲染表格 ---
+    // --- 核心逻辑：渲染表格 ---
     const renderTable = (className) => {
         const tbody = document.getElementById('comment-tbody');
         let rowsHtml = '';
@@ -14772,13 +14843,13 @@ async function renderCommentGenerator(container) {
             const exams = record.exams;
             const count = exams.length;
             let trendHtml = '<span style="color:#ccc">-</span>';
-            
+
             if (count >= 2) {
                 const ranks = exams.map(e => e.gradeRank || e.rank || 0);
                 // 假设 calculateTrendSlope 函数已存在于 script.js 底部
                 const slope = (typeof calculateTrendSlope === 'function') ? calculateTrendSlope(ranks) : 0;
-                const trendScore = Math.round(slope * (count - 1) * -1); 
-                
+                const trendScore = Math.round(slope * (count - 1) * -1);
+
                 if (trendScore > 20) trendHtml = `<span class="progress">🚀 升 ${trendScore}</span>`;
                 else if (trendScore > 5) trendHtml = `<span class="progress" style="color:#20c997">📈 升 ${trendScore}</span>`;
                 else if (trendScore < -20) trendHtml = `<span class="regress">📉 降 ${Math.abs(trendScore)}</span>`;
@@ -14793,7 +14864,7 @@ async function renderCommentGenerator(container) {
                 if (tag.type === 'good') colorStyle = 'color: #28a745; border-color: #c3e6cb; background-color: #f0fff4;';
                 if (tag.type === 'bad') colorStyle = 'color: #dc3545; border-color: #f5c6cb; background-color: #fff5f5;';
                 if (tag.type === 'neutral') colorStyle = 'color: #6c757d; border-color: #d6d8db; background-color: #f8f9fa;';
-                
+
                 return `<span class="quick-tag" style="${colorStyle}" onclick="addTag(this, '${tag.text}')" title="${tag.text}">${tag.text}</span>`;
             }).join('');
             //const tagsHtml = DAILY_TAGS.map(tag => `<span class="quick-tag" onclick="addTag(this, '${tag.text}')" title="${tag.text}">${tag.text.split(' ')[1]}</span>`).join('');
@@ -14823,14 +14894,14 @@ async function renderCommentGenerator(container) {
 
         // 更新图标状态
         const sortIcon = document.getElementById('sort-icon');
-        if(sortIcon) {
+        if (sortIcon) {
             sortIcon.style.color = currentSortMode === 'name' ? '#007bff' : '#ccc';
             sortIcon.innerText = currentSortMode === 'name' ? '🔤' : '⇅';
         }
 
     };
 
-// --- 绑定事件 ---
+    // --- 绑定事件 ---
     const classSelect = document.getElementById('comment-class-select');
     classSelect.addEventListener('change', () => renderTable(classSelect.value));
     if (classes.length > 0) renderTable(classes[0]);
@@ -14852,15 +14923,15 @@ async function renderCommentGenerator(container) {
     };
 
     document.getElementById('btn-export-comments').addEventListener('click', exportCommentsToExcel);
-    
-// [!! 修改 !!] 规则生成 (支持多模式)
+
+    // [!! 修改 !!] 规则生成 (支持多模式)
     document.getElementById('btn-gen-rule').addEventListener('click', () => {
         const mode = document.getElementById('comment-gen-mode').value; // 获取当前模式
-        
+
         document.querySelectorAll('.comment-row').forEach(row => {
             const record = JSON.parse(decodeURIComponent(row.dataset.history));
             const dailyText = row.querySelector('.daily-input').value; // 获取日常标签文本
-            
+
             // 调用新的分流函数
             const result = generateModeRuleComment(record, dailyText, mode);
             row.querySelector('.result-textarea').value = result;
@@ -14873,12 +14944,12 @@ async function renderCommentGenerator(container) {
         const apiKey = localStorage.getItem('G_DeepSeekKey');
         if (!apiKey) { alert("请先设置 API Key"); return; }
         const rows = Array.from(document.querySelectorAll('.comment-row'));
-        if(rows.length === 0) return;
+        if (rows.length === 0) return;
 
         const mode = document.getElementById('comment-gen-mode').value;
         const modeText = document.getElementById('comment-gen-mode').selectedOptions[0].text;
 
-        if(!confirm(`即将按【${modeText}】模式为 ${rows.length} 人生成评语。\n确定吗？`)) return;
+        if (!confirm(`即将按【${modeText}】模式为 ${rows.length} 人生成评语。\n确定吗？`)) return;
 
         document.getElementById('ai-batch-progress').style.display = 'block';
         if (aiController) aiController.abort();
@@ -14890,16 +14961,16 @@ async function renderCommentGenerator(container) {
             const record = JSON.parse(decodeURIComponent(row.dataset.history));
             const daily = row.querySelector('.daily-input').value || "";
             const textarea = row.querySelector('.result-textarea');
-            
-            document.getElementById('ai-progress-text').innerText = `🤖 正在生成: ${record.info.name} (${completed+1}/${rows.length})`;
-            
+
+            document.getElementById('ai-progress-text').innerText = `🤖 正在生成: ${record.info.name} (${completed + 1}/${rows.length})`;
+
             try {
                 const comment = await fetchMultiModeAIComment(apiKey, record, daily, mode, aiController.signal);
                 textarea.value = comment;
                 completed++;
-                document.getElementById('ai-progress-bar').style.width = `${(completed/rows.length)*100}%`;
+                document.getElementById('ai-progress-bar').style.width = `${(completed / rows.length) * 100}%`;
                 await new Promise(r => setTimeout(r, 600));
-            } catch(e) { if(e.name!=='AbortError') textarea.value = `[Error] ${e.message}`; }
+            } catch (e) { if (e.name !== 'AbortError') textarea.value = `[Error] ${e.message}`; }
         }
         if (!aiController.signal.aborted) {
             document.getElementById('ai-progress-text').innerText = "✅ 完成！";
@@ -14909,10 +14980,10 @@ async function renderCommentGenerator(container) {
 
     // 停止/关闭逻辑
     document.getElementById('btn-stop-ai').addEventListener('click', () => {
-        if(aiController) { aiController.abort(); document.getElementById('ai-progress-text').innerText = "🛑 已停止"; }
+        if (aiController) { aiController.abort(); document.getElementById('ai-progress-text').innerText = "🛑 已停止"; }
     });
     document.getElementById('btn-close-progress').addEventListener('click', () => {
-        if(aiController) aiController.abort();
+        if (aiController) aiController.abort();
         document.getElementById('ai-batch-progress').style.display = 'none';
     });
 }
@@ -14928,7 +14999,7 @@ function bindRowEvents() {
             const dailyText = row.querySelector('.daily-input').value || "";
             const textarea = row.querySelector('.result-textarea');
             const mode = document.getElementById('comment-gen-mode').value; // 获取当前模式
-            
+
             const apiKey = localStorage.getItem('G_DeepSeekKey');
             if (!apiKey) { alert("请设置 API Key"); return; }
 
@@ -14963,7 +15034,7 @@ async function fetchMultiModeAIComment(apiKey, record, dailyInfo, mode, signal) 
     // --- 模式 1: 综合评价 (Comprehensive) ---
     if (mode === 'comprehensive') {
         // 构建历史成绩串
-        let historyStr = hasExams ? exams.map((e, i) => `${i+1}. ${e.label}: 总分${e.totalScore} (班排${e.rank||'-'})`).join('\n') : "（暂无考试数据）";
+        let historyStr = hasExams ? exams.map((e, i) => `${i + 1}. ${e.label}: 总分${e.totalScore} (班排${e.rank || '-'})`).join('\n') : "（暂无考试数据）";
         promptContext = `
 【学习数据】：
 ${historyStr}
@@ -14972,10 +15043,10 @@ ${dailyInfo || "（表现中规中矩）"}
         `;
         promptInstruction = `请结合【学习成绩变化趋势】和【日常表现】，写一段期末综合评语。学习和生活比重各占50%。将两者自然融合。`;
     }
-    
+
     // --- 模式 2: 仅历史趋势 (History Only) ---
     else if (mode === 'history_only') {
-        let historyStr = hasExams ? exams.map((e, i) => `${i+1}. ${e.label}: 总分${e.totalScore} (年排${e.gradeRank||'-'}, 班排${e.rank||'-'})`).join('\n') : "（暂无数据）";
+        let historyStr = hasExams ? exams.map((e, i) => `${i + 1}. ${e.label}: 总分${e.totalScore} (年排${e.gradeRank || '-'}, 班排${e.rank || '-'})`).join('\n') : "（暂无数据）";
         promptContext = `【历次考试数据】：\n${historyStr}`;
         promptInstruction = `请仅根据【历次成绩变化趋势】，点评其学习状态的稳定性或进退步情况，给出针对性的学习建议。忽略生活表现。`;
     }
@@ -14985,7 +15056,7 @@ ${dailyInfo || "（表现中规中矩）"}
         let currentStr = "（无数据）";
         if (hasExams) {
             const last = exams[exams.length - 1];
-            currentStr = `考试名称：${last.label}\n总分：${last.totalScore}\n班级排名：${last.rank}\n年级排名：${last.gradeRank||'-'}`;
+            currentStr = `考试名称：${last.label}\n总分：${last.totalScore}\n班级排名：${last.rank}\n年级排名：${last.gradeRank || '-'}`;
         }
         promptContext = `【本次考试数据】：\n${currentStr}`;
         promptInstruction = `请仅针对【本次考试】的发挥情况进行点评。不要提及之前的考试，也不要提及生活表现。`;
@@ -15036,10 +15107,10 @@ function exportCommentsToExcel() {
         const record = JSON.parse(decodeURIComponent(row.dataset.history));
         const daily = row.querySelector('.daily-input').value;
         const comment = row.querySelector('.result-textarea').value;
-        data.push([ record.info.class, record.info.name, daily, comment ]);
+        data.push([record.info.class, record.info.name, daily, comment]);
     });
     const ws = XLSX.utils.aoa_to_sheet(data);
-    ws['!cols'] = [{wch:10}, {wch:10}, {wch:30}, {wch:80}];
+    ws['!cols'] = [{ wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 80 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "评语");
     XLSX.writeFile(wb, `${className}_评语表.xlsx`);
@@ -15072,15 +15143,15 @@ function generateModeRuleComment(record, dailyText, mode) {
 function generateHistoryRuleComment(record) {
     const exams = record.exams;
     if (!exams || exams.length === 0) return "暂无考试数据。";
-    
+
     const name = record.info.name;
     const count = exams.length;
     const first = exams[0].gradeRank || exams[0].rank;
-    const last = exams[count-1].gradeRank || exams[count-1].rank;
+    const last = exams[count - 1].gradeRank || exams[count - 1].rank;
     const diff = first - last;
 
     let text = `本学期 ${name} 同学共参加了 ${count} 次大考。`;
-    
+
     if (diff > 20) text += `成绩呈现显著的上升趋势，排名从期初的 ${first} 名进步至期末的 ${last} 名，进步幅度很大，值得表扬。`;
     else if (diff > 5) text += `成绩稳中有升，排名较期初进步了 ${diff} 名，学习状态渐入佳境。`;
     else if (diff < -20) text += `成绩出现了一定幅度的下滑，排名从 ${first} 名退至 ${last} 名，建议假期好好调整状态，查缺补漏。`;
@@ -15095,7 +15166,7 @@ function generateHistoryRuleComment(record) {
 function generateCurrentRuleComment(record) {
     const exams = record.exams;
     if (!exams || exams.length === 0) return "暂无本次考试数据。";
-    
+
     const lastExam = exams[exams.length - 1]; // 取最后一次
     const rank = lastExam.gradeRank || lastExam.rank;
     const score = lastExam.totalScore;
@@ -15123,7 +15194,7 @@ function generateDailyRuleComment(record, dailyText) {
     }
 
     let text = `${name} 同学在校期间表现`;
-    
+
     // 简单的关键词匹配逻辑
     if (dailyText.includes("积极") || dailyText.includes("优") || dailyText.includes("强")) {
         text += `非常积极。`;
@@ -15159,7 +15230,7 @@ function generateComprehensiveRuleComment(record, dailyText) {
     let scorePart = "";
     if (exams && exams.length >= 2) {
         const first = exams[0].gradeRank || exams[0].rank;
-        const last = exams[exams.length-1].gradeRank || exams[exams.length-1].rank;
+        const last = exams[exams.length - 1].gradeRank || exams[exams.length - 1].rank;
         const diff = first - last;
         if (diff > 0) scorePart = `本学期成绩稳步提升，排名进步了 ${diff} 名，这与你的努力分不开。`;
         else if (diff < 0) scorePart = `本学期成绩略有起伏，排名有所下滑，需要反思学习方法。`;
@@ -15311,10 +15382,10 @@ function renderWeaknessWorkbook(container) {
     // 2. 绑定基础事件
     const subjectSelect = document.getElementById('wb-subject-select');
     const classSelect = document.getElementById('wb-class-select');
-    
+
     const updateClassList = () => {
         const sub = subjectSelect.value;
-        if(!sub || !G_ItemAnalysisData[sub]) return;
+        if (!sub || !G_ItemAnalysisData[sub]) return;
         const students = G_ItemAnalysisData[sub].students;
         const classes = [...new Set(students.map(s => s.class))].sort();
         classSelect.innerHTML = `<option value="ALL">-- 全体 --</option>` + classes.map(c => `<option value="${c}">${c}</option>`).join('');
@@ -15333,9 +15404,9 @@ function renderWeaknessWorkbook(container) {
     });
 
     document.getElementById('btn-print-workbook').addEventListener('click', () => {
-        if(workbookData.length === 0) return;
+        if (workbookData.length === 0) return;
         const subject = subjectSelect.value;
-        if(workbookData.length > 20 && !confirm(`即将生成 ${workbookData.length} 份攻坚本，是否继续？`)) return;
+        if (workbookData.length > 20 && !confirm(`即将生成 ${workbookData.length} 份攻坚本，是否继续？`)) return;
         printWorkbook(workbookData, subject);
     });
 
@@ -15343,27 +15414,27 @@ function renderWeaknessWorkbook(container) {
     // [!! NEW !!] 批量 AI 生成逻辑
     // ============================================================
     let wbAiController = null;
-    
+
     document.getElementById('btn-batch-ai-workbook').addEventListener('click', async () => {
         const apiKey = localStorage.getItem('G_DeepSeekKey');
         if (!apiKey) { alert("请先在【AI 智能分析】模块设置 API Key！"); return; }
-        
+
         // 筛选出还没生成的学生
         const pendingItems = workbookData.map((item, index) => ({ item, index })).filter(obj => !obj.item.aiExercises);
-        
+
         if (pendingItems.length === 0) {
             alert("当前列表中所有学生均已生成变式题，无需重复生成。");
             return;
         }
 
-        if(!confirm(`即将为 ${pendingItems.length} 位学生批量生成变式题。\n这需要消耗 Token 并花费一定时间。\n\n确定开始吗？`)) return;
+        if (!confirm(`即将为 ${pendingItems.length} 位学生批量生成变式题。\n这需要消耗 Token 并花费一定时间。\n\n确定开始吗？`)) return;
 
         // UI 初始化
         const progressBox = document.getElementById('wb-batch-progress');
         const progressBar = document.getElementById('wb-progress-bar');
         const progressText = document.getElementById('wb-progress-text');
         progressBox.style.display = 'block';
-        
+
         if (wbAiController) wbAiController.abort();
         wbAiController = new AbortController();
 
@@ -15375,35 +15446,35 @@ function renderWeaknessWorkbook(container) {
 
             const { item, index } = obj;
             const studentName = item.student.name;
-            
+
             // 提取知识点
             const kps = [...new Set(item.questions.map(q => q.kp).filter(k => k && k !== '未标记'))];
-            
+
             if (kps.length === 0) {
                 completed++; // 没知识点跳过，也算进度
-                continue; 
+                continue;
             }
 
             progressText.innerText = `🤖 正在出题: ${studentName} (${completed + 1}/${pendingItems.length})`;
-            
+
             // 视觉上定位到该行 (可选)
             const row = document.getElementById(`wb-row-${index}`);
-            if(row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
             try {
                 const exercises = await fetchAIExercises(apiKey, studentName, kps, subject); // 复用之前的函数
                 item.aiExercises = exercises; // 保存数据
-                
+
                 // 更新表格状态 UI
                 if (row && row.cells[3]) {
                     row.cells[3].innerHTML = `<span style="color:#28a745; font-size:0.8em;">✅ 已生成</span>`;
                 }
-                
+
                 completed++;
                 progressBar.style.width = `${(completed / pendingItems.length) * 100}%`;
-                
+
                 // 延时防封
-                await new Promise(r => setTimeout(r, 800)); 
+                await new Promise(r => setTimeout(r, 800));
 
             } catch (err) {
                 if (row && row.cells[3]) row.cells[3].innerHTML = `<span style="color:red; font-size:0.8em;">❌ 失败</span>`;
@@ -15418,13 +15489,13 @@ function renderWeaknessWorkbook(container) {
 
     // 停止与关闭
     document.getElementById('btn-stop-wb-ai').addEventListener('click', () => {
-        if(wbAiController) {
+        if (wbAiController) {
             wbAiController.abort();
             document.getElementById('wb-progress-text').innerText = "🛑 已停止";
         }
     });
     document.getElementById('btn-close-wb-progress').addEventListener('click', () => {
-        if(wbAiController) wbAiController.abort();
+        if (wbAiController) wbAiController.abort();
         document.getElementById('wb-batch-progress').style.display = 'none';
     });
 }
@@ -15436,7 +15507,7 @@ function calculateWeaknessWorkbook(subject, className, threshold) {
     const itemData = G_ItemAnalysisData[subject];
     const itemConfig = G_ItemAnalysisConfig[subject] || {};
     const recalculatedStats = getRecalculatedItemStats(subject); // 复用模块13的计算逻辑
-    
+
     let students = itemData.students;
     if (className !== 'ALL') {
         students = students.filter(s => s.class === className);
@@ -15473,14 +15544,14 @@ function checkQuestion(student, qName, scoreType, statsObj, configObj, threshold
     const score = student[scoreType][qName];
     const stat = statsObj[qName];
     const config = configObj[qName] || {};
-    
+
     // 获取正确满分
     const fullScore = config.fullScore || stat.maxScore;
     const kp = config.content || ""; // 知识点
 
     if (typeof score === 'number' && !isNaN(score) && fullScore > 0) {
         const rate = score / fullScore;
-        
+
         // 判断是否低于阈值
         // 特殊处理：如果 threshold是1.0，只要 score < fullScore 就算错题
         let isWeak = false;
@@ -15514,7 +15585,7 @@ function renderWorkbookPreview(data) {
     const totalEl = document.getElementById('wb-question-total');
 
     container.style.display = 'block';
-    
+
     if (data.length === 0) {
         tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding:20px; color:#999;">当前条件下没有学生需要生成攻坚本。</td></tr>`;
         printBtn.style.display = 'none';
@@ -15524,18 +15595,18 @@ function renderWorkbookPreview(data) {
 
     printBtn.style.display = 'inline-block';
     batchAiBtn.style.display = 'inline-block'; // Show
-    
+
     let totalQ = 0;
     data.forEach(d => totalQ += d.questions.length);
-    
+
     countEl.innerText = data.length;
     totalEl.innerText = totalQ;
 
     tbody.innerHTML = data.map((item, index) => {
         // 预览前5题
-        const previewQ = item.questions.slice(0, 5).map(q => 
+        const previewQ = item.questions.slice(0, 5).map(q =>
             `<span style="display:inline-block; background:#fff3cd; padding:2px 6px; border-radius:4px; margin:2px; font-size:0.85em; border:1px solid #ffeeba;">
-                题${q.qName} [${(q.rate*100).toFixed(0)}%] ${q.kp ? '('+q.kp+')' : ''}
+                题${q.qName} [${(q.rate * 100).toFixed(0)}%] ${q.kp ? '(' + q.kp + ')' : ''}
             </span>`
         ).join('');
         const more = item.questions.length > 5 ? `...等${item.questions.length}题` : '';
@@ -15558,7 +15629,7 @@ function renderWorkbookPreview(data) {
             </tr>
         `;
     }).join('');
-    
+
     // 挂载全局函数
     window.printSingleWorkbook = (index) => {
         const subject = document.getElementById('wb-subject-select').value;
@@ -15586,15 +15657,15 @@ function renderWorkbookPreview(data) {
         try {
             // 调用 AI
             const exercises = await fetchAIExercises(apiKey, item.student.name, kps, document.getElementById('wb-subject-select').value);
-            
+
             // 保存结果到数据对象中
             item.aiExercises = exercises; // 这是一个包含题目文本的字符串
-            
+
             btnElement.innerText = "✅ 完成";
             // 刷新该行状态 (可选)
             const row = document.getElementById(`wb-row-${index}`);
-            if(row && row.cells[3]) row.cells[3].innerHTML = `<span style="color:#28a745; font-size:0.8em;">✅ 已生成</span>`;
-            
+            if (row && row.cells[3]) row.cells[3].innerHTML = `<span style="color:#28a745; font-size:0.8em;">✅ 已生成</span>`;
+
         } catch (err) {
             alert("生成失败: " + err.message);
             btnElement.innerText = originalText;
@@ -15732,7 +15803,7 @@ async function printWorkbook(dataList, subjectName) {
                 <div class="q-item">
                     <div class="q-num">第 ${q.qName} 题</div>
                     <div class="q-kp">📌 考点：${q.kp || '未标记'}</div>
-                    <div class="q-score">得分：${q.score} / ${q.full} <span style="color:#999; font-weight:normal; font-size:0.9em;">(率 ${(q.rate*100).toFixed(0)}%)</span></div>
+                    <div class="q-score">得分：${q.score} / ${q.full} <span style="color:#999; font-weight:normal; font-size:0.9em;">(率 ${(q.rate * 100).toFixed(0)}%)</span></div>
                 </div>
             `;
         });
@@ -15857,7 +15928,7 @@ function initModuleSettingsManager() {
     // 渲染模态框内容
     const renderChecklist = () => {
         const visibleIds = new Set(getSavedSettings());
-        
+
         listContainer.innerHTML = ALL_MODULE_DEFINITIONS.map(mod => {
             const isChecked = visibleIds.has(mod.id) ? 'checked' : '';
             return `
@@ -15897,14 +15968,14 @@ function initModuleSettingsManager() {
         localStorage.setItem('App_Module_Visibility', JSON.stringify(newVisibleIds));
         applySettings();
         modal.style.display = 'none';
-        
+
         // 如果当前所在的模块被隐藏了，自动跳转到第一个可见模块
         const currentActive = document.querySelector('.nav-link.active');
         if (currentActive && currentActive.dataset.module && !newVisibleIds.includes(currentActive.dataset.module)) {
-             // 找到第一个可见的链接并点击
-             const firstVisibleId = newVisibleIds[0];
-             const firstLink = document.querySelector(`.sidebar a[data-module="${firstVisibleId}"]`);
-             if (firstLink) firstLink.click();
+            // 找到第一个可见的链接并点击
+            const firstVisibleId = newVisibleIds[0];
+            const firstLink = document.querySelector(`.sidebar a[data-module="${firstVisibleId}"]`);
+            if (firstLink) firstLink.click();
         }
     });
 
@@ -15926,7 +15997,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function initSidebarToggle() {
     const handle = document.getElementById('sidebar-drag-handle'); // [修改] 获取新 ID
     const sidebar = document.querySelector('.sidebar');
-    
+
     if (!handle || !sidebar) return;
 
     // 1. 读取用户上次的偏好
@@ -15939,7 +16010,7 @@ function initSidebarToggle() {
     handle.addEventListener('click', () => {
         // 切换 class
         sidebar.classList.toggle('collapsed');
-        
+
         // 保存偏好
         const collapsed = sidebar.classList.contains('collapsed');
         localStorage.setItem('App_Sidebar_Collapsed', collapsed);
@@ -15948,7 +16019,7 @@ function initSidebarToggle() {
         // 因为侧边栏收起有 0.3s 的动画，我们需要在动画过程中或结束后调整图表大小
         setTimeout(() => {
             resizeAllCharts();
-        }, 310); 
+        }, 310);
     });
 }
 
@@ -15975,7 +16046,7 @@ if (document.readyState === 'loading') {
 function initSidebarResizer() {
     const resizer = document.getElementById('sidebar-resizer');
     const sidebar = document.querySelector('.sidebar');
-    
+
     if (!resizer || !sidebar) return;
 
     let isResizing = false;
@@ -15985,13 +16056,13 @@ function initSidebarResizer() {
     resizer.addEventListener('mousedown', (e) => {
         isResizing = true;
         lastDownX = e.clientX;
-        
+
         // 添加样式标记
         resizer.classList.add('resizing');
-        
+
         // [关键] 暂时移除过渡动画，让拖动跟手
         sidebar.classList.add('no-transition');
-        
+
         // 防止选中文字
         document.body.style.cursor = 'col-resize';
         document.body.style.userSelect = 'none';
@@ -16010,7 +16081,7 @@ function initSidebarResizer() {
         if (newWidth > 600) newWidth = 600;
 
         sidebar.style.width = `${newWidth}px`;
-        
+
         // 实时重绘图表 (可选，如果觉得卡顿可以去掉这一行，只在mouseup时重绘)
         // requestAnimationFrame(() => resizeAllCharts()); 
     });
@@ -16018,13 +16089,13 @@ function initSidebarResizer() {
     // 3. 鼠标松开 (End)
     document.addEventListener('mouseup', (e) => {
         if (!isResizing) return;
-        
+
         isResizing = false;
         resizer.classList.remove('resizing');
-        
+
         // [关键] 恢复过渡动画
         sidebar.classList.remove('no-transition');
-        
+
         // 恢复鼠标样式
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
@@ -16096,7 +16167,7 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
 
     // 内部辅助：获取单科统计
     const calcDist = (list, subject) => {
-        let cA=0, cB=0, cC=0, cD=0, total=0;
+        let cA = 0, cB = 0, cC = 0, cD = 0, total = 0;
         const config = G_SubjectConfigs[subject] || {}; // 获取分数线配置
 
         list.forEach(s => {
@@ -16124,19 +16195,19 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
             }
         });
 
-        if (total === 0) return { A:0, B:0, C:0, D:0 };
+        if (total === 0) return { A: 0, B: 0, C: 0, D: 0 };
         return {
-            A: parseFloat(((cA/total)*100).toFixed(1)),
-            B: parseFloat(((cB/total)*100).toFixed(1)),
-            C: parseFloat(((cC/total)*100).toFixed(1)),
-            D: parseFloat(((cD/total)*100).toFixed(1))
+            A: parseFloat(((cA / total) * 100).toFixed(1)),
+            B: parseFloat(((cB / total) * 100).toFixed(1)),
+            C: parseFloat(((cC / total) * 100).toFixed(1)),
+            D: parseFloat(((cD / total) * 100).toFixed(1))
         };
     };
 
     subjects.forEach(sub => {
         const curr = calcDist(currentData, sub);
         const comp = calcDist(compareData, sub);
-        ['A','B','C','D'].forEach(k => {
+        ['A', 'B', 'C', 'D'].forEach(k => {
             dataMap.curr[k].push(curr[k]);
             dataMap.comp[k].push(comp[k]);
         });
@@ -16168,15 +16239,15 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
         yAxis: { type: 'value', max: 100, name: '百分比 (%)' },
         series: [
             { name: '本次-D (不及格)', stack: 'current', type: 'bar', data: dataMap.curr.D, itemStyle: { color: colors.D }, barGap: 0 },
-            { name: '本次-C (及格)',   stack: 'current', type: 'bar', data: dataMap.curr.C, itemStyle: { color: colors.C } },
-            { name: '本次-B (良好)',   stack: 'current', type: 'bar', data: dataMap.curr.B, itemStyle: { color: colors.B } },
-            { name: '本次-A (优秀)',   stack: 'current', type: 'bar', data: dataMap.curr.A, itemStyle: { color: colors.A } },
+            { name: '本次-C (及格)', stack: 'current', type: 'bar', data: dataMap.curr.C, itemStyle: { color: colors.C } },
+            { name: '本次-B (良好)', stack: 'current', type: 'bar', data: dataMap.curr.B, itemStyle: { color: colors.B } },
+            { name: '本次-A (优秀)', stack: 'current', type: 'bar', data: dataMap.curr.A, itemStyle: { color: colors.A } },
 
             { name: '上次-D (不及格)', stack: 'compare', type: 'bar', data: dataMap.comp.D, itemStyle: { color: colors.D, opacity: 0.4 } },
-            { name: '上次-C (及格)',   stack: 'compare', type: 'bar', data: dataMap.comp.C, itemStyle: { color: colors.C, opacity: 0.4 } },
-            { name: '上次-B (良好)',   stack: 'compare', type: 'bar', data: dataMap.comp.B, itemStyle: { color: colors.B, opacity: 0.4 } },
-            { name: '上次-A (优秀)',   stack: 'compare', type: 'bar', data: dataMap.comp.A, itemStyle: { color: colors.A, opacity: 0.4 } },
-            
+            { name: '上次-C (及格)', stack: 'compare', type: 'bar', data: dataMap.comp.C, itemStyle: { color: colors.C, opacity: 0.4 } },
+            { name: '上次-B (良好)', stack: 'compare', type: 'bar', data: dataMap.comp.B, itemStyle: { color: colors.B, opacity: 0.4 } },
+            { name: '上次-A (优秀)', stack: 'compare', type: 'bar', data: dataMap.comp.A, itemStyle: { color: colors.A, opacity: 0.4 } },
+
             // 代理图例
             { name: 'A (优秀)', type: 'bar', data: [], itemStyle: { color: colors.A } },
             { name: 'B (良好)', type: 'bar', data: [], itemStyle: { color: colors.B } },
