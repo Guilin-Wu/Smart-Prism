@@ -716,70 +716,73 @@ function loadExcelData(file) {
  * @param {Array<Object>} studentsData
  * @returns {Array<Object>}
  */
+/**
+ * (重构) 6.2. [修复版] 为数据添加单科排名 (班排 & 年排)
+ */
 function addSubjectRanksToData(studentsData) {
-    const dataWithRanks = [...studentsData];
-    const classes = [...new Set(dataWithRanks.map(s => s.class))]; // [!!] (新增) 获取所有班级
+    if (!studentsData || studentsData.length === 0) return [];
 
-    // 1. 检查是否需要计算 年级总分排名 (gradeRank)
-    // (如果第一个学生没有年排(是null或0), 假设所有学生都没有)
+    const dataWithRanks = [...studentsData];
+    const classes = [...new Set(dataWithRanks.map(s => s.class))];
+
+    // 1. 动态扫描所有出现的科目 (防止全局列表缺失)
+    const allSubjects = new Set();
+    // 如果有全局列表，先加入
+    if (typeof G_DynamicSubjectList !== 'undefined') {
+        G_DynamicSubjectList.forEach(s => allSubjects.add(s));
+    }
+    // 扫描数据中的科目
+    dataWithRanks.forEach(s => {
+        if (s.scores) Object.keys(s.scores).forEach(k => allSubjects.add(k));
+    });
+    const subjectList = Array.from(allSubjects);
+
+    // 2. 计算 年级总分排名 (如果缺失)
     if (!dataWithRanks[0].gradeRank) {
-        // 按总分排序 (高到低)
         dataWithRanks.sort((a, b) => (b.totalScore || -Infinity) - (a.totalScore || -Infinity));
-        // 赋予年级排名
-        dataWithRanks.forEach((student, index) => {
-            student.gradeRank = index + 1;
-        });
+        dataWithRanks.forEach((student, index) => { student.gradeRank = index + 1; });
     }
 
-    // 2. 检查是否需要计算 班级总分排名 (rank)
+    // 3. 计算 班级总分排名 (如果缺失)
     if (!dataWithRanks[0].rank) {
         classes.forEach(className => {
-            // 筛选该班学生
             const classStudents = dataWithRanks.filter(s => s.class === className);
-            // 按总分排序 (高到低)
             classStudents.sort((a, b) => (b.totalScore || -Infinity) - (a.totalScore || -Infinity));
-            // 赋予班级排名
-            classStudents.forEach((student, index) => {
-                student.rank = index + 1;
-            });
+            classStudents.forEach((student, index) => { student.rank = index + 1; });
         });
     }
 
-    G_DynamicSubjectList.forEach(subjectName => {
+    // 4. [核心] 计算单科排名 (年级 & 班级)
+    subjectList.forEach(subjectName => {
+        // A. 年级科目排名
+        // 过滤出该科有分数的学生进行排序 (从高到低)
+        // 注意：我们对所有学生计算排名，缺考(null/undefined)的排在最后或不参与
+        // 这里采用: 有分数的参与排名，无分数的 rank=null
+        const validStudents = dataWithRanks.filter(s => typeof s.scores[subjectName] === 'number');
+        
+        validStudents.sort((a, b) => b.scores[subjectName] - a.scores[subjectName]);
 
-        // 1. [!!] (修改) 计算年级科目排名 (Grade Ranks)
-        const sortedByGrade = [...dataWithRanks].sort((a, b) => {
-            const scoreA = a.scores[subjectName] || -Infinity;
-            const scoreB = b.scores[subjectName] || -Infinity;
-            return scoreB - scoreA;
-        });
-
-        sortedByGrade.forEach((student, index) => {
-            if (!student.gradeRanks) student.gradeRanks = {}; // [!!] (重命名)
+        validStudents.forEach((student, index) => {
+            if (!student.gradeRanks) student.gradeRanks = {};
+            // 处理同分排名 (可选: 相同分数排名相同) -> 这里简化为序号
             student.gradeRanks[subjectName] = index + 1;
         });
 
-        // 2. [!!] (新增) 计算班级科目排名 (Class Ranks)
+        // B. 班级科目排名
         classes.forEach(className => {
-            // 筛选出该班学生
-            const classStudents = dataWithRanks.filter(s => s.class === className);
-
-            // 按分数排序
-            const sortedByClass = [...classStudents].sort((a, b) => {
-                const scoreA = a.scores[subjectName] || -Infinity;
-                const scoreB = b.scores[subjectName] || -Infinity;
-                return scoreB - scoreA;
-            });
-
-            // 附加班级排名
-            sortedByClass.forEach((student, index) => {
-                if (!student.classRanks) student.classRanks = {}; // [!!] (新属性)
+            const classStudents = validStudents.filter(s => s.class === className);
+            // 已经在上面按分数排过序了，这里再次过滤就是有序的吗？
+            // 为了保险，再次排序
+            classStudents.sort((a, b) => b.scores[subjectName] - a.scores[subjectName]);
+            
+            classStudents.forEach((student, index) => {
+                if (!student.classRanks) student.classRanks = {};
                 student.classRanks[subjectName] = index + 1;
             });
         });
     });
 
-    // 按Excel中提供的 班级排名(rank) 排序后返回
+    // 5. 恢复默认排序 (按班级总分排名)
     return dataWithRanks.sort((a, b) => a.rank - b.rank);
 }
 
@@ -1612,6 +1615,14 @@ function renderDashboard(container, stats, activeData) {
 function renderStudent(container, students, stats) {
     // 初始化隐藏状态 (如果没有定义过)
     if (typeof window.G_HideRank === 'undefined') window.G_HideRank = false;
+    // --- [新增] 防御性检查：如果发现排名缺失，尝试现场补算 ---
+    if (students.length > 0 && (!students[0].classRanks || !students[0].gradeRanks)) {
+        console.log("检测到排名数据缺失，正在自动补全...");
+        // 重新计算排名
+        const recalculated = addSubjectRanksToData(students);
+        // 更新引用 (注意：这不会更新 IndexedDB，只更新当前视图)
+        students = recalculated; 
+    }
 
     // 1. 渲染搜索框、操作按钮 和 结果容器
     container.innerHTML = `
@@ -10595,7 +10606,13 @@ async function initAIModule() {
         const model = document.getElementById('ai-model-select').value;
         const qCount = document.getElementById('ai-q-count').value;
         const grade = document.getElementById('ai-grade-select').value;
-        const targetSubject = document.getElementById('ai-item-subject').value;
+        // [修改后] -------------- 开始 --------------
+        let targetSubject = document.getElementById('ai-item-subject').value;
+        
+        // 如果不是“小题诊断”或“教学指导”模式，强制将科目设为空，确保进行综合分析
+        if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') {
+            targetSubject = ""; 
+        }
 
         // 获取班级
         const classSelect = document.getElementById('ai-item-class');
@@ -11287,7 +11304,15 @@ function printAIReport() {
     const modeEl = document.getElementById('ai-mode-select');
     const modeText = modeEl ? modeEl.selectedOptions[0].text : "分析报告";
     const grade = document.getElementById('ai-grade-select').value;
-    const subject = document.getElementById('ai-item-subject').value || "综合";
+    // [修改后] -------------- 开始 --------------
+    let subject = document.getElementById('ai-item-subject').value;
+    
+    // 如果是综合类模式，强制显示为“综合”
+    if (modeEl.value === 'trend' || modeEl.value === 'weakness' || modeEl.value === 'question') {
+        subject = "综合";
+    } else {
+        subject = subject || "综合";
+    }
     let title = "";
     let subTitle = "";
 
