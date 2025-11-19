@@ -12145,6 +12145,9 @@ function initPromptManager() {
         // 保存当前选中的模板ID，供生成时使用
         localStorage.setItem('G_AI_ActivePromptId', key);
         alert("模板已保存");
+        
+        // --- ✅ 新增关闭指令 ---
+        modal.style.display = 'none'; 
     };
 
     // ============================================================
