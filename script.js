@@ -8715,31 +8715,65 @@ function drawItemAnalysisLayeredChart() {
 // =====================================================================
 
 /**
- * 13.11. [FIXED] 计算分层后的知识点统计数据
- * [!!] 修改：使用中文分号 "；" 或英文分号 ";" 作为分隔符
+ * 13.11. [FIXED & UPGRADED] 计算分层后的知识点统计数据
+ * [!!] 新增：统计每个知识点对应的题目题号
  */
 function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents, questionType = 'all') {
     // 1. 获取基础数据
     if (!G_ItemAnalysisData || !G_ItemAnalysisData[subjectName]) {
-        return { groupStats: {}, knowledgePoints: [], studentsWithRates: [] };
+        return { groupStats: {}, knowledgePoints: [], studentsWithRates: [], displayLabels: [] };
     }
     const rawData = G_ItemAnalysisData[subjectName];
     const subjectConfig = G_ItemAnalysisConfig[subjectName] || {};
 
-    // 2. [核心] 构建知识点列表 (仅用于生成表头和初始化)
+    // 2. [核心] 构建知识点列表 & 题目映射关系
     const knowledgeSet = new Set();
-    for (const qName in subjectConfig) {
-        const content = subjectConfig[qName]?.content;
-        if (content) {
-            // [!! 修改 !!] 使用正则同时匹配 中文分号(；) 和 英文分号(;)
-            const kps = content.split(/[;；]/).map(k => k.trim()).filter(k => k);
-            kps.forEach(k => knowledgeSet.add(k));
-        }
-    }
+    const kpToQuestionsMap = {}; // { "牛顿定律": ["1", "3"], "速度": ["4"] }
+
+    // 辅助：收集题号到知识点的映射
+    const collectQuestionInfo = (qList) => {
+        if (!qList) return;
+        qList.forEach(qName => {
+            const content = subjectConfig[qName]?.content;
+            if (content) {
+                // 支持中文分号和英文分号
+                const kps = content.split(/[;；]/).map(k => k.trim()).filter(k => k);
+                kps.forEach(k => {
+                    knowledgeSet.add(k);
+                    
+                    if (!kpToQuestionsMap[k]) kpToQuestionsMap[k] = [];
+                    // 避免重复添加 (虽然逻辑上不会，但为了保险)
+                    if (!kpToQuestionsMap[k].includes(qName)) {
+                        kpToQuestionsMap[k].push(qName);
+                    }
+                });
+            }
+        });
+    };
+
+    // 根据筛选类型收集题目信息
+    if (questionType === 'all' || questionType === 'minor') collectQuestionInfo(rawData.minorQuestions);
+    if (questionType === 'all' || questionType === 'major') collectQuestionInfo(rawData.majorQuestions);
+
     const knowledgePoints = Array.from(knowledgeSet).sort();
 
+    // [!! 新增 !!] 生成用于图表显示的标签数组 (与 knowledgePoints 一一对应)
+    const displayLabels = knowledgePoints.map(kp => {
+        const qList = kpToQuestionsMap[kp] || [];
+        // 对题号进行简单排序 (数字排序)
+        qList.sort((a, b) => {
+            const numA = parseFloat(a) || 0;
+            const numB = parseFloat(b) || 0;
+            return numA - numB;
+        });
+        
+        // 如果题目太多，换行显示，避免挤在一起
+        const qStr = qList.join(',');
+        return `${kp}\n(题${qStr})`; // 例如：速度\n(题4,12)
+    });
+
     if (knowledgePoints.length === 0) {
-        return { groupStats: {}, knowledgePoints: [], studentsWithRates: [] };
+        return { groupStats: {}, knowledgePoints: [], studentsWithRates: [], displayLabels: [] };
     }
 
     // 3. 获取重新计算后的满分
@@ -8751,21 +8785,17 @@ function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents
         .sort((a, b) => b.totalScore - a.totalScore);
 
     if (validStudents.length === 0) {
-        return { groupStats: {}, knowledgePoints: knowledgePoints, studentsWithRates: [] };
+        return { groupStats: {}, knowledgePoints: knowledgePoints, studentsWithRates: [], displayLabels: displayLabels };
     }
 
     // 5. 计算每个学生在每个知识点上的得分率
     validStudents.forEach(student => {
         student.knowledgeRates = {};
         const aggregates = {};
-        // 初始化所有知识点的累加器
         knowledgePoints.forEach(kp => { aggregates[kp] = { totalGot: 0, totalPossible: 0 }; });
 
-        // --- 辅助函数：处理单道题目的分数累加 ---
         const processQuestion = (qName, statsType, scoreType) => {
             const qContent = subjectConfig[qName]?.content || "";
-
-            // [!! 修改 !!] 解析该题对应的所有知识点 (同样支持两种分号)
             const qKps = qContent.split(/[;；]/).map(k => k.trim()).filter(k => k);
 
             if (qKps.length > 0) {
@@ -8773,9 +8803,7 @@ function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents
                 const score = student[scoreType][qName];
                 const fullScore = stat?.manualFullScore || stat?.maxScore;
 
-                // 如果分数有效且满分>0
                 if (typeof score === 'number' && !isNaN(score) && fullScore > 0) {
-                    // 将该题的分数贡献给它所属的每一个知识点
                     qKps.forEach(targetKp => {
                         if (aggregates[targetKp]) {
                             aggregates[targetKp].totalGot += score;
@@ -8786,44 +8814,32 @@ function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents
             }
         };
 
-        // (A) 筛选小题
         if (questionType === 'all' || questionType === 'minor') {
-            (rawData.minorQuestions || []).forEach(qName => {
-                processQuestion(qName, 'minorStats', 'minorScores');
-            });
+            (rawData.minorQuestions || []).forEach(qName => processQuestion(qName, 'minorStats', 'minorScores'));
         }
-
-        // (B) 筛选大题
         if (questionType === 'all' || questionType === 'major') {
-            (rawData.majorQuestions || []).forEach(qName => {
-                processQuestion(qName, 'majorStats', 'majorScores');
-            });
+            (rawData.majorQuestions || []).forEach(qName => processQuestion(qName, 'majorStats', 'majorScores'));
         }
 
-        // (C) 结算得分率
         for (const kp in aggregates) {
             const agg = aggregates[kp];
-            // 得分率 = 总得分 / 总满分
             student.knowledgeRates[kp] = (agg.totalPossible > 0) ? (agg.totalGot / agg.totalPossible) : null;
         }
     });
 
-    // 6. 将学生分层 (G1, G2, ...)
+    // 6. 将学生分层
     const groupSize = Math.ceil(validStudents.length / numGroups);
     const studentGroups = [];
     for (let i = 0; i < numGroups; i++) {
         const group = validStudents.slice(i * groupSize, (i + 1) * groupSize);
-        if (group.length > 0) {
-            studentGroups.push(group);
-        }
+        if (group.length > 0) studentGroups.push(group);
     }
 
-    // 7. 计算每层在每个知识点上的平均得分率
+    // 7. 计算每层平均得分率
     const groupStats = {};
     studentGroups.forEach((group, index) => {
         const groupName = `G${index + 1}`;
         groupStats[groupName] = {};
-
         knowledgePoints.forEach(kp => {
             let totalRate = 0;
             let validCount = 0;
@@ -8838,15 +8854,14 @@ function calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents
         });
     });
 
-    return { groupStats, knowledgePoints, studentsWithRates: validStudents };
+    // [!! 修改 !!] 返回 displayLabels
+    return { groupStats, knowledgePoints, studentsWithRates: validStudents, displayLabels };
 }
 
 
 /**
  * 13.12. [MODIFIED] (Feature 5) 
  * 绘制知识点掌握情况分组柱状图
- * * [!! 修正版 10 !!] - 2025-11-11
- * - (Feature) 现在从DOM读取班级筛选器，并获取筛选后的学生。
  */
 function drawItemAnalysisKnowledgeChart() {
     const chartDom = document.getElementById('item-chart-knowledge');
@@ -8859,24 +8874,25 @@ function drawItemAnalysisKnowledgeChart() {
 
     // 1. 获取参数
     const subjectName = document.getElementById('item-subject-select').value;
-    const selectedClass = document.getElementById('item-class-filter').value; // [!! NEW !!]
+    const selectedClass = document.getElementById('item-class-filter').value;
     const numGroups = parseInt(document.getElementById('item-layer-groups').value);
 
-    // [!! NEW (Feature) !!] 2. 获取筛选后的学生
+    // 2. 获取筛选后的学生
     const allStudents = G_ItemAnalysisData[subjectName]?.students || [];
     const filteredStudents = (selectedClass === 'ALL')
         ? allStudents
         : allStudents.filter(s => s.class === selectedClass);
 
-    // 3. [核心] 计算分层数据 (传入筛选后的学生)
-    const { groupStats, knowledgePoints } = calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents);
+    // 3. [核心] 计算分层数据
+    // [!!] 解构出 displayLabels
+    const { groupStats, knowledgePoints, displayLabels } = calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents);
 
     if (knowledgePoints.length === 0) {
         chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">未找到已配置“考查内容”的题目，请先点击“配置题目”。</p>`;
         return;
     }
 
-    // 4. 准备 ECharts Series (不变)
+    // 4. 准备 ECharts Series
     const series = [];
     const legendData = Object.keys(groupStats);
     const lineColors = [
@@ -8890,6 +8906,7 @@ function drawItemAnalysisKnowledgeChart() {
             type: 'bar',
             barGap: 0,
             emphasis: { focus: 'series' },
+            // 数据依然使用 knowledgePoints (原始key) 来索引 groupStats
             data: knowledgePoints.map(kp => {
                 return parseFloat((groupStats[groupName][kp] || 0).toFixed(3));
             }),
@@ -8897,21 +8914,42 @@ function drawItemAnalysisKnowledgeChart() {
         });
     });
 
-    // 5. ECharts 配置 (不变)
+    // 5. ECharts 配置
     const option = {
         title: {
             text: '知识点掌握情况 (按总分分层)',
             left: 'center',
             textStyle: { fontSize: 16, fontWeight: 'normal' }
         },
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        tooltip: { 
+            trigger: 'axis', 
+            axisPointer: { type: 'shadow' },
+            // [可选] Tooltip 格式化，让浮层也显示题目
+            formatter: (params) => {
+                // params[0].name 已经是带换行符的 displayLabel 了
+                // 我们可以把它处理一下，让它在 tooltip 里显示得更好看
+                const title = params[0].name.replace('\n', ' '); 
+                let html = `<strong>${title}</strong><br/>`;
+                params.forEach(p => {
+                    html += `${p.marker} ${p.seriesName}: ${p.value}<br/>`;
+                });
+                return html;
+            }
+        },
         legend: { data: legendData, top: 30, type: 'scroll' },
         grid: { left: '3%', right: '4%', bottom: '20%', top: 70, containLabel: true },
         xAxis: {
             type: 'category',
-            data: knowledgePoints,
-            name: '知识点 (考察内容)',
-            axisLabel: { interval: 'auto', rotate: 30 }
+            // [!! 核心修改 !!] 这里使用 displayLabels 而不是 knowledgePoints
+            data: displayLabels, 
+            name: '知识点 (含题号)',
+            axisLabel: { 
+                interval: 0, // 强制显示所有标签
+                rotate: 30,  // 旋转以防重叠
+                fontSize: 11,
+                // 如果标签太长，ECharts 会自动处理换行，因为我们加了 \n
+                lineHeight: 14 
+            }
         },
         yAxis: { type: 'value', name: '得分率', min: 0, max: 1 },
         dataZoom: [
@@ -8919,7 +8957,8 @@ function drawItemAnalysisKnowledgeChart() {
                 type: 'slider',
                 xAxisIndex: [0],
                 start: 0,
-                end: (knowledgePoints.length > 20) ? (20 / knowledgePoints.length * 100) : 100,
+                // 动态调整显示范围，防止柱子太细
+                end: (knowledgePoints.length > 15) ? (15 / knowledgePoints.length * 100) : 100,
                 bottom: 10,
                 height: 20
             },
