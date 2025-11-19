@@ -16407,10 +16407,22 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
             { name: '上次-A (优秀)', stack: 'compare', type: 'bar', data: dataMap.comp.A, itemStyle: { color: colors.A, opacity: 0.4 } },
 
             // 代理图例
-            { name: 'A (优秀)', type: 'bar', data: [], itemStyle: { color: colors.A } },
-            { name: 'B (良好)', type: 'bar', data: [], itemStyle: { color: colors.B } },
-            { name: 'C (及格)', type: 'bar', data: [], itemStyle: { color: colors.C } },
-            { name: 'D (不及格)', type: 'bar', data: [], itemStyle: { color: colors.D } }
+{ 
+                name: 'A (优秀)', type: 'bar', stack: 'current', data: [], 
+                itemStyle: { color: colors.A } 
+            },
+            { 
+                name: 'B (良好)', type: 'bar', stack: 'current', data: [], 
+                itemStyle: { color: colors.B } 
+            },
+            { 
+                name: 'C (及格)', type: 'bar', stack: 'current', data: [], 
+                itemStyle: { color: colors.C } 
+            },
+            { 
+                name: 'D (不及格)', type: 'bar', stack: 'current', data: [], 
+                itemStyle: { color: colors.D } 
+            }
         ]
     };
     echartsInstances[elementId].setOption(option);
