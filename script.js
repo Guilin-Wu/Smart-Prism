@@ -10754,11 +10754,13 @@ function renderSubjectRankChart(containerId, examNames, visibleExamData, student
 // =====================================================================
 
 /**
- * 14.0 [升级版] 初始化 AI 模块 (含批量生成功能)
+ * 14.0 [旗舰完整版 - 已清洗] 初始化 AI 模块
+ * - 保留：批量生成、自动补录、历史记录等核心功能
  */
 async function initAIModule() {
+
     initPromptManager();
-    initAIHistoryUI(); // 确保历史记录功能也初始化
+    initAIHistoryUI(); 
 
     const apiKeyInput = document.getElementById('ai-api-key');
     const saveKeyBtn = document.getElementById('ai-save-key-btn');
@@ -10771,24 +10773,20 @@ async function initAIModule() {
     const itemClassSelect = document.getElementById('ai-item-class');
     const studentSearchContainer = document.querySelector('.search-combobox');
     const qCountWrapper = document.getElementById('ai-q-count-wrapper');
-    
-    // 1. [新增] 动态注入“批量生成”按钮和“进度弹窗”
-    // 找到放置按钮的容器 (分析按钮的父级)
+
+    // ============================================================
+    // 1. 动态注入“批量生成”按钮和“进度弹窗”
+    // ============================================================
     const controlBar = analyzeBtn.parentElement;
     
-    // 检查是否已添加，防止重复
     if (!document.getElementById('ai-batch-btn')) {
-        // 创建批量按钮
         const batchBtn = document.createElement('button');
         batchBtn.id = 'ai-batch-btn';
         batchBtn.className = 'sidebar-button';
-        batchBtn.style.cssText = "background-color: #fd7e14; margin-right: 10px;"; // 橙色
+        batchBtn.style.cssText = "background-color: #fd7e14; margin-right: 10px;";
         batchBtn.innerHTML = "📦 批量生成";
-        
-        // 插入到“开始 AI 分析”按钮之前 (即红框位置)
         controlBar.insertBefore(batchBtn, analyzeBtn);
 
-        // 创建批量任务模态框 HTML
         const batchModalHtml = `
         <div id="ai-batch-modal" class="modal-overlay" style="display: none;">
             <div class="modal-content" style="max-width: 600px;">
@@ -10798,51 +10796,71 @@ async function initAIModule() {
                 </div>
                 <div class="modal-body">
                     <div id="ai-batch-config">
-                        <div style="margin-bottom:15px; display:flex; gap:10px; align-items:center;">
-                            <label style="font-weight:bold;">选择班级:</label>
+                        <div style="margin-bottom:10px; display:flex; gap:10px; align-items:center;">
+                            <label style="font-weight:bold;">1. 选择班级:</label>
                             <select id="ai-batch-class" class="sidebar-select" style="flex:1;"></select>
+                        </div>
+                        <div style="margin-bottom:15px; border:1px solid #eee; padding:10px; border-radius:4px; background:#f9f9f9;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:5px; border-bottom:1px solid #eee; padding-bottom:5px;">
+                                <label style="font-weight:bold; font-size:0.9em;">2. 选择学生:</label>
+                                <div>
+                                    <a href="javascript:void(0)" id="ai-batch-select-all" style="font-size:0.8em; color:#007bff; margin-right:10px; text-decoration:none;">全选</a>
+                                    <a href="javascript:void(0)" id="ai-batch-select-none" style="font-size:0.8em; color:#666; text-decoration:none;">清空</a>
+                                </div>
+                            </div>
+                            <div id="ai-batch-student-list" style="max-height:150px; overflow-y:auto; display:grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap:5px;"></div>
+                            <div id="ai-batch-selected-count" style="text-align:right; font-size:0.8em; color:#666; margin-top:5px;">已选: 0 人</div>
                         </div>
                         <div style="margin-bottom:15px; display:flex; gap:10px; align-items:center;">
                             <label style="font-weight:bold;">分析模式:</label>
                             <span id="ai-batch-mode-display" style="color:#6f42c1; font-weight:bold;">--</span>
                             <span style="font-size:0.8em; color:#999;">(跟随主界面选择)</span>
                         </div>
-                        <div style="background:#fff3cd; color:#856404; padding:10px; border-radius:4px; font-size:0.9em; margin-bottom:15px;">
-                            ⚠️ 注意：批量生成消耗 Token 较多。系统将每隔 2 秒处理一名学生，以防 API 超限。请勿关闭此窗口。
-                        </div>
                         <button id="ai-batch-start-btn" class="sidebar-button" style="width:100%; background-color:#6f42c1;">🚀 开始批量生成</button>
                     </div>
-
                     <div id="ai-batch-progress-area" style="display:none;">
                         <div style="margin-bottom:5px; display:flex; justify-content:space-between;">
-                            <span id="ai-batch-status">正在初始化...</span>
+                            <span id="ai-batch-status">初始化...</span>
                             <span id="ai-batch-count">0/0</span>
                         </div>
                         <div style="width:100%; background:#eee; height:10px; border-radius:5px; overflow:hidden; margin-bottom:15px;">
                             <div id="ai-batch-bar" style="width:0%; height:100%; background:#28a745; transition:width 0.3s;"></div>
                         </div>
                         <div id="ai-batch-log" style="height:150px; overflow-y:auto; background:#f8f9fa; border:1px solid #eee; padding:10px; font-size:0.85em; color:#555; margin-bottom:15px;"></div>
-                        
                         <div style="display:flex; gap:10px;">
-                            <button id="ai-batch-print-btn" class="sidebar-button" style="flex:1; background-color:#28a745;" disabled>🖨️ 批量打印报告</button>
-                            <button id="ai-batch-stop-btn" class="sidebar-button" style="flex:1; background-color:#dc3545;">⏹ 停止</button>
+                            <button id="ai-batch-save-btn" class="sidebar-button" style="flex:1; background-color:#17a2b8;" disabled>💾 批量存档</button>
+                            <button id="ai-batch-print-btn" class="sidebar-button" style="flex:1; background-color:#28a745;" disabled>🖨️ 批量打印</button>
+                            <button id="ai-batch-stop-btn" class="sidebar-button" style="flex:0.5; background-color:#dc3545;">停止⏹</button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>`;
         
-        // 插入模态框到 body
         document.body.insertAdjacentHTML('beforeend', batchModalHtml);
         
-        // 绑定批量按钮点击
+        // 绑定事件
         batchBtn.addEventListener('click', openBatchModal);
-        
-        // 绑定模态框内部按钮
         document.getElementById('ai-batch-start-btn').addEventListener('click', runBatchAnalysis);
         document.getElementById('ai-batch-print-btn').addEventListener('click', printBatchReports);
         document.getElementById('ai-batch-stop-btn').addEventListener('click', () => { window.stopBatchAI = true; });
+        
+        // [修复] 使用 cloneNode 清除旧监听器，并绑定全局保存函数
+        const saveBtn = document.getElementById('ai-batch-save-btn');
+        const newSaveBtn = saveBtn.cloneNode(true);
+        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+        newSaveBtn.addEventListener('click', window.saveBatchToHistory);
+
+        document.getElementById('ai-batch-select-all').onclick = () => toggleBatchSelection(true);
+        document.getElementById('ai-batch-select-none').onclick = () => toggleBatchSelection(false);
+        document.getElementById('ai-batch-class').addEventListener('change', () => {
+            renderBatchStudentList(document.getElementById('ai-batch-class').value);
+        });
     }
+
+    // ============================================================
+    // 2. 常规初始化
+    // ============================================================
 
     // 加载 Key
     const savedKey = localStorage.getItem('G_DeepSeekKey');
@@ -10851,23 +10869,20 @@ async function initAIModule() {
         document.getElementById('ai-key-status').style.display = 'inline';
     }
 
-    // 绑定按钮
+    // 绑定顶部按钮
     const sendFollowUpBtn = document.getElementById('ai-send-btn');
     if (sendFollowUpBtn) sendFollowUpBtn.addEventListener('click', sendAIFollowUp);
+    
     const printReportBtn = document.getElementById('ai-print-btn');
+    if (printReportBtn) printReportBtn.addEventListener('click', printAIReport);
 
     const printRangeBtn = document.getElementById('ai-print-range-btn');
     if (printRangeBtn) {
         printRangeBtn.addEventListener('click', () => {
-            // 弹出输入框询问
-            const input = prompt("请输入要打印的对话轮次 (例如 '1' 或 '1-3' 或 '2,4')：\n\n● 第 1 轮 = 初始分析报告\n● 第 2+ 轮 = 后续追问对话", "1");
-            if (input) {
-                printRangeReport(input);
-            }
+            const input = prompt("请输入要打印的对话轮次 (例如 '1' 或 '1-3')：", "1");
+            if (input) printRangeReport(input);
         });
     }
-
-    if (printReportBtn) printReportBtn.addEventListener('click', printAIReport);
 
     saveKeyBtn.addEventListener('click', () => {
         const key = apiKeyInput.value.trim();
@@ -10875,38 +10890,30 @@ async function initAIModule() {
             localStorage.setItem('G_DeepSeekKey', key);
             document.getElementById('ai-key-status').style.display = 'inline';
             alert('API Key 已保存！');
-        } else {
-            alert('请输入有效的 DeepSeek API Key');
-        }
+        } else { alert('请输入有效的 DeepSeek API Key'); }
     });
 
-    // [新增] 独立的更新班级列表函数
+    // 独立的更新班级列表函数
     const updateClassList = () => {
         const subject = itemSubjectSelect.value;
-        // 确保有数据
         if (!subject || !window.G_ItemAnalysisData || !window.G_ItemAnalysisData[subject]) {
             itemClassSelect.innerHTML = `<option value="ALL">-- 全体年段 --</option>`;
             return;
         }
-
         const students = window.G_ItemAnalysisData[subject].students;
         const classes = [...new Set(students.map(s => s.class))].sort();
         const currentClass = itemClassSelect.value;
-
         let html = `<option value="ALL">-- 全体年段 --</option>`;
         html += classes.map(c => `<option value="${c}">${c}</option>`).join('');
         itemClassSelect.innerHTML = html;
-
-        // 尝试恢复之前的选择
         if (currentClass && (classes.includes(currentClass) || currentClass === 'ALL')) {
             itemClassSelect.value = currentClass;
         }
     };
 
-    // 监听科目变化
     itemSubjectSelect.addEventListener('change', updateClassList);
 
-    // 监听模式变化 [!! 修复 !!] 改为 async 以支持从数据库补录数据
+    // 监听模式变化 (自动补录数据)
     modeSelect.addEventListener('change', async () => {
         const val = modeSelect.value;
         if (qCountWrapper) qCountWrapper.style.display = (val === 'question') ? 'inline-flex' : 'none';
@@ -10915,58 +10922,32 @@ async function initAIModule() {
         if (val === 'teaching_guide') {
             analyzeBtn.disabled = false;
         } else {
-            if (searchInput.dataset.selectedId) {
-                analyzeBtn.disabled = false;
-            } else {
-                analyzeBtn.disabled = true;
-            }
+            if (searchInput.dataset.selectedId) analyzeBtn.disabled = false;
+            else analyzeBtn.disabled = true;
         }
 
-        // 如果选择了需要“学科小题数据”的模式
         if (val === 'item_diagnosis' || val === 'teaching_guide') {
             itemSubjectWrapper.style.display = 'inline-flex';
-
-            // ============================================================
-            // [!! 核心修复 !!] 尝试从 localforage (IndexedDB) 加载数据
-            // 之前只读了 localStorage，导致新版数据无法被 AI 模块识别
-            // ============================================================
+            
+            // 尝试补载数据
             if (!window.G_ItemAnalysisData || Object.keys(window.G_ItemAnalysisData).length === 0) {
                 try {
-                    // 显示临时加载状态
                     itemSubjectSelect.innerHTML = `<option>⌛️ 加载中...</option>`;
-
                     const storedData = await localforage.getItem('G_ItemAnalysisData');
                     const storedConfig = await localforage.getItem('G_ItemAnalysisConfig');
-
                     if (storedData) {
                         window.G_ItemAnalysisData = storedData;
                         window.G_ItemAnalysisConfig = storedConfig || {};
-                        console.log("AI模块：已从数据库成功补载小题数据");
                     }
-                } catch (e) {
-                    console.error("AI模块加载数据失败:", e);
-                }
+                } catch (e) { console.error(e); }
             }
-            // ============================================================
 
-            // 填充科目并立即触发班级更新
             if (window.G_ItemAnalysisData && Object.keys(window.G_ItemAnalysisData).length > 0) {
                 const subjects = Object.keys(window.G_ItemAnalysisData);
                 const currentVal = itemSubjectSelect.value;
-
                 itemSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
-
-                // 保持选中状态或默认选中第一个
-                if (currentVal && subjects.includes(currentVal)) {
-                    itemSubjectSelect.value = currentVal;
-                } else {
-                    // 默认选中第一个，并触发 change 事件以更新班级列表
-                    itemSubjectSelect.value = subjects[0];
-                }
-
-                // [!!] 手动调用一次更新班级，确保班级列表不为空
+                if (!currentVal || !subjects.includes(currentVal)) itemSubjectSelect.value = subjects[0];
                 if (typeof updateClassList === 'function') updateClassList();
-
             } else {
                 itemSubjectSelect.innerHTML = `<option value="">请先导入数据</option>`;
                 itemClassSelect.innerHTML = `<option value="ALL">-- 全体年段 --</option>`;
@@ -10986,92 +10967,44 @@ async function initAIModule() {
         }
     });
 
-    // 搜索框逻辑 (保持不变)
-    const resultsContainer = document.getElementById('ai-student-search-results');
-    const multiData = await loadMultiExamData();
-    const allStudentsMap = new Map();
-    // 现在 multiData 是数组了，forEach 可以正常工作
-    multiData.forEach(exam => exam.students.forEach(s => allStudentsMap.set(s.id, s.name)));
-    G_StudentsData.forEach(s => allStudentsMap.set(s.id, s.name));
-    const allStudentsList = Array.from(allStudentsMap, ([id, name]) => ({ id, name }));
-
-    searchInput.addEventListener('input', (e) => {
-        const term = e.target.value.toLowerCase();
-        if (term.length < 1) { resultsContainer.style.display = 'none'; return; }
-        const matches = allStudentsList.filter(s => s.name.toLowerCase().includes(term) || String(s.id).includes(term)).slice(0, 10);
-        resultsContainer.innerHTML = matches.map(s => `<div class="result-item" data-id="${s.id}" data-name="${s.name}">${s.name} (${s.id})</div>`).join('');
-        resultsContainer.style.display = 'block';
+    // 复制按钮
+    document.getElementById('ai-copy-btn').addEventListener('click', () => {
+        const content = document.getElementById('ai-content').innerText;
+        navigator.clipboard.writeText(content).then(() => alert('内容已复制'));
     });
 
-    resultsContainer.addEventListener('click', (e) => {
-        const item = e.target.closest('.result-item');
-        if (item) {
-            searchInput.value = `${item.dataset.name} (${item.dataset.id})`;
-            searchInput.dataset.selectedId = item.dataset.id;
-            searchInput.dataset.selectedName = item.dataset.name;
-            resultsContainer.style.display = 'none';
-            analyzeBtn.disabled = false;
-        }
-    });
-
-    // 点击分析按钮
+    // ============================================================
+    // 3. 点击主分析按钮 (单次生成)
+    // ============================================================
     analyzeBtn.addEventListener('click', () => {
         const studentId = searchInput.dataset.selectedId || "";
         const studentName = searchInput.dataset.selectedName || "全体同学";
-
         const mode = document.getElementById('ai-mode-select').value;
         const model = document.getElementById('ai-model-select').value;
         const qCount = document.getElementById('ai-q-count').value;
         const grade = document.getElementById('ai-grade-select').value;
         
-        // [修改后] -------------- 开始 --------------
         let targetSubject = document.getElementById('ai-item-subject').value;
-        
-        // 如果不是“小题诊断”或“教学指导”模式，强制将科目设为空，确保进行综合分析
-        if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') {
-            targetSubject = ""; 
-        }
-
-        // 获取班级
-        const classSelect = document.getElementById('ai-item-class');
-        const targetClass = classSelect ? classSelect.value : 'ALL';
-
+        if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
+        const targetClass = document.getElementById('ai-item-class').value || 'ALL';
         const apiKey = localStorage.getItem('G_DeepSeekKey');
+
         if (!apiKey) { alert('请先设置 DeepSeek API Key'); return; }
 
         if (mode === 'teaching_guide' || mode === 'item_diagnosis') {
             if (!targetSubject) { alert("请选择一个科目！"); return; }
-
-            // 再次补救数据加载
-            if (!window.G_ItemAnalysisData) {
-                const stored = localStorage.getItem('G_ItemAnalysisData');
-                if (stored) {
-                    window.G_ItemAnalysisData = JSON.parse(stored);
-                    const cfg = localStorage.getItem('G_ItemAnalysisConfig');
-                    if (cfg) window.G_ItemAnalysisConfig = JSON.parse(cfg);
-                } else {
-                    alert("无法读取数据，请先去模块13导入！"); return;
-                }
-            }
-
-            if (!window.G_ItemAnalysisData[targetSubject]) {
-                alert(`找不到科目【${targetSubject}】的数据。`); return;
-            }
-
-            if (mode === 'item_diagnosis' && !studentId) {
-                alert('请先选择一名学生'); return;
-            }
+            if (!window.G_ItemAnalysisData) { alert("无法读取数据，请先去模块13导入！"); return; }
+            if (!window.G_ItemAnalysisData[targetSubject]) { alert(`找不到科目【${targetSubject}】的数据。`); return; }
+            if (mode === 'item_diagnosis' && !studentId) { alert('请先选择一名学生'); return; }
         } else {
             if (!studentId) { alert('请先选择一名学生'); return; }
         }
 
         runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount, grade, targetSubject, targetClass);
     });
-
-    document.getElementById('ai-copy-btn').addEventListener('click', () => {
-        const content = document.getElementById('ai-content').innerText;
-        navigator.clipboard.writeText(content).then(() => alert('内容已复制'));
-    });
+    
+    // 4. 初始化搜索逻辑 (一次性调用，替代了之前的重复代码)
+    initStudentSearchLogic();
 }
 
 /**
@@ -11891,66 +11824,71 @@ function initAIHistoryUI() {
  * @param {string} subTitle - 副标题
  * @param {number|null} existingId - 如果是更  现有记录，传入 ID；否则传 null
  */
-function saveToAIHistory(title, subTitle, existingId = null) {
+/**
+ * [核心修复] 保存/更新 AI 对话历史
+ * - 修复：支持批量生成模式下的内容直接传入
+ * - 优化：防止因屏幕内容为空导致保存失败
+ */
+function saveToAIHistory(title, subTitle, existingId = null, customMainContent = null) {
     const contentDiv = document.getElementById('ai-content');
     const historyDiv = document.getElementById('ai-chat-history');
 
-    // 获取两个容器的 HTML
-    const mainHtml = contentDiv ? contentDiv.innerHTML : "";
-    const chatHtml = historyDiv ? historyDiv.innerHTML : "";
+    // [关键判断] 
+    // 1. 如果传入了 customMainContent (批量模式)，直接使用它。
+    // 2. 否则尝试从 DOM 获取 (单人对话模式)。
+    let mainHtml = "";
+    let chatHtml = "";
 
-    if (mainHtml.trim().length < 50) return; // 内容太少不保存
+    if (customMainContent !== null && customMainContent !== undefined) {
+        // 批量模式
+        mainHtml = customMainContent;
+        chatHtml = ""; // 批量模式没有追问记录
+    } else {
+        // 单人模式
+        mainHtml = contentDiv ? contentDiv.innerHTML : "";
+        chatHtml = historyDiv ? historyDiv.innerHTML : "";
+    }
+
+    // 内容太少不保存 (过滤空数据)
+    if (!mainHtml || mainHtml.trim().length < 5) {
+        console.warn("saveToAIHistory: 内容为空，跳过保存");
+        return;
+    }
 
     let history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]");
     let recordId = existingId;
 
-    // 1. 构建记录对象
     const record = {
-        id: existingId || Date.now(), // 有旧ID就用旧的，没有就生成  的
+        id: existingId || Date.now() + Math.random(), // 随机数防止批量生成时ID冲突
         timestamp: new Date().toLocaleString(),
         title: title,
         subTitle: subTitle,
-        mainContent: mainHtml, // 保存主回答
-        chatContent: chatHtml  //    NEW    保存追问记录
+        mainContent: mainHtml,
+        chatContent: chatHtml
     };
 
-    // 2. 判断是“    ”还是“更  ”
     if (existingId) {
-        // --- 更  模式 ---
         const index = history.findIndex(r => r.id === existingId);
-        if (index !== -1) {
-            // 更  内容和时间，但保留原来的标题（也可以选择更  标题）
-            history[index].timestamp = record.timestamp;
-            history[index].mainContent = mainHtml;
-            history[index].chatContent = chatHtml;
-            // 把更  的这条置顶
-            const updatedItem = history.splice(index, 1)[0];
-            history.unshift(updatedItem);
-        } else {
-            // 没找到ID（可能被删了），变更为    
-            history.unshift(record);
-            recordId = record.id;
-        }
+        if (index !== -1) history[index] = record;
+        else { history.unshift(record); recordId = record.id; }
     } else {
-        // ---     模式 ---
         history.unshift(record);
         recordId = record.id;
     }
 
-    // 3. 限制数量并保存
-    if (history.length > 50) history = history.slice(0, 50);
+    // 限制历史记录数量 (防止 localStorage 爆满)
+    if (history.length > 200) history = history.slice(0, 200);
+    
     localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history));
 
-    // 4. 更  全局当前 ID
-    G_CurrentHistoryId = recordId;
-
-    // 5. 刷  侧边栏 UI
+    // 实时刷新侧边栏 UI
     const drawer = document.getElementById('ai-history-drawer');
-    if (drawer && drawer.classList.contains('open')) {
+    // 即使侧边栏没打开，如果列表容器存在，也刷新一下，确保数据是最新的
+    if (document.getElementById('ai-history-list')) {
         renderAIHistoryList();
     }
 
-    return recordId; // 返回 ID 供调用者使用
+    return recordId;
 }
 
 /**
@@ -18381,47 +18319,52 @@ function openBatchModal() {
 }
 
 /**
- * 执行批量分析
+ * [升级版 V3] 执行批量分析 (生成后手动保存)
  */
 async function runBatchAnalysis() {
     const apiKey = localStorage.getItem('G_DeepSeekKey');
     if (!apiKey) { alert("请先设置 API Key"); return; }
 
     const targetClass = document.getElementById('ai-batch-class').value;
-    const mode = document.getElementById('ai-mode-select').value; // 跟随主界面
-    const model = document.getElementById('ai-model-select').value; // 跟随主界面
+    const mode = document.getElementById('ai-mode-select').value;
+    const model = document.getElementById('ai-model-select').value;
     const grade = document.getElementById('ai-grade-select').value;
     const qCount = document.getElementById('ai-q-count').value;
     
-    // 特殊处理科目：如果是综合模式，强制为空；否则读取下拉框
     let targetSubject = document.getElementById('ai-item-subject').value;
     if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
 
-    // 1. 筛选学生
-    const students = G_StudentsData.filter(s => s.class === targetClass);
-    if (students.length === 0) { alert("该班级无学生数据"); return; }
+    const checkboxes = document.querySelectorAll('.ai-batch-cb:checked');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
 
-    if (!confirm(`即将为【${targetClass}】的 ${students.length} 名学生生成【${mode}】报告。\n\n确定开始吗？`)) return;
+    if (selectedIds.length === 0) { alert("请至少勾选一名学生！"); return; }
 
-    // 2. UI 切换
+    const students = G_StudentsData.filter(s => selectedIds.includes(String(s.id)));
+
+    if (!confirm(`即将生成 ${students.length} 份报告。\n确定开始吗？`)) return;
+
+    // UI 切换
     document.getElementById('ai-batch-config').style.display = 'none';
     document.getElementById('ai-batch-progress-area').style.display = 'block';
     const logEl = document.getElementById('ai-batch-log');
     const barEl = document.getElementById('ai-batch-bar');
     const countEl = document.getElementById('ai-batch-count');
     const statusEl = document.getElementById('ai-batch-status');
+    
+    const saveBtn = document.getElementById('ai-batch-save-btn'); // [新增]
     const printBtn = document.getElementById('ai-batch-print-btn');
     const stopBtn = document.getElementById('ai-batch-stop-btn');
 
-    // 初始化状态
     G_BatchResults = [];
     window.stopBatchAI = false;
     logEl.innerHTML = '';
+    
+    // [关键] 初始禁用功能按钮
+    saveBtn.disabled = true;
     printBtn.disabled = true;
     stopBtn.disabled = false;
     barEl.style.width = '0%';
 
-    // 3. 循环处理
     for (let i = 0; i < students.length; i++) {
         if (window.stopBatchAI) {
             logLog("🛑 用户已停止任务", "red");
@@ -18435,18 +18378,16 @@ async function runBatchAnalysis() {
         statusEl.innerText = `正在生成: ${s.name}...`;
 
         try {
-            // 生成 Prompt
             const promptData = await generateAIPrompt(s.id, s.name, mode, qCount, grade, targetSubject, targetClass);
-            
-            // 调用 API (非流式，直接获取结果以便存储)
             const content = await fetchBatchAIResponse(apiKey, model, promptData);
             
-            // 存储结果
+            // 仅存储到内存数组，不自动保存到历史
             G_BatchResults.push({
                 student: s,
                 content: content,
                 subject: targetSubject || "综合",
-                mode: mode
+                mode: mode,
+                grade: grade // 存下来给保存函数用
             });
 
             logLog(`✅ [${s.name}] 生成成功`, "green");
@@ -18456,16 +18397,19 @@ async function runBatchAnalysis() {
             logLog(`❌ [${s.name}] 失败: ${err.message}`, "red");
         }
 
-        // 延时防封 (2秒)
         await new Promise(r => setTimeout(r, 2000));
     }
 
-    // 4. 结束
     statusEl.innerText = window.stopBatchAI ? "任务已终止" : "🎉 批量任务完成！";
     stopBtn.disabled = true;
+    
+    // [关键] 生成结束后，启用按钮
     if (G_BatchResults.length > 0) {
         printBtn.disabled = false;
-        printBtn.innerText = `🖨️ 批量打印 (${G_BatchResults.length}份)`;
+        printBtn.innerText = `🖨️ 批量打印 (${G_BatchResults.length})`;
+        
+        saveBtn.disabled = false;
+        saveBtn.innerText = `💾 批量存档 (${G_BatchResults.length})`;
     }
 }
 
@@ -18531,10 +18475,6 @@ function printBatchReports() {
                 <div class="report-body markdown-body" style="line-height:1.6; font-family:'Segoe UI', sans-serif;">
                     ${renderedContent}
                 </div>
-
-                <div class="print-footer" style="margin-top:40px; text-align:center; font-size:12px; color:#999; border-top:1px solid #eee; padding-top:10px;">
-                     生成时间：${new Date().toLocaleString()} | 智慧棱镜 AI 分析系统
-                </div>
             </div>
         `;
     });
@@ -18575,4 +18515,249 @@ function printBatchReports() {
         win.focus();
         win.print();
     }, 1000);
+}
+
+
+/**
+ * 打开批量配置窗口
+ */
+function openBatchModal() {
+    const modal = document.getElementById('ai-batch-modal');
+    const classSelect = document.getElementById('ai-batch-class');
+    const modeDisplay = document.getElementById('ai-batch-mode-display');
+    const mainModeSelect = document.getElementById('ai-mode-select');
+
+    // 1. 填充班级
+    const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
+    classSelect.innerHTML = classes.map(c => `<option value="${c}">${c}</option>`).join('');
+
+    // 2. 同步当前模式
+    const modeText = mainModeSelect.options[mainModeSelect.selectedIndex].text;
+    modeDisplay.innerText = modeText;
+
+    // 3. [新增] 渲染默认选中班级的学生列表
+    if (classes.length > 0) {
+        renderBatchStudentList(classes[0]);
+    }
+
+    // 4. 重置 UI
+    document.getElementById('ai-batch-config').style.display = 'block';
+    document.getElementById('ai-batch-progress-area').style.display = 'none';
+    modal.style.display = 'flex';
+}
+
+/**
+ * [新增] 渲染学生复选框列表
+ */
+function renderBatchStudentList(className) {
+    const container = document.getElementById('ai-batch-student-list');
+    const countLabel = document.getElementById('ai-batch-selected-count');
+    container.innerHTML = '';
+
+    const students = G_StudentsData.filter(s => s.class === className);
+    
+    students.forEach(s => {
+        const div = document.createElement('div');
+        div.innerHTML = `
+            <label style="cursor:pointer; font-size:0.9em; display:flex; align-items:center;">
+                <input type="checkbox" value="${s.id}" checked class="ai-batch-cb" style="margin-right:5px;">
+                ${s.name}
+            </label>
+        `;
+        container.appendChild(div);
+    });
+
+    // 绑定点击更新计数
+    const checkboxes = container.querySelectorAll('.ai-batch-cb');
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+            const selected = container.querySelectorAll('.ai-batch-cb:checked').length;
+            countLabel.innerText = `已选: ${selected} 人`;
+        });
+    });
+    countLabel.innerText = `已选: ${students.length} 人`;
+}
+
+/**
+ * [新增] 全选/反选
+ */
+function toggleBatchSelection(checked) {
+    const checkboxes = document.querySelectorAll('.ai-batch-cb');
+    checkboxes.forEach(cb => cb.checked = checked);
+    const countLabel = document.getElementById('ai-batch-selected-count');
+    countLabel.innerText = `已选: ${checked ? checkboxes.length : 0} 人`;
+}
+
+/**
+ * [升级版] 执行批量分析 (基于勾选)
+ */
+async function runBatchAnalysis() {
+    const apiKey = localStorage.getItem('G_DeepSeekKey');
+    if (!apiKey) { alert("请先设置 API Key"); return; }
+
+    const targetClass = document.getElementById('ai-batch-class').value;
+    const mode = document.getElementById('ai-mode-select').value;
+    const model = document.getElementById('ai-model-select').value;
+    const grade = document.getElementById('ai-grade-select').value;
+    const qCount = document.getElementById('ai-q-count').value;
+    
+    let targetSubject = document.getElementById('ai-item-subject').value;
+    if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
+
+    // 1. [修改] 获取所有被勾选的学生 ID
+    const checkboxes = document.querySelectorAll('.ai-batch-cb:checked');
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+
+    if (selectedIds.length === 0) {
+        alert("请至少勾选一名学生！");
+        return;
+    }
+
+    // 2. 根据 ID 找到学生对象
+    const students = G_StudentsData.filter(s => selectedIds.includes(String(s.id)));
+
+    if (!confirm(`即将为【${targetClass}】的 ${students.length} 名选中学生生成【${mode}】报告。\n\n确定开始吗？`)) return;
+
+    // 3. UI 切换 (进度条初始化)
+    document.getElementById('ai-batch-config').style.display = 'none';
+    document.getElementById('ai-batch-progress-area').style.display = 'block';
+    const logEl = document.getElementById('ai-batch-log');
+    const barEl = document.getElementById('ai-batch-bar');
+    const countEl = document.getElementById('ai-batch-count');
+    const statusEl = document.getElementById('ai-batch-status');
+    const printBtn = document.getElementById('ai-batch-print-btn');
+    const stopBtn = document.getElementById('ai-batch-stop-btn');
+
+    G_BatchResults = [];
+    window.stopBatchAI = false;
+    logEl.innerHTML = '';
+    printBtn.disabled = true;
+    stopBtn.disabled = false;
+    barEl.style.width = '0%';
+
+    // 4. 循环处理
+    for (let i = 0; i < students.length; i++) {
+        if (window.stopBatchAI) {
+            logLog("🛑 用户已停止任务", "red");
+            break;
+        }
+
+        const s = students[i];
+        const progress = i + 1;
+        countEl.innerText = `${progress}/${students.length}`;
+        barEl.style.width = `${(progress / students.length) * 100}%`;
+        statusEl.innerText = `正在生成: ${s.name}...`;
+
+        try {
+            const promptData = await generateAIPrompt(s.id, s.name, mode, qCount, grade, targetSubject, targetClass);
+            const content = await fetchBatchAIResponse(apiKey, model, promptData);
+            
+            G_BatchResults.push({
+                student: s,
+                content: content,
+                subject: targetSubject || "综合",
+                mode: mode
+            });
+
+            logLog(`✅ [${s.name}] 生成成功`, "green");
+        } catch (err) {
+            console.error(err);
+            logLog(`❌ [${s.name}] 失败: ${err.message}`, "red");
+        }
+
+        // 延时
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
+    statusEl.innerText = window.stopBatchAI ? "任务已终止" : "🎉 批量任务完成！";
+    stopBtn.disabled = true;
+    if (G_BatchResults.length > 0) {
+        printBtn.disabled = false;
+        printBtn.innerText = `🖨️ 批量打印 (${G_BatchResults.length}份)`;
+    }
+}
+
+
+/**
+ * [新增] 批量保存到历史记录
+ */
+function saveBatchToHistory() {
+    // 1. 检查是否有结果
+    if (!G_BatchResults || G_BatchResults.length === 0) {
+        alert("当前没有可保存的生成结果！");
+        return;
+    }
+
+    const btn = document.getElementById('ai-batch-save-btn');
+    const originalText = btn.innerText;
+    
+    // 2. 视觉反馈
+    btn.innerText = "⏳ 正在存档...";
+    btn.disabled = true;
+
+    // 获取模式文本
+    const modeEl = document.getElementById('ai-mode-select');
+    const modeText = modeEl.options[modeEl.selectedIndex].text;
+
+    let savedCount = 0;
+
+    // 3. 循环保存
+    G_BatchResults.forEach(item => {
+        // 转换 Markdown -> HTML
+        // 注意：这里使用 item.content (AI返回的原始文本)
+        const htmlContent = `<div class="ai-batch-saved markdown-body">${marked.parse(item.content)}</div>`;
+        
+        saveToAIHistory(
+            `${item.student.name} - ${modeText}`,   // 标题
+            `${item.grade} | ${item.subject} (批量)`, // 副标题
+            null,                                   // ID
+            htmlContent                             // 内容
+        );
+        savedCount++;
+    });
+
+    // 4. 完成提示
+    setTimeout(() => {
+        btn.innerText = `✅ 已存 ${savedCount} 条`;
+        // 保持 disabled 状态防止重复点击刷屏
+        
+        // 刷新侧边栏 (如果侧边栏是打开的)
+        if (typeof renderAIHistoryList === 'function') {
+            renderAIHistoryList();
+        }
+        
+        alert(`成功将 ${savedCount} 条分析报告保存到“历史记录”！\n\n您可以在侧边栏的“🕒 历史”中查看。`);
+    }, 500);
+}
+
+// [辅助] 将搜索框逻辑提取出来，保持 initAIModule 整洁
+async function initStudentSearchLogic() {
+    const searchInput = document.getElementById('ai-student-search');
+    const resultsContainer = document.getElementById('ai-student-search-results');
+    const analyzeBtn = document.getElementById('ai-analyze-btn');
+
+    const multiData = await loadMultiExamData();
+    const allStudentsMap = new Map();
+    multiData.forEach(exam => exam.students.forEach(s => allStudentsMap.set(s.id, s.name)));
+    G_StudentsData.forEach(s => allStudentsMap.set(s.id, s.name));
+    const allStudentsList = Array.from(allStudentsMap, ([id, name]) => ({ id, name }));
+
+    searchInput.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase();
+        if (term.length < 1) { resultsContainer.style.display = 'none'; return; }
+        const matches = allStudentsList.filter(s => s.name.toLowerCase().includes(term) || String(s.id).includes(term)).slice(0, 10);
+        resultsContainer.innerHTML = matches.map(s => `<div class="result-item" data-id="${s.id}" data-name="${s.name}">${s.name} (${s.id})</div>`).join('');
+        resultsContainer.style.display = 'block';
+    });
+
+    resultsContainer.addEventListener('click', (e) => {
+        const item = e.target.closest('.result-item');
+        if (item) {
+            searchInput.value = `${item.dataset.name} (${item.dataset.id})`;
+            searchInput.dataset.selectedId = item.dataset.id;
+            searchInput.dataset.selectedName = item.dataset.name;
+            resultsContainer.style.display = 'none';
+            analyzeBtn.disabled = false;
+        }
+    });
 }
