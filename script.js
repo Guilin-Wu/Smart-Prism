@@ -40,6 +40,10 @@ let G_CurrentClassFilter = 'ALL';
 let G_CurrentImportType = 'main';
 let G_SubjectConfigs = {};
 
+// 全局变量：存储身高/性别数据 { id: { gender: '男', height: 175 }, ... }
+let G_PhysicalData = {};
+let G_CurrentSeatMap = null; // 缓存结果用于导出
+
 // 目标规划模块的专用数据源
 let G_GoalBaselineData = null; // 基准成绩
 let G_GoalOutcomeData = null;  // 复盘成绩
@@ -14915,213 +14919,187 @@ function exportExamToExcel(rooms) {
 // =====================================================================
 
 /**
- * 16.1 渲染主界面
+ * 16.1 [AI 旗舰版] 渲染主界面 (AI 排座 + 学习分组)
  */
 function renderStudyGroups(container) {
     const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
-
-    // 准备科目选项
     const subjectOptions = G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('');
 
     container.innerHTML = `
-        <h2>🧩 模块十六：智能互助分组生成器 (T分版)</h2>
-        <p style="color: var(--text-muted); margin-top:-10px;">
-            利用 <strong>标准分 (T-Score)</strong> 消除学科难度差异，实现更精准的跨学科互补。
-        </p>
-
-        <div class="main-card-wrapper" style="border-left: 5px solid #6f42c1;">
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
-                <h4 style="margin:0;">🛠️ 策略配置</h4>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end;">
-                
-                <div>
-                    <label style="font-weight:600; font-size:0.9em; color:#555;">1. 选择班级</label>
-                    <select id="group-class-select" class="sidebar-select" style="width:100%; font-weight:bold;">
-                        ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
-                    </select>
-                </div>
-
-                <div>
-                    <label style="font-weight:600; font-size:0.9em; color:#555;">2. 分组模式 (结构)</label>
-                    <select id="group-strategy" class="sidebar-select" style="width:100%;">
-                        <option value="balanced">⚖️ S型均衡分组 (推荐)</option>
-                        <option value="high_low">🤝 1帮1 (首尾结对)</option>
-                        <option value="random">🎲 完全随机</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label style="font-weight:600; font-size:0.9em; color:#555;">3. 核心依据 (重点)</label>
-                    <select id="group-sort-basis" class="sidebar-select" style="width:100%; color:#6f42c1; font-weight:bold;">
-                        <option value="total">🏆 按“总分”实力</option>
-                        <option value="single">🎯 按“单科”成绩</option>
-                        <option value="complementary">☯️ 按“双科互补” (A强B弱)</option>
-                    </select>
-                </div>
-
-                <div id="group-params-area" style="grid-column: span 1;">
-                    <div id="group-size-wrapper">
-                        <label style="font-weight:600; font-size:0.9em; color:#555;">每组人数</label>
-                        <input type="number" id="group-size-input" class="sidebar-select" value="6" min="2" max="10" style="width:100%;">
-                    </div>
-                    
-                    <div id="group-single-wrapper" style="display:none;">
-                        <label style="font-weight:600; font-size:0.9em; color:#555;">选择目标学科</label>
-                        <select id="group-single-subject" class="sidebar-select" style="width:100%;">${subjectOptions}</select>
-                    </div>
-
-                    <div id="group-comp-wrapper" style="display:none;">
-                         <label style="font-weight:600; font-size:0.9em; color:#555;">选择互补学科 (A vs B)</label>
-                         <div style="display:flex; gap:5px;">
-                            <select id="group-sub-a" class="sidebar-select" style="width:50%;">${subjectOptions}</select>
-                            <span style="align-self:center;">⚡️</span>
-                            <select id="group-sub-b" class="sidebar-select" style="width:50%;">${subjectOptions}</select>
-                         </div>
-                    </div>
-                </div>
-
-                <div>
-                     <button id="btn-generate-groups" class="sidebar-button" style="background-color: #6f42c1; width:100%; height: 42px;">
-                        ✨ 生成分组
-                    </button>
-                </div>
-
-            </div>
-
-            <div id="group-strategy-desc" style="font-size:0.85em; color:#666; margin-top:15px; padding:10px; background:#f8f9fa; border-radius:6px;">
-                💡 <strong>当前逻辑：</strong> 根据 <span style="color:#007bff;">总分</span> 进行 <span style="color:#007bff;">S型排列</span>。<br>
-                组间总分均衡，组内包含优中差，适合建立行政学习小组。
-            </div>
+        <h2>🧩 模块十六：智能互助分组 & AI 座位编排</h2>
+        
+        <div style="margin-bottom: 20px; border-bottom: 2px solid #eee; display: flex; gap: 20px;">
+            <button class="tab-btn active" onclick="switchGroupTab('study')" id="tab-btn-study" 
+                style="padding: 10px 20px; font-weight: bold; cursor: pointer; border:none; background:none; border-bottom: 3px solid #6f42c1; color: #6f42c1;">
+                📚 学习互助分组
+            </button>
+            <button class="tab-btn" onclick="switchGroupTab('seat')" id="tab-btn-seat" 
+                style="padding: 10px 20px; font-weight: bold; cursor: pointer; border:none; background:none; color: #666; border-bottom: 3px solid transparent;">
+                🤖 AI 班级座位编排
+            </button>
         </div>
 
-        <div id="group-result-area" style="display: none;">
-            <div class="main-card-wrapper">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <h3 style="margin:0;">📋 分组结果预览</h3>
-                    <button id="btn-export-groups" class="sidebar-button" style="background-color: var(--color-green);">📥 导出名单 (Excel)</button>
+        <div id="tab-content-study">
+            ${getTab1HTML(classes, subjectOptions)} 
+        </div>
+
+        <div id="tab-content-seat" style="display:none;">
+            <div class="main-card-wrapper" style="border-left: 5px solid #20c997;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
+                    <h4 style="margin:0;">🤖 AI 座位设计师</h4>
+                    <span id="seat-db-status" style="font-size:0.85em; color:#666;">未检测到身高数据</span>
                 </div>
-                <div id="group-stats-bar" style="background:#fff3cd; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.9em; color:#856404; border:1px solid #ffeeba;"></div>
-                <div id="group-cards-container" class="group-grid-container"></div>
+                
+                <div style="background:#f0fdf4; padding:15px; border-radius:8px; margin-bottom:20px; border:1px solid #bbf7d0;">
+                    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                        <label style="font-weight:bold;">目标班级:</label>
+                        <select id="seat-class-select" class="sidebar-select" style="width:auto; font-weight:bold; min-width:150px;">
+                                ${classes.map(c => `<option value="${c}">${c}</option>`).join('')}
+                        </select>
+
+                        <label for="seat-physical-upload" class="sidebar-button" style="background-color:#fff; color:#333; border:1px solid #ccc; cursor:pointer; padding: 6px 12px;">
+                            📤 导入身高/性别表
+                        </label>
+                        <input type="file" id="seat-physical-upload" style="display:none;" accept=".xlsx, .xls, .csv">
+
+                        <button id="btn-save-physical" class="sidebar-button" style="background-color:#20c997; display:none; padding: 6px 12px;">💾 保存库</button>
+                        
+                        <button id="btn-clear-physical" class="sidebar-button" style="background-color:#dc3545; display:none; padding: 6px 12px;">🗑️ 删除库</button>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 20px; align-items: start;">
+                    <div>
+                        <label style="font-weight:bold; display:block; margin-bottom:5px;">教室列布局 (从左到右)</label>
+                        <input type="text" id="seat-columns-config" class="sidebar-select" value="2,2,2,1" style="width:100%; letter-spacing:5px;">
+                        <p style="font-size:0.8em; color:#666; margin-top:5px;">例 "2,2,2,2" 表示4组双人座。</p>
+                        
+                        <div style="margin-top:15px;">
+                            <label style="font-weight:bold; display:block; margin-bottom:5px;">模型选择</label>
+                            <select id="seat-ai-model" class="sidebar-select" style="width:100%;">
+                                <option value="deepseek-chat">🚀 DeepSeek V3 (极速)</option>
+                                <option value="deepseek-reasoner">🧠 DeepSeek R1 (深度思考)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label style="font-weight:bold; display:block; margin-bottom:5px;">✨ AI 排座指令 (Prompt)</label>
+                        <textarea id="seat-ai-prompt" class="sidebar-select" rows="4" style="width:100%; font-family:sans-serif; line-height:1.4;" 
+                            placeholder="请输入您的排座要求，例如：&#10;1. 必须严格按照身高从矮到高排列，矮的在前，高的在后。&#10;2. 同桌尽量男女搭配。&#10;3. 同一个学习小组的成员尽量安排在相邻区域。"></textarea>
+                    </div>
+                </div>
+                
+                <div style="margin-top:20px; text-align:right; border-top:1px solid #eee; padding-top:15px; display:flex; justify-content:flex-end; gap:10px;">
+                    <button id="btn-stop-ai-seat" class="sidebar-button" style="background-color: #dc3545; padding: 10px 20px; font-size: 1em; display:none;">
+                        ⏹ 停止生成
+                    </button>
+                    
+                    <button id="btn-generate-ai-seats" class="sidebar-button" style="background-color: #6f42c1; padding: 10px 30px; font-size: 1.1em;">
+                        🪄 开始 AI 排座
+                    </button>
+                </div>
+                
+                <div id="seat-ai-loading" style="display:none; margin-top: 20px;">
+                    <div style="text-align:center; margin-bottom: 10px; color:#6f42c1;">
+                        <span style="font-size:1.5em; vertical-align:middle;">🤖</span>
+                        <span id="seat-ai-status-text" style="font-weight:bold; vertical-align:middle;">AI 正在思考中...</span>
+                    </div>
+                    
+                    <div style="background: #1e1e1e; color: #d4d4d4; border-radius: 6px; padding: 0; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; height: 300px; display: flex; flex-direction: column; box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid #333;">
+                        <div style="background: #2d2d2d; padding: 5px 10px; border-bottom: 1px solid #333; border-radius: 6px 6px 0 0; display: flex; gap: 6px; align-items: center;">
+                            <span style="width:10px; height:10px; border-radius:50%; background:#ff5f56;"></span>
+                            <span style="width:10px; height:10px; border-radius:50%; background:#ffbd2e;"></span>
+                            <span style="width:10px; height:10px; border-radius:50%; background:#27c93f;"></span>
+                            <span style="margin-left: 10px; color: #888;">DeepSeek Output Stream</span>
+                        </div>
+                        
+                        <div id="seat-ai-log-container" style="flex: 1; overflow-y: auto; padding: 10px; white-space: pre-wrap; word-break: break-all;">
+                            <div id="seat-ai-reasoning" style="color: #808080; border-left: 2px solid #444; padding-left: 8px; margin-bottom: 10px; display:none;"></div>
+                            <div id="seat-ai-content" style="color: #4ec9b0;"></div>
+                            <span class="typing-cursor" style="display:inline-block; width:8px; height:14px; background:#ccc; vertical-align:middle;"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="seat-result-area" style="display:none;">
+                 <div class="main-card-wrapper">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="margin:0;">🏫 教室座位预览</h3>
+                        <button id="btn-export-seats" class="sidebar-button" style="background-color: var(--color-blue);">📥 导出Excel</button>
+                    </div>
+                    <div id="seat-map-container" style="overflow-x:auto; padding:20px; background:#fdfdfd; border:1px solid #eee; text-align:center;"></div>
+                </div>
             </div>
         </div>
     `;
 
-    // 2. 绑定 UI 交互逻辑
-    const strategySelect = document.getElementById('group-strategy');
-    const sortSelect = document.getElementById('group-sort-basis');
-    const sizeWrapper = document.getElementById('group-size-wrapper');
-    const singleWrapper = document.getElementById('group-single-wrapper');
-    const compWrapper = document.getElementById('group-comp-wrapper');
-    const descBox = document.getElementById('group-strategy-desc');
+    // --- 辅助：恢复 Tab 1 的 HTML (避免代码重复太长) ---
+    // 在实际文件中，你可以把原来 Tab 1 的 HTML 直接贴在上面的 ${getTab1HTML} 位置
+    // 这里为了演示，我用一个占位符，您操作时请直接保留原有的 Tab 1 内容即可。
 
-    // 统一更   UI 状态函数
-    const updateUI = () => {
-        const st = strategySelect.value;
-        const so = sortSelect.value;
-
-        const sizeInput = document.getElementById('group-size-input');
-        if (st === 'high_low') {
-            sizeInput.value = 2;
-            sizeInput.disabled = true;
+    // Tab 切换逻辑
+    window.switchGroupTab = (tab) => {
+        document.getElementById('tab-content-study').style.display = tab === 'study' ? 'block' : 'none';
+        document.getElementById('tab-content-seat').style.display = tab === 'seat' ? 'block' : 'none';
+        const btnStudy = document.getElementById('tab-btn-study');
+        const btnSeat = document.getElementById('tab-btn-seat');
+        if (tab === 'study') {
+            btnStudy.style.borderBottomColor = '#6f42c1'; btnStudy.style.color = '#6f42c1';
+            btnSeat.style.borderBottomColor = 'transparent'; btnSeat.style.color = '#666';
         } else {
-            sizeInput.disabled = false;
+            btnSeat.style.borderBottomColor = '#20c997'; btnSeat.style.color = '#20c997';
+            btnStudy.style.borderBottomColor = 'transparent'; btnStudy.style.color = '#666';
         }
-
-        sizeWrapper.style.display = 'none';
-        singleWrapper.style.display = 'none';
-        compWrapper.style.display = 'none';
-
-        if (so === 'single') singleWrapper.style.display = 'block';
-        else if (so === 'complementary') compWrapper.style.display = 'block';
-
-        if (st !== 'high_low') sizeWrapper.style.display = 'block';
-
-        let text = "💡 <strong>当前逻辑：</strong> ";
-        if (so === 'total') text += "依据 <span style='color:#007bff'>总分</span> ";
-        else if (so === 'single') text += "依据 <span style='color:#007bff'>单科成绩</span> ";
-        else text += "依据 <span style='color:#007bff'>双科 T 分差值 (A-B)</span> ";
-
-        if (st === 'balanced') text += "进行 <span style='color:#007bff'>S型蛇形分组</span>。<br>保证组间实力均衡，适合长期小组。";
-        else if (st === 'high_low') text += "进行 <span style='color:#007bff'>首尾结对 (1帮1)</span>。<br>最强配最弱，适合专项帮扶。";
-        else text += "进行 <span style='color:#007bff'>随机分组</span>。";
-
-        if (so === 'complementary') {
-            text += `<br>🔥 <strong>T分优势：</strong> 已消除学科难度差异。队首是“A强B弱”，队尾是“B强A弱”，1帮1结合后形成完美互补！`;
-        }
-        descBox.innerHTML = text;
     };
 
-    strategySelect.addEventListener('change', updateUI);
-    sortSelect.addEventListener('change', updateUI);
-    updateUI();
+    // 绑定事件
+    bindStudyGroupEvents();
+    initGroupArchiveManager(); 
+    initPhysicalDataManager(); 
+    
+    // [新增] AI 按钮绑定
+    document.getElementById('btn-generate-ai-seats').addEventListener('click', generateAISeatingChart);
+    document.getElementById('btn-export-seats').addEventListener('click', exportSeatingChart);
+}
 
-    // 3. 生成逻辑
-    let currentGroups = [];
-
-    document.getElementById('btn-generate-groups').addEventListener('click', () => {
-        const className = document.getElementById('group-class-select').value;
-        const strategy = strategySelect.value;
-        const sortMode = sortSelect.value;
-        const size = parseInt(document.getElementById('group-size-input').value) || 6;
-
-        const params = {
-            subject: document.getElementById('group-single-subject').value,
-            subA: document.getElementById('group-sub-a').value,
-            subB: document.getElementById('group-sub-b').value
-        };
-
-        // 1. 筛选班级
-        let students = G_StudentsData.filter(s => s.class === className);
-        if (students.length === 0) { alert("该班级无学生数据"); return; }
-
-        //    核心    确保 T 分已计算 (基于全体学生 G_StudentsData 算 T 分才准)
-        if (!G_StudentsData[0].tScores) {
-            console.log("检测到 T 分缺失，正在计算全体标准分...");
-            const globalStats = calculateAllStatistics(G_StudentsData);
-            calculateStandardScores(G_StudentsData, globalStats);
-        }
-
-        // 2. 计算排序权重
-        students.forEach(s => {
-            if (sortMode === 'total') {
-                s._sortScore = s.totalScore || 0;
-                s._displayInfo = `总分: ${s.totalScore}`;
-            } else if (sortMode === 'single') {
-                s._sortScore = s.scores[params.subject] || 0;
-                s._displayInfo = `${params.subject}: ${s.scores[params.subject]}`;
-            } else if (sortMode === 'complementary') {
-                //    UPGRADED    使用 T 分差值
-                const tA = (s.tScores && s.tScores[params.subA]) ? s.tScores[params.subA] : 50;
-                const tB = (s.tScores && s.tScores[params.subB]) ? s.tScores[params.subB] : 50;
-
-                // 差值：正值越大 -> A相对越好；负值越小 -> B相对越好
-                const diff = tA - tB;
-                s._sortScore = diff;
-
-                // 显示原始分给老师看，但备注 T 分差
-                const rawA = s.scores[params.subA] || 0;
-                const rawB = s.scores[params.subB] || 0;
-                s._displayInfo = `${params.subA}:${rawA} / ${params.subB}:${rawB}`;
-                s._compDiff = diff; // 存下来用于显示颜色
-            }
-        });
-
-        // 3. 排序 (降序)
-        students.sort((a, b) => b._sortScore - a._sortScore);
-
-        // 4. 执行分组
-        currentGroups = calculateGroups(students, strategy, size, sortMode);
-
-        // 5. 渲染
-        renderGroupVisuals(currentGroups, className, sortMode);
-    });
-
-    // 导出
-    document.getElementById('btn-export-groups').addEventListener('click', () => {
-        if (currentGroups.length > 0) exportGroupsToExcel(currentGroups);
-    });
+function getTab1HTML(classes, subjectOptions) {
+    return `
+            <div class="main-card-wrapper" style="margin-bottom: 20px; background:#f8f9fa; border:1px dashed #ccc;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <h4 style="margin:0; color:#555;">💾 分组存档库</h4>
+                    <button id="btn-save-group-archive" class="sidebar-button" style="background-color:#28a745; font-size:0.85em;" disabled>💾 保存当前分组</button>
+                </div>
+                <div id="group-archive-list" style="margin-top:10px; max-height:150px; overflow-y:auto; background:#fff; border:1px solid #eee; padding:5px; border-radius:4px;">
+                    <div style="text-align:center; color:#999; padding:10px;">正在加载存档...</div>
+                </div>
+            </div>
+            <div class="main-card-wrapper" style="border-left: 5px solid #6f42c1;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
+                    <h4 style="margin:0;">🛠️ 策略配置</h4>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end;">
+                    <div><label style="font-weight:600; font-size:0.9em; color:#555;">1. 选择班级</label><select id="group-class-select" class="sidebar-select" style="width:100%; font-weight:bold;">${classes.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
+                    <div><label style="font-weight:600; font-size:0.9em; color:#555;">2. 分组模式</label><select id="group-strategy" class="sidebar-select" style="width:100%;"><option value="balanced">⚖️ S型均衡分组 (推荐)</option><option value="high_low">🤝 1帮1 (首尾结对)</option><option value="random">🎲 完全随机</option></select></div>
+                    <div><label style="font-weight:600; font-size:0.9em; color:#555;">3. 核心依据</label><select id="group-sort-basis" class="sidebar-select" style="width:100%; color:#6f42c1; font-weight:bold;"><option value="total">🏆 按“总分”实力</option><option value="single">🎯 按“单科”成绩</option><option value="complementary">☯️ 按“双科互补” (A强B弱)</option></select></div>
+                    <div id="group-params-area" style="grid-column: span 1;">
+                        <div id="group-size-wrapper"><label style="font-weight:600; font-size:0.9em; color:#555;">每组人数</label><input type="number" id="group-size-input" class="sidebar-select" value="6" min="2" max="10" style="width:100%;"></div>
+                        <div id="group-single-wrapper" style="display:none;"><label style="font-weight:600; font-size:0.9em; color:#555;">选择目标学科</label><select id="group-single-subject" class="sidebar-select" style="width:100%;">${subjectOptions}</select></div>
+                        <div id="group-comp-wrapper" style="display:none;"><label style="font-weight:600; font-size:0.9em; color:#555;">互补学科 (A vs B)</label><div style="display:flex; gap:5px;"><select id="group-sub-a" class="sidebar-select" style="width:50%;">${subjectOptions}</select><span style="align-self:center;">⚡️</span><select id="group-sub-b" class="sidebar-select" style="width:50%;">${subjectOptions}</select></div></div>
+                    </div>
+                    <div><button id="btn-generate-groups" class="sidebar-button" style="background-color: #6f42c1; width:100%; height: 42px;">✨ 生成分组</button></div>
+                </div>
+                <div id="group-strategy-desc" style="font-size:0.85em; color:#666; margin-top:15px; padding:10px; background:#f8f9fa; border-radius:6px;"></div>
+            </div>
+            <div id="group-result-area" style="display: none;">
+                <div class="main-card-wrapper">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;"><h3 style="margin:0;">📋 分组结果预览</h3><button id="btn-export-groups" class="sidebar-button" style="background-color: var(--color-green);">📥 导出名单</button></div>
+                    <div id="group-stats-bar" style="background:#fff3cd; padding:10px; border-radius:6px; margin-bottom:15px; font-size:0.9em; color:#856404; border:1px solid #ffeeba;"></div>
+                    <div id="group-cards-container" class="group-grid-container"></div>
+                </div>
+            </div>
+    `;
 }
 
 
@@ -17471,4 +17449,827 @@ function drawLayerStudentTable() {
             </tr>
         `;
     }).join('');
+}
+
+/**
+ * 16.5 [终极修复版] 处理身高/性别 Excel 上传
+ */
+function handlePhysicalDataUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // 使用 FileReader 直接读取，绕过 loadExcelData 的严格限制
+    const reader = new FileReader();
+    
+    reader.onload = (event) => {
+        try {
+            const data = new Uint8Array(event.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            
+            // 直接转为最原始的 JSON 数据
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+            
+            if (jsonData.length === 0) {
+                alert("文件似乎是空的，请检查 Excel 内容。");
+                return;
+            }
+
+            // --- 核心修复：模糊匹配辅助函数 ---
+            // 即使表头是 " 身高 " (带空格)，也能通过 ['身高', 'height'] 找到
+            const findValue = (row, keywords) => {
+                // 1. 获取该行所有的 Key (表头)
+                const keys = Object.keys(row);
+                // 2. 遍历 Key，去掉空格后对比
+                for (const key of keys) {
+                    const cleanKey = key.trim().replace(/\s+/g, ''); // 去除所有空格
+                    if (keywords.some(kw => cleanKey.includes(kw))) {
+                        return row[key];
+                    }
+                }
+                return undefined;
+            };
+
+            let count = 0;
+            G_PhysicalData = {}; // 重置全局数据
+
+            jsonData.forEach(row => {
+                // 使用模糊匹配查找列
+                const name = findValue(row, ['姓名', 'Name', 'name']);
+                const gender = findValue(row, ['性别', 'Gender', 'gender', 'sex']);
+                const heightVal = findValue(row, ['身高', 'Height', 'height']);
+
+                if (name) {
+                    // 简单清洗数据
+                    const cleanHeight = parseFloat(heightVal) || 0;
+                    const cleanGender = gender ? String(gender).trim() : '未知';
+
+                    // 同时以“姓名”为索引保存
+                    // (因为这个 Excel 没有学号，我们用姓名来匹配系统里的学生)
+                    G_PhysicalData[name.trim()] = { 
+                        height: cleanHeight, 
+                        gender: cleanGender 
+                    };
+                    count++;
+                }
+            });
+            
+            if (count === 0) {
+                alert("未识别到有效数据。\n请确保表头包含：姓名、性别、身高。");
+                document.getElementById('seat-upload-status').innerHTML = `❌ 读取失败`;
+            } else {
+                document.getElementById('seat-upload-status').innerHTML = `✅ 成功读取 ${count} 人数据`;
+                document.getElementById('seat-upload-status').style.color = '#28a745';
+                console.log("导入预览:", G_PhysicalData); // 方便你在控制台查看是否导入成功
+            }
+            
+        } catch (err) {
+            console.error(err);
+            alert("解析出错: " + err.message);
+        }
+        
+        // 重置控件，允许重复上传
+        e.target.value = '';
+    };
+    
+    reader.readAsArrayBuffer(file);
+}
+
+
+
+/**
+ * 16.7 [视觉旗舰版] 渲染座位图
+ * - 新增：顶部图例 (Legend)，显示小组颜色
+ * - 优化：根据学生所属小组，给座位块(Desk Block)添加彩色边框
+ * - 保持：男生蓝/女生粉的座位底色
+ */
+function renderSeatingVisuals(seatMap) {
+    const container = document.getElementById('seat-map-container');
+    document.getElementById('seat-result-area').style.display = 'block';
+    
+    // 1. 提取所有出现的小组，并分配颜色
+    const groupsSet = new Set();
+    seatMap.forEach(row => {
+        row.forEach(block => {
+            if (block.students) {
+                block.students.forEach(s => {
+                    if (s && s._group && s._group !== '未分组') groupsSet.add(s._group);
+                });
+            }
+        });
+    });
+    // 排序：第1组, 第2组...
+    const groupsList = Array.from(groupsSet).sort((a, b) => a.localeCompare(b, 'zh-CN', {numeric: true}));
+
+    // 定义一组鲜明的颜色 (用于边框和图例)
+    const palette = [
+        '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', 
+        '#F7DC6F', '#BB8FCE', '#82E0AA', '#F1948A', '#85C1E9'
+    ];
+    const groupColorMap = {};
+    groupsList.forEach((g, i) => {
+        groupColorMap[g] = palette[i % palette.length];
+    });
+
+    // 2. 生成图例 HTML
+    let legendHtml = '';
+    if (groupsList.length > 0) {
+        legendHtml = `<div class="legend-bar">`;
+        groupsList.forEach(g => {
+            const color = groupColorMap[g];
+            legendHtml += `
+                <div class="legend-item">
+                    <span class="legend-dot" style="background:${color}"></span>
+                    <span>${g}</span>
+                </div>
+            `;
+        });
+        legendHtml += `</div>`;
+    }
+
+    // 3. 生成座位表 HTML
+    let html = legendHtml;
+    html += `<div class="blackboard">📺 讲台 / 黑板</div>`;
+    html += `<div class="classroom-grid">`;
+    
+    seatMap.forEach((row, rIdx) => {
+        html += `<div class="seat-row">`;
+        row.forEach((block, bIdx) => {
+            // 确定该 Block 的颜色 (取第一个有组的学生)
+            let borderColor = '#ddd'; // 默认灰
+            let blockGroup = '';
+            
+            // 查找该桌是否有已分组学生
+            const firstGroupedStudent = block.students.find(s => s && s._group && groupColorMap[s._group]);
+            if (firstGroupedStudent) {
+                blockGroup = firstGroupedStudent._group;
+                borderColor = groupColorMap[blockGroup];
+            }
+
+            // 渲染 Block (加粗边框显示小组色)
+            const borderStyle = blockGroup ? `border: 2px solid ${borderColor}; background: ${borderColor}11;` : '';
+            
+            html += `<div class="desk-block" style="${borderStyle}">`;
+            
+            // 渲染座位
+            block.students.forEach(s => {
+                if (!s) { // 空座
+                     html += `<div class="seat empty">空</div>`;
+                } else {
+                    const genderClass = s._gender === '女' ? 'girl' : (s._gender === '男' ? 'boy' : 'unknown');
+                    html += `
+                        <div class="seat ${genderClass}">
+                            <div class="seat-name" title="${s.name} (${s._gender}, ${s._height}cm)">${s.name}</div>
+                        </div>
+                    `;
+                }
+            });
+            
+            // 补齐空位
+            for(let i=0; i < block.size - block.students.length; i++) {
+                 html += `<div class="seat empty">空</div>`;
+            }
+            html += `</div>`; // end desk-block
+            
+            // 过道
+            if (bIdx < row.length - 1) html += `<div class="aisle"></div>`;
+        });
+        html += `</div>`; // end seat-row
+    });
+    html += `</div>`;
+    
+    const style = `
+        <style>
+            .legend-bar { 
+                display: flex; justify-content: center; flex-wrap: wrap; gap: 15px; 
+                margin-bottom: 20px; padding: 10px; background: #fff; border-radius: 8px; border: 1px solid #eee; 
+            }
+            .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.9em; color: #555; }
+            .legend-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+
+            .blackboard { background: #333; color: #fff; padding: 10px; margin-bottom: 30px; border-radius: 4px; width: 200px; margin-left: auto; margin-right: auto; }
+            .seat-row { display: flex; justify-content: center; margin-bottom: 15px; }
+            
+            .desk-block { 
+                display: flex; gap: 4px; 
+                padding: 4px; 
+                border: 1px solid #ddd; /* 默认边框 */
+                border-radius: 6px; 
+                background: #f9f9f9;
+                min-width: 70px;
+                transition: all 0.3s;
+            }
+            .aisle { width: 30px; } 
+            
+            .seat { 
+                width: 65px; height: 55px; 
+                display: flex; flex-direction: column; justify-content: center; align-items: center;
+                border-radius: 4px; font-size: 0.85em;
+                border: 1px solid rgba(0,0,0,0.05);
+                position: relative;
+            }
+            .seat.boy { background-color: #bbdefb; color: #0d47a1; } /* 蓝 */
+            .seat.girl { background-color: #f8bbd0; color: #880e4f; } /* 粉 */
+            .seat.unknown { background-color: #fff; color: #666; border: 1px dashed #ccc; }
+            .seat.empty { background-color: #f0f0f0; color: #ccc; border: 1px dashed #ddd; }
+            
+            .seat-name { font-weight: bold; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        </style>
+    `;
+    
+    container.innerHTML = style + html;
+}
+
+/**
+ * 16.8 导出座位表 Excel
+ */
+function exportSeatingChart() {
+    if (!G_CurrentSeatMap) return;
+    
+    const wb = XLSX.utils.book_new();
+    const data = [];
+    
+    // 讲台行
+    data.push(["讲台", "", "", "", ""]);
+    data.push([]); // 空行
+    
+    G_CurrentSeatMap.forEach((row, rIdx) => {
+        const rowArr = [];
+        row.forEach((block, bIdx) => {
+             block.students.forEach(s => {
+                 rowArr.push(`${s.name}\n(${s._height.toFixed(0)}cm)`);
+             });
+             // 补空位
+             for(let i=0; i < block.size - block.students.length; i++) rowArr.push("空");
+             
+             // 模拟过道 (插入空列)
+             if (bIdx < row.length - 1) rowArr.push(""); 
+        });
+        data.push(rowArr);
+    });
+    
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    
+    // 设置列宽
+    const wscols = [];
+    for(let i=0; i<20; i++) wscols.push({wch: 12});
+    ws['!cols'] = wscols;
+
+    XLSX.utils.book_append_sheet(wb, ws, "座位表");
+    XLSX.writeFile(wb, "班级座位表.xlsx");
+}
+
+
+
+// ==========================================
+//  模块十六：增强功能 (存档 & 数据管理)
+// ==========================================
+
+// --- 1. 学习分组存档管理器 ---
+async function initGroupArchiveManager() {
+    const listContainer = document.getElementById('group-archive-list');
+    const saveBtn = document.getElementById('btn-save-group-archive');
+    if (!listContainer) return;
+
+    // 渲染列表
+    const renderList = async () => {
+        const archives = await localforage.getItem('G_Group_Archives') || [];
+        if (archives.length === 0) {
+            listContainer.innerHTML = `<div style="text-align:center; color:#999; padding:10px; font-size:0.9em;">暂无存档，生成分组后可点击右上角保存。</div>`;
+            return;
+        }
+        listContainer.innerHTML = archives.map((item, idx) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; border-bottom:1px solid #f0f0f0;">
+                <div onclick="window.loadGroupArchive(${item.id})" style="cursor:pointer; flex:1;">
+                    <strong style="color:#6f42c1;">${item.name}</strong>
+                    <span style="font-size:0.8em; color:#999; margin-left:10px;">${item.date} (${item.className})</span>
+                </div>
+                <button onclick="window.deleteGroupArchive(${item.id})" style="border:none; background:none; color:#dc3545; cursor:pointer;">&times;</button>
+            </div>
+        `).join('');
+    };
+
+    // 绑定保存
+    saveBtn.onclick = async () => {
+        if (!window.currentGroupsCache || window.currentGroupsCache.length === 0) {
+            alert("当前没有生成的分组数据！"); return;
+        }
+        const name = prompt("为该分组方案命名:", "分组-" + new Date().toLocaleDateString());
+        if (!name) return;
+
+        const className = document.getElementById('group-class-select').value;
+        const record = {
+            id: Date.now(),
+            name: name,
+            date: new Date().toLocaleString(),
+            className: className,
+            groups: window.currentGroupsCache
+        };
+
+        const archives = await localforage.getItem('G_Group_Archives') || [];
+        archives.unshift(record);
+        await localforage.setItem('G_Group_Archives', archives);
+        alert("✅ 存档成功！");
+        renderList();
+    };
+
+    // 全局加载函数
+    window.loadGroupArchive = async (id) => {
+        const archives = await localforage.getItem('G_Group_Archives');
+        const record = archives.find(r => r.id === id);
+        if (record) {
+            if(!confirm(`确定加载存档【${record.name}】吗？\n这将覆盖当前屏幕上的显示。`)) return;
+            window.currentGroupsCache = record.groups;
+            renderGroupVisuals(record.groups, record.className, 'archive'); // 渲染
+            alert(`已加载 ${record.name}`);
+        }
+    };
+
+    // 全局删除函数
+    window.deleteGroupArchive = async (id) => {
+        if(!confirm("确定删除此存档？")) return;
+        let archives = await localforage.getItem('G_Group_Archives');
+        archives = archives.filter(r => r.id !== id);
+        await localforage.setItem('G_Group_Archives', archives);
+        renderList();
+    };
+
+    renderList();
+}
+
+
+// --- 2. [修复版] 身高数据管理器 (防崩溃) ---
+function initPhysicalDataManager() {
+    const classSelect = document.getElementById('seat-class-select');
+    const uploadInput = document.getElementById('seat-physical-upload');
+    const saveBtn = document.getElementById('btn-save-physical');
+    const clearBtn = document.getElementById('btn-clear-physical');
+    const statusLabel = document.getElementById('seat-db-status'); // 注意：AI版把状态放在了标题栏
+
+    // 如果核心元素不存在，直接退出，防止报错
+    if (!classSelect || !uploadInput) return;
+
+    // 加载当前班级的数据状态
+    const checkStatus = async () => {
+        const cls = classSelect.value;
+        const allData = await localforage.getItem('G_Physical_DB') || {};
+        
+        if (allData[cls]) {
+            const count = Object.keys(allData[cls]).length;
+            if (statusLabel) {
+                statusLabel.innerHTML = `✅ <strong>${cls}</strong> 已存档 (${count}人)`;
+                statusLabel.style.color = "#28a745";
+            }
+            // [安全检查] 按钮存在才操作
+            if (clearBtn) clearBtn.style.display = 'inline-block';
+            if (saveBtn) saveBtn.style.display = 'none'; 
+            
+            G_PhysicalData = allData[cls];
+        } else {
+            if (statusLabel) {
+                statusLabel.innerHTML = `⚪ ${cls} 暂无数据`;
+                statusLabel.style.color = "#999";
+            }
+            if (clearBtn) clearBtn.style.display = 'none';
+            if (saveBtn) saveBtn.style.display = 'none';
+            G_PhysicalData = {}; 
+        }
+    };
+
+    // 绑定事件
+    classSelect.addEventListener('change', checkStatus);
+
+    uploadInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const data = new Uint8Array(event.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+                
+                const findValue = (row, keywords) => {
+                    for (const key of Object.keys(row)) {
+                        if (keywords.some(kw => key.trim().includes(kw))) return row[key];
+                    }
+                    return undefined;
+                };
+
+                let tempPhysicalData = {};
+                let count = 0;
+
+                jsonData.forEach(row => {
+                    const name = findValue(row, ['姓名', 'Name']);
+                    const gender = findValue(row, ['性别', 'Gender']);
+                    const heightVal = findValue(row, ['身高', 'Height']);
+
+                    if (name) {
+                        tempPhysicalData[name.trim()] = { 
+                            height: parseFloat(heightVal) || 0, 
+                            gender: gender ? String(gender).trim() : '未知' 
+                        };
+                        count++;
+                    }
+                });
+
+                if (count > 0) {
+                    G_PhysicalData = tempPhysicalData;
+                    if (statusLabel) {
+                        statusLabel.innerHTML = `📂 待保存: 读取到 ${count} 人`;
+                        statusLabel.style.color = "#fd7e14";
+                    }
+                    if (saveBtn) saveBtn.style.display = 'inline-block';
+                } else {
+                    alert("未识别到有效数据，请检查表头。");
+                }
+            } catch (err) {
+                alert("解析失败: " + err.message);
+            }
+            e.target.value = '';
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    // [安全绑定] 保存按钮
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            const cls = classSelect.value;
+            if (Object.keys(G_PhysicalData).length === 0) return;
+
+            let allData = await localforage.getItem('G_Physical_DB') || {};
+            allData[cls] = G_PhysicalData;
+            await localforage.setItem('G_Physical_DB', allData);
+            
+            alert(`✅ ${cls} 的特征数据已保存！`);
+            checkStatus();
+        });
+    }
+
+    // [安全绑定] 删除按钮
+    if (clearBtn) {
+        clearBtn.addEventListener('click', async () => {
+            const cls = classSelect.value;
+            if (!confirm(`确定要删除【${cls}】的身高性别存档吗？`)) return;
+
+            let allData = await localforage.getItem('G_Physical_DB') || {};
+            delete allData[cls];
+            await localforage.setItem('G_Physical_DB', allData);
+            checkStatus();
+        });
+    }
+
+    // 初始检查
+    checkStatus();
+}
+
+/**
+ * [补全] 绑定 Tab 1 (学习互助分组) 的相关事件
+ */
+function bindStudyGroupEvents() {
+    const strategySelect = document.getElementById('group-strategy');
+    const sortSelect = document.getElementById('group-sort-basis');
+    const sizeWrapper = document.getElementById('group-size-wrapper');
+    const singleWrapper = document.getElementById('group-single-wrapper');
+    const compWrapper = document.getElementById('group-comp-wrapper');
+    const descBox = document.getElementById('group-strategy-desc');
+
+    // UI 联动更新
+    const updateUI = () => {
+        const st = strategySelect.value;
+        const so = sortSelect.value;
+
+        const sizeInput = document.getElementById('group-size-input');
+        if (st === 'high_low') {
+            sizeInput.value = 2;
+            sizeInput.disabled = true;
+        } else {
+            sizeInput.disabled = false;
+        }
+
+        sizeWrapper.style.display = 'none';
+        singleWrapper.style.display = 'none';
+        compWrapper.style.display = 'none';
+
+        if (so === 'single') singleWrapper.style.display = 'block';
+        else if (so === 'complementary') compWrapper.style.display = 'block';
+
+        if (st !== 'high_low') sizeWrapper.style.display = 'block';
+
+        let text = "💡 <strong>当前逻辑：</strong> ";
+        if (so === 'total') text += "依据 <span style='color:#007bff'>总分</span> ";
+        else if (so === 'single') text += "依据 <span style='color:#007bff'>单科成绩</span> ";
+        else text += "依据 <span style='color:#007bff'>双科 T 分差值 (A-B)</span> ";
+
+        if (st === 'balanced') text += "进行 <span style='color:#007bff'>S型蛇形分组</span>。<br>保证组间实力均衡，适合长期小组。";
+        else if (st === 'high_low') text += "进行 <span style='color:#007bff'>首尾结对 (1帮1)</span>。<br>最强配最弱，适合专项帮扶。";
+        else text += "进行 <span style='color:#007bff'>随机分组</span>。";
+
+        if (so === 'complementary') {
+            text += `<br>🔥 <strong>T分优势：</strong> 已消除学科难度差异。队首是“A强B弱”，队尾是“B强A弱”，1帮1结合后形成完美互补！`;
+        }
+        descBox.innerHTML = text;
+    };
+
+    strategySelect.addEventListener('change', updateUI);
+    sortSelect.addEventListener('change', updateUI);
+    updateUI(); // 初始运行一次
+
+    // 生成按钮事件
+    window.currentGroupsCache = []; // 初始化缓存
+    
+    document.getElementById('btn-generate-groups').addEventListener('click', () => {
+        const className = document.getElementById('group-class-select').value;
+        const strategy = strategySelect.value;
+        const sortMode = sortSelect.value;
+        const size = parseInt(document.getElementById('group-size-input').value) || 6;
+
+        const params = {
+            subject: document.getElementById('group-single-subject').value,
+            subA: document.getElementById('group-sub-a').value,
+            subB: document.getElementById('group-sub-b').value
+        };
+
+        // 1. 筛选班级
+        let students = G_StudentsData.filter(s => s.class === className);
+        if (students.length === 0) { alert("该班级无学生数据"); return; }
+
+        // 确保 T 分已计算
+        if (!G_StudentsData[0].tScores) {
+            console.log("检测到 T 分缺失，正在计算全体标准分...");
+            const globalStats = calculateAllStatistics(G_StudentsData);
+            calculateStandardScores(G_StudentsData, globalStats);
+        }
+
+        // 2. 计算排序权重
+        students.forEach(s => {
+            if (sortMode === 'total') {
+                s._sortScore = s.totalScore || 0;
+                s._displayInfo = `总分: ${s.totalScore}`;
+            } else if (sortMode === 'single') {
+                s._sortScore = s.scores[params.subject] || 0;
+                s._displayInfo = `${params.subject}: ${s.scores[params.subject]}`;
+            } else if (sortMode === 'complementary') {
+                // T 分差值
+                const tA = (s.tScores && s.tScores[params.subA]) ? s.tScores[params.subA] : 50;
+                const tB = (s.tScores && s.tScores[params.subB]) ? s.tScores[params.subB] : 50;
+                const diff = tA - tB;
+                
+                s._sortScore = diff;
+                // 显示原始分给老师看
+                const rawA = s.scores[params.subA] || 0;
+                const rawB = s.scores[params.subB] || 0;
+                s._displayInfo = `${params.subA}:${rawA} / ${params.subB}:${rawB}`;
+                s._compDiff = diff; 
+            }
+        });
+
+        // 3. 排序 (降序)
+        students.sort((a, b) => b._sortScore - a._sortScore);
+
+        // 4. 执行分组
+        // (假设 calculateGroups 函数已存在于 script.js 中)
+        window.currentGroupsCache = calculateGroups(students, strategy, size, sortMode);
+
+        // 5. 渲染
+        // (假设 renderGroupVisuals 函数已存在于 script.js 中)
+        renderGroupVisuals(window.currentGroupsCache, className, sortMode);
+
+        // 6. 激活保存按钮
+        const saveBtn = document.getElementById('btn-save-group-archive');
+        if(saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerText = "💾 保存当前分组";
+        }
+    });
+
+    // 导出按钮事件
+    document.getElementById('btn-export-groups').addEventListener('click', () => {
+        if (window.currentGroupsCache.length > 0) exportGroupsToExcel(window.currentGroupsCache);
+    });
+}
+
+
+// ==========================================
+//  模块十六：AI 座位编排核心引擎
+// ==========================================
+
+// 全局变量：用于中断 AI 排座请求
+let seatAIController = null;
+
+/**
+ * 16.9 [可停止版] AI 排座主入口
+ * - 新增：AbortController 支持随时中断
+ * - 优化：停止时 UI 状态复原
+ */
+async function generateAISeatingChart() {
+    const apiKey = localStorage.getItem('G_DeepSeekKey');
+    if (!apiKey) { alert("请先在【AI 智能分析】模块设置 DeepSeek API Key。"); return; }
+
+    const className = document.getElementById('seat-class-select').value;
+    const configStr = document.getElementById('seat-columns-config').value;
+    const userPrompt = document.getElementById('seat-ai-prompt').value;
+    const model = document.getElementById('seat-ai-model').value;
+
+    // 1. 准备数据
+    let students = G_StudentsData.filter(s => s.class === className);
+    if (students.length === 0) { alert(`未找到 ${className} 的学生数据。`); return; }
+
+    // 2. 数据打包
+    const groupMap = {};
+    if (window.currentGroupsCache) {
+        window.currentGroupsCache.forEach((g, idx) => {
+            g.members.forEach(m => groupMap[m.id] = `第${idx+1}组`);
+        });
+    }
+
+    const studentList = students.map(s => {
+        let phys = G_PhysicalData[s.id] || G_PhysicalData[s.name] || {};
+        return {
+            name: s.name,
+            gender: phys.gender || '未知',
+            height: parseFloat(phys.height) || '未知',
+            group: groupMap[s.id] || '未分组'
+        };
+    });
+    
+    const totalCount = studentList.length;
+
+    // 3. 构建 Prompt
+    const systemPrompt = `你是一个排座算法。任务：将输入的 ${totalCount} 名学生全部分配到座位中。
+【约束】：
+1. 严禁 Markdown，只输 JSON。
+2. 必须包含 EXACTLY ${totalCount} students。
+3. JSON结构：[[{"size":N, "students":[...]}, ...], ...]
+4. "students"含：name, gender, height, group。
+5. 布局：[${configStr}]。`;
+
+    const fullPrompt = `名单：${JSON.stringify(studentList)}\n要求：${userPrompt || "按身高从矮到高排。"}`;
+
+    // 4. UI 初始化 (显示停止按钮)
+    const loadingDiv = document.getElementById('seat-ai-loading');
+    const resultArea = document.getElementById('seat-result-area');
+    
+    const startBtn = document.getElementById('btn-generate-ai-seats');
+    const stopBtn = document.getElementById('btn-stop-ai-seat'); // [新增]
+    
+    const statusText = document.getElementById('seat-ai-status-text');
+    const logContainer = document.getElementById('seat-ai-log-container');
+    const reasoningEl = document.getElementById('seat-ai-reasoning');
+    const contentEl = document.getElementById('seat-ai-content');
+
+    // [状态切换]
+    loadingDiv.style.display = 'block';
+    resultArea.style.display = 'none';
+    startBtn.style.display = 'none'; // 隐藏开始
+    stopBtn.style.display = 'inline-block'; // 显示停止
+    
+    // 重置日志
+    reasoningEl.innerHTML = '';
+    contentEl.innerHTML = '';
+    reasoningEl.style.display = 'none';
+    statusText.innerText = model === 'deepseek-reasoner' ? "🧠 深度思考中..." : "🚀 正在规划布局...";
+
+    let fullContent = "";
+    
+    // [核心] 初始化 AbortController
+    if (seatAIController) seatAIController.abort(); // 防止重复点击
+    seatAIController = new AbortController();
+
+    // [绑定停止事件]
+    stopBtn.onclick = () => {
+        if (seatAIController) {
+            seatAIController.abort(); // 中断请求
+            seatAIController = null;
+            
+            // UI 反馈
+            statusText.innerText = "🛑 用户已手动停止生成";
+            statusText.style.color = "#dc3545";
+            contentEl.innerHTML += `<br><br><em style="color:#dc3545;">[进程已终止]</em>`;
+            
+            // 恢复按钮
+            stopBtn.style.display = 'none';
+            startBtn.style.display = 'inline-block';
+        }
+    };
+
+    try {
+        // 5. 发起请求 (传入 signal)
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({
+                model: model,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: fullPrompt }
+                ],
+                temperature: 0.7,
+                stream: true 
+            }),
+            signal: seatAIController.signal // [关键] 绑定信号
+        });
+
+        if (!response.ok) throw new Error("API 请求失败");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+                if (line.trim().startsWith('data: ')) {
+                    const jsonStr = line.replace('data: ', '').trim();
+                    if (jsonStr === '[DONE]') break;
+                    try {
+                        const json = JSON.parse(jsonStr);
+                        const delta = json.choices[0].delta;
+                        // 渲染思考
+                        if (delta.reasoning_content) {
+                            if (reasoningEl.style.display === 'none') {
+                                reasoningEl.style.display = 'block';
+                                reasoningEl.innerHTML = `<strong>[思维链]:</strong><br>`;
+                            }
+                            reasoningEl.innerText += delta.reasoning_content;
+                            logContainer.scrollTop = logContainer.scrollHeight;
+                        }
+                        // 渲染内容
+                        if (delta.content) {
+                            if (delta.content && statusText.innerText.includes("思考")) {
+                                statusText.innerText = "📝 正在绘制座位表...";
+                                statusText.style.color = "#20c997";
+                            }
+                            fullContent += delta.content;
+                            contentEl.innerText += delta.content;
+                            logContainer.scrollTop = logContainer.scrollHeight;
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
+        // 6. 解析与校验
+        statusText.innerText = "✅ 生成完成，正在渲染...";
+        
+        let cleanJson = fullContent.replace(/```json/g, '').replace(/```/g, '').trim();
+        const firstBracket = cleanJson.indexOf('[');
+        const lastBracket = cleanJson.lastIndexOf(']');
+        if (firstBracket !== -1 && lastBracket !== -1) {
+            cleanJson = cleanJson.substring(firstBracket, lastBracket + 1);
+        }
+
+        const seatMap = JSON.parse(cleanJson);
+        
+        let placedCount = 0;
+        seatMap.forEach(row => {
+            row.forEach(block => {
+                if (block.students) {
+                    block.students = block.students.map(s => {
+                        if(s) placedCount++;
+                        return s ? { 
+                            ...s, 
+                            _gender: s.gender, 
+                            _height: parseFloat(s.height)||0,
+                            _group: s.group || "未分组"
+                        } : null;
+                    });
+                }
+            });
+        });
+
+        G_CurrentSeatMap = seatMap;
+        
+        setTimeout(() => {
+            loadingDiv.style.display = 'none';
+            renderSeatingVisuals(seatMap);
+            
+            // 恢复按钮状态
+            stopBtn.style.display = 'none';
+            startBtn.style.display = 'inline-block';
+
+            if (placedCount < totalCount) {
+                alert(`⚠️ 警告：AI 只排了 ${placedCount}/${totalCount} 人。\n建议切换 R1 模型重试。`);
+            }
+        }, 800);
+
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            // 用户手动停止，前面 stopBtn.onclick 已经处理了 UI，这里无需弹窗
+            console.log("用户终止了 AI 生成");
+        } else {
+            console.error(err);
+            alert("AI 排座失败。\n" + err.message);
+            loadingDiv.style.display = 'none';
+            stopBtn.style.display = 'none';
+            startBtn.style.display = 'inline-block';
+        }
+    } finally {
+        seatAIController = null;
+    }
 }
