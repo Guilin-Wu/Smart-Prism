@@ -10828,7 +10828,7 @@ async function initAIModule() {
                         </div>
                         <div id="ai-batch-log" style="height:150px; overflow-y:auto; background:#f8f9fa; border:1px solid #eee; padding:10px; font-size:0.85em; color:#555; margin-bottom:15px;"></div>
                         <div style="display:flex; gap:10px;">
-                            <button id="ai-batch-save-btn" class="sidebar-button" style="flex:1; background-color:#17a2b8;" disabled>💾 批量存档</button>
+                            <button id="ai-batch-save-btn" class="sidebar-button" style="flex:1; background-color:#17a2b8;" disabled onclick="window.saveBatchToHistory()">💾 批量存档</button>
                             <button id="ai-batch-print-btn" class="sidebar-button" style="flex:1; background-color:#28a745;" disabled>🖨️ 批量打印</button>
                             <button id="ai-batch-stop-btn" class="sidebar-button" style="flex:0.5; background-color:#dc3545;">停止⏹</button>
                         </div>
@@ -10845,12 +10845,6 @@ async function initAIModule() {
         document.getElementById('ai-batch-print-btn').addEventListener('click', printBatchReports);
         document.getElementById('ai-batch-stop-btn').addEventListener('click', () => { window.stopBatchAI = true; });
         
-        // [修复] 使用 cloneNode 清除旧监听器，并绑定全局保存函数
-        const saveBtn = document.getElementById('ai-batch-save-btn');
-        const newSaveBtn = saveBtn.cloneNode(true);
-        saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
-        newSaveBtn.addEventListener('click', window.saveBatchToHistory);
-
         document.getElementById('ai-batch-select-all').onclick = () => toggleBatchSelection(true);
         document.getElementById('ai-batch-select-none').onclick = () => toggleBatchSelection(false);
         document.getElementById('ai-batch-class').addEventListener('change', () => {
@@ -17043,8 +17037,6 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
 
 /**
  * 13.9. 批量导入知识点配置
- * 读取文本框内容，按行匹配表格中的【小题】。
- *    修复点    仅匹配包含数字题号的“小题”行。
  */
 function batchImportKnowledge() {
     const textarea = document.getElementById('item-config-batch-knowledge');
@@ -18290,10 +18282,6 @@ async function generateAISeatingChart() {
 // ==========================================
 //  模块十三：AI 批量生成与打印系统
 // ==========================================
-
-let G_BatchResults = []; // 存储批量生成的结果
-window.stopBatchAI = false; // 停止标志
-
 /**
  * 打开批量配置窗口
  */
@@ -18319,7 +18307,7 @@ function openBatchModal() {
 }
 
 /**
- * [升级版 V3] 执行批量分析 (生成后手动保存)
+ * [全局修复版] 执行批量分析
  */
 async function runBatchAnalysis() {
     const apiKey = localStorage.getItem('G_DeepSeekKey');
@@ -18351,15 +18339,15 @@ async function runBatchAnalysis() {
     const countEl = document.getElementById('ai-batch-count');
     const statusEl = document.getElementById('ai-batch-status');
     
-    const saveBtn = document.getElementById('ai-batch-save-btn'); // [新增]
+    const saveBtn = document.getElementById('ai-batch-save-btn');
     const printBtn = document.getElementById('ai-batch-print-btn');
     const stopBtn = document.getElementById('ai-batch-stop-btn');
 
-    G_BatchResults = [];
+    // [核心] 重置全局变量
+    window.G_BatchResults = [];
     window.stopBatchAI = false;
+
     logEl.innerHTML = '';
-    
-    // [关键] 初始禁用功能按钮
     saveBtn.disabled = true;
     printBtn.disabled = true;
     stopBtn.disabled = false;
@@ -18381,13 +18369,13 @@ async function runBatchAnalysis() {
             const promptData = await generateAIPrompt(s.id, s.name, mode, qCount, grade, targetSubject, targetClass);
             const content = await fetchBatchAIResponse(apiKey, model, promptData);
             
-            // 仅存储到内存数组，不自动保存到历史
-            G_BatchResults.push({
+
+            window.G_BatchResults.push({
                 student: s,
                 content: content,
                 subject: targetSubject || "综合",
                 mode: mode,
-                grade: grade // 存下来给保存函数用
+                grade: grade 
             });
 
             logLog(`✅ [${s.name}] 生成成功`, "green");
@@ -18403,16 +18391,15 @@ async function runBatchAnalysis() {
     statusEl.innerText = window.stopBatchAI ? "任务已终止" : "🎉 批量任务完成！";
     stopBtn.disabled = true;
     
-    // [关键] 生成结束后，启用按钮
-    if (G_BatchResults.length > 0) {
+    // 任务结束，启用保存按钮
+    if (window.G_BatchResults.length > 0) {
         printBtn.disabled = false;
-        printBtn.innerText = `🖨️ 批量打印 (${G_BatchResults.length})`;
+        printBtn.innerText = `🖨️ 批量打印 (${window.G_BatchResults.length})`;
         
         saveBtn.disabled = false;
-        saveBtn.innerText = `💾 批量存档 (${G_BatchResults.length})`;
+        saveBtn.innerText = `💾 批量存档 (${window.G_BatchResults.length})`;
     }
 }
-
 // 辅助：批量专用的 API 调用 (无流式，直接返回文本)
 async function fetchBatchAIResponse(apiKey, model, promptData) {
     const response = await fetch('https://api.deepseek.com/chat/completions', {
@@ -18588,95 +18575,6 @@ function toggleBatchSelection(checked) {
     countLabel.innerText = `已选: ${checked ? checkboxes.length : 0} 人`;
 }
 
-/**
- * [升级版] 执行批量分析 (基于勾选)
- */
-async function runBatchAnalysis() {
-    const apiKey = localStorage.getItem('G_DeepSeekKey');
-    if (!apiKey) { alert("请先设置 API Key"); return; }
-
-    const targetClass = document.getElementById('ai-batch-class').value;
-    const mode = document.getElementById('ai-mode-select').value;
-    const model = document.getElementById('ai-model-select').value;
-    const grade = document.getElementById('ai-grade-select').value;
-    const qCount = document.getElementById('ai-q-count').value;
-    
-    let targetSubject = document.getElementById('ai-item-subject').value;
-    if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
-
-    // 1. [修改] 获取所有被勾选的学生 ID
-    const checkboxes = document.querySelectorAll('.ai-batch-cb:checked');
-    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-
-    if (selectedIds.length === 0) {
-        alert("请至少勾选一名学生！");
-        return;
-    }
-
-    // 2. 根据 ID 找到学生对象
-    const students = G_StudentsData.filter(s => selectedIds.includes(String(s.id)));
-
-    if (!confirm(`即将为【${targetClass}】的 ${students.length} 名选中学生生成【${mode}】报告。\n\n确定开始吗？`)) return;
-
-    // 3. UI 切换 (进度条初始化)
-    document.getElementById('ai-batch-config').style.display = 'none';
-    document.getElementById('ai-batch-progress-area').style.display = 'block';
-    const logEl = document.getElementById('ai-batch-log');
-    const barEl = document.getElementById('ai-batch-bar');
-    const countEl = document.getElementById('ai-batch-count');
-    const statusEl = document.getElementById('ai-batch-status');
-    const printBtn = document.getElementById('ai-batch-print-btn');
-    const stopBtn = document.getElementById('ai-batch-stop-btn');
-
-    G_BatchResults = [];
-    window.stopBatchAI = false;
-    logEl.innerHTML = '';
-    printBtn.disabled = true;
-    stopBtn.disabled = false;
-    barEl.style.width = '0%';
-
-    // 4. 循环处理
-    for (let i = 0; i < students.length; i++) {
-        if (window.stopBatchAI) {
-            logLog("🛑 用户已停止任务", "red");
-            break;
-        }
-
-        const s = students[i];
-        const progress = i + 1;
-        countEl.innerText = `${progress}/${students.length}`;
-        barEl.style.width = `${(progress / students.length) * 100}%`;
-        statusEl.innerText = `正在生成: ${s.name}...`;
-
-        try {
-            const promptData = await generateAIPrompt(s.id, s.name, mode, qCount, grade, targetSubject, targetClass);
-            const content = await fetchBatchAIResponse(apiKey, model, promptData);
-            
-            G_BatchResults.push({
-                student: s,
-                content: content,
-                subject: targetSubject || "综合",
-                mode: mode
-            });
-
-            logLog(`✅ [${s.name}] 生成成功`, "green");
-        } catch (err) {
-            console.error(err);
-            logLog(`❌ [${s.name}] 失败: ${err.message}`, "red");
-        }
-
-        // 延时
-        await new Promise(r => setTimeout(r, 2000));
-    }
-
-    statusEl.innerText = window.stopBatchAI ? "任务已终止" : "🎉 批量任务完成！";
-    stopBtn.disabled = true;
-    if (G_BatchResults.length > 0) {
-        printBtn.disabled = false;
-        printBtn.innerText = `🖨️ 批量打印 (${G_BatchResults.length}份)`;
-    }
-}
-
 
 /**
  * [新增] 批量保存到历史记录
@@ -18761,3 +18659,113 @@ async function initStudentSearchLogic() {
         }
     });
 }
+
+
+// 1. 定义全局变量
+window.G_BatchResults = []; 
+window.stopBatchAI = false;
+
+// ============================================================
+//    🔥 霸道修复补丁：强制属性注入 (Inline Attribute Force)
+// ============================================================
+
+(function() {
+    console.log("🛡️ [系统] 霸道修复模式已启动...");
+
+    // 1. 定义一个绝对全局的保存函数 (挂载到 window 上)
+    // 这样无论作用域怎么变，HTML 里的 onclick 都能找到它
+    window.forceBatchSave = function(btnElement) {
+        console.log("🖱️ [Click] 终于捕获到点击了！开始执行保存...");
+
+        // --- 数据检查 ---
+        if (!window.G_BatchResults || window.G_BatchResults.length === 0) {
+            alert("❌ 内存中没有数据！\n请先点击【批量生成】，等待任务完成后再存档。");
+            return;
+        }
+
+        // --- UI 反馈 ---
+        const originalText = btnElement.innerText;
+        btnElement.innerText = "⏳ 写入中...";
+        btnElement.disabled = true;
+
+        // --- 核心保存逻辑 ---
+        setTimeout(() => {
+            try {
+                const AI_HISTORY_KEY = 'G_AI_History_Archive';
+                let history = [];
+                try { history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]"); } catch(e) {}
+
+                let savedCount = 0;
+                // 获取当前模式名称
+                let modeText = "AI分析";
+                try { modeText = document.getElementById('ai-mode-select').selectedOptions[0].text; } catch(e) {}
+
+                // 循环处理每一条
+                window.G_BatchResults.forEach((item) => {
+                    // 构建 Markdown 内容
+                    let htmlContent = "";
+                    if (typeof marked !== 'undefined') {
+                        // 兼容不同版本的 marked
+                        const parseFn = (typeof marked.parse === 'function') ? marked.parse : marked;
+                        htmlContent = `<div class="ai-batch-saved markdown-body">${parseFn(item.content)}</div>`;
+                    } else {
+                        htmlContent = `<div class="ai-batch-saved"><pre>${item.content}</pre></div>`;
+                    }
+
+                    // 构建记录
+                    history.unshift({
+                        id: Date.now() + Math.random(),
+                        timestamp: new Date().toLocaleString(),
+                        title: `${item.student.name} - ${modeText}`,
+                        subTitle: `${item.grade} | ${item.subject} (批量存档)`,
+                        mainContent: htmlContent,
+                        chatContent: ""
+                    });
+                    savedCount++;
+                });
+
+                // 写入存储
+                localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history));
+
+                // 尝试刷新侧边栏 (如果函数存在)
+                if (typeof renderAIHistoryList === 'function') renderAIHistoryList();
+
+                alert(`🎉 存档成功！\n已将 ${savedCount} 条记录写入历史库。\n请点击侧边栏【🕒 历史】查看。`);
+
+            } catch (err) {
+                console.error("保存过程出错:", err);
+                alert("❌ 保存出错: " + err.message);
+            } finally {
+                // 恢复按钮
+                btnElement.innerText = originalText;
+                btnElement.disabled = false;
+            }
+        }, 100); // 稍微延时，让UI先变一下
+    };
+
+    // 2. 启动“监工”定时器
+    // 每 500毫秒 巡逻一次，确保按钮上一定有 onclick 属性
+    setInterval(() => {
+        const btn = document.getElementById('ai-batch-save-btn');
+        
+        // 只有当按钮存在，且没有被禁用（说明任务完成了）时，才进行强制绑定
+        if (btn && !btn.disabled) {
+            const currentAttr = btn.getAttribute('onclick');
+            
+            // 如果按钮上没有 onclick，或者 onclick 不是我们要的那个
+            if (currentAttr !== 'window.forceBatchSave(this)') {
+                // console.log("🔧 [Enforcer] 强制注入 onclick 属性...");
+                // 1. 移除所有可能的干扰监听器 (通过克隆节点)
+                // 注意：克隆会导致引用变化，如果主程序还在用旧引用更新UI可能会有问题
+                // 所以这里我们只做属性覆盖，不克隆，这是最稳妥的
+                
+                // 2. 强制覆盖 onclick
+                btn.setAttribute('onclick', 'window.forceBatchSave(this)');
+                
+                // 3. 确保样式是鼠标手型
+                btn.style.cursor = 'pointer';
+            }
+        }
+    }, 500);
+
+})();
