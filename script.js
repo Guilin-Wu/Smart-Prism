@@ -15397,7 +15397,7 @@ async function renderCommentGenerator(container) {
                         <select id="comment-gen-mode" class="sidebar-select" style="width:auto; min-width:180px; border-color:#6f42c1; color:#6f42c1; font-weight:bold;">
                             <option value="comprehensive" selected>🌟 综合 (历史趋势+日常)</option>
                             <option value="history_only">📈 仅历史成绩趋势</option>
-                            <option value="current_only">🎯 仅本次期末成绩</option>
+                            <option value="current_only">🎯 仅本次成绩</option>
                             <option value="daily_only">📝 仅日常行为表现</option>
                         </select>
                     </div>
