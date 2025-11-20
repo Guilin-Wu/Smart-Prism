@@ -10753,11 +10753,12 @@ function renderSubjectRankChart(containerId, examNames, visibleExamData, student
 //    NEW    模块十四：AI 智能分析 (DeepSeek 集成)
 // =====================================================================
 
-// 1. 初始化 AI 模块 (Debug   强版)
-// 1. 初始化 AI 模块 (修复版：解决班级列表初始化问题)
+/**
+ * 14.0 [升级版] 初始化 AI 模块 (含批量生成功能)
+ */
 async function initAIModule() {
-
     initPromptManager();
+    initAIHistoryUI(); // 确保历史记录功能也初始化
 
     const apiKeyInput = document.getElementById('ai-api-key');
     const saveKeyBtn = document.getElementById('ai-save-key-btn');
@@ -10770,6 +10771,78 @@ async function initAIModule() {
     const itemClassSelect = document.getElementById('ai-item-class');
     const studentSearchContainer = document.querySelector('.search-combobox');
     const qCountWrapper = document.getElementById('ai-q-count-wrapper');
+    
+    // 1. [新增] 动态注入“批量生成”按钮和“进度弹窗”
+    // 找到放置按钮的容器 (分析按钮的父级)
+    const controlBar = analyzeBtn.parentElement;
+    
+    // 检查是否已添加，防止重复
+    if (!document.getElementById('ai-batch-btn')) {
+        // 创建批量按钮
+        const batchBtn = document.createElement('button');
+        batchBtn.id = 'ai-batch-btn';
+        batchBtn.className = 'sidebar-button';
+        batchBtn.style.cssText = "background-color: #fd7e14; margin-right: 10px;"; // 橙色
+        batchBtn.innerHTML = "📦 批量生成";
+        
+        // 插入到“开始 AI 分析”按钮之前 (即红框位置)
+        controlBar.insertBefore(batchBtn, analyzeBtn);
+
+        // 创建批量任务模态框 HTML
+        const batchModalHtml = `
+        <div id="ai-batch-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h3>📦 AI 批量报告生成器</h3>
+                    <span onclick="document.getElementById('ai-batch-modal').style.display='none'" class="modal-close-btn">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div id="ai-batch-config">
+                        <div style="margin-bottom:15px; display:flex; gap:10px; align-items:center;">
+                            <label style="font-weight:bold;">选择班级:</label>
+                            <select id="ai-batch-class" class="sidebar-select" style="flex:1;"></select>
+                        </div>
+                        <div style="margin-bottom:15px; display:flex; gap:10px; align-items:center;">
+                            <label style="font-weight:bold;">分析模式:</label>
+                            <span id="ai-batch-mode-display" style="color:#6f42c1; font-weight:bold;">--</span>
+                            <span style="font-size:0.8em; color:#999;">(跟随主界面选择)</span>
+                        </div>
+                        <div style="background:#fff3cd; color:#856404; padding:10px; border-radius:4px; font-size:0.9em; margin-bottom:15px;">
+                            ⚠️ 注意：批量生成消耗 Token 较多。系统将每隔 2 秒处理一名学生，以防 API 超限。请勿关闭此窗口。
+                        </div>
+                        <button id="ai-batch-start-btn" class="sidebar-button" style="width:100%; background-color:#6f42c1;">🚀 开始批量生成</button>
+                    </div>
+
+                    <div id="ai-batch-progress-area" style="display:none;">
+                        <div style="margin-bottom:5px; display:flex; justify-content:space-between;">
+                            <span id="ai-batch-status">正在初始化...</span>
+                            <span id="ai-batch-count">0/0</span>
+                        </div>
+                        <div style="width:100%; background:#eee; height:10px; border-radius:5px; overflow:hidden; margin-bottom:15px;">
+                            <div id="ai-batch-bar" style="width:0%; height:100%; background:#28a745; transition:width 0.3s;"></div>
+                        </div>
+                        <div id="ai-batch-log" style="height:150px; overflow-y:auto; background:#f8f9fa; border:1px solid #eee; padding:10px; font-size:0.85em; color:#555; margin-bottom:15px;"></div>
+                        
+                        <div style="display:flex; gap:10px;">
+                            <button id="ai-batch-print-btn" class="sidebar-button" style="flex:1; background-color:#28a745;" disabled>🖨️ 批量打印报告</button>
+                            <button id="ai-batch-stop-btn" class="sidebar-button" style="flex:1; background-color:#dc3545;">⏹ 停止</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+        
+        // 插入模态框到 body
+        document.body.insertAdjacentHTML('beforeend', batchModalHtml);
+        
+        // 绑定批量按钮点击
+        batchBtn.addEventListener('click', openBatchModal);
+        
+        // 绑定模态框内部按钮
+        document.getElementById('ai-batch-start-btn').addEventListener('click', runBatchAnalysis);
+        document.getElementById('ai-batch-print-btn').addEventListener('click', printBatchReports);
+        document.getElementById('ai-batch-stop-btn').addEventListener('click', () => { window.stopBatchAI = true; });
+    }
 
     // 加载 Key
     const savedKey = localStorage.getItem('G_DeepSeekKey');
@@ -10807,7 +10880,7 @@ async function initAIModule() {
         }
     });
 
-    //            独立的更  班级列表函数
+    // [新增] 独立的更新班级列表函数
     const updateClassList = () => {
         const subject = itemSubjectSelect.value;
         // 确保有数据
@@ -10833,7 +10906,7 @@ async function initAIModule() {
     // 监听科目变化
     itemSubjectSelect.addEventListener('change', updateClassList);
 
-    // 监听模式变化    修复    改为 async 以支持从数据库补录数据
+    // 监听模式变化 [!! 修复 !!] 改为 async 以支持从数据库补录数据
     modeSelect.addEventListener('change', async () => {
         const val = modeSelect.value;
         if (qCountWrapper) qCountWrapper.style.display = (val === 'question') ? 'inline-flex' : 'none';
@@ -10854,8 +10927,8 @@ async function initAIModule() {
             itemSubjectWrapper.style.display = 'inline-flex';
 
             // ============================================================
-            //    核心修复    尝试从 localforage (IndexedDB) 加载数据
-            // 之前只读了 localStorage，导致  版数据无法被 AI 模块识别
+            // [!! 核心修复 !!] 尝试从 localforage (IndexedDB) 加载数据
+            // 之前只读了 localStorage，导致新版数据无法被 AI 模块识别
             // ============================================================
             if (!window.G_ItemAnalysisData || Object.keys(window.G_ItemAnalysisData).length === 0) {
                 try {
@@ -10876,7 +10949,7 @@ async function initAIModule() {
             }
             // ============================================================
 
-            // 填充科目并立即触发班级更  
+            // 填充科目并立即触发班级更新
             if (window.G_ItemAnalysisData && Object.keys(window.G_ItemAnalysisData).length > 0) {
                 const subjects = Object.keys(window.G_ItemAnalysisData);
                 const currentVal = itemSubjectSelect.value;
@@ -10887,11 +10960,11 @@ async function initAIModule() {
                 if (currentVal && subjects.includes(currentVal)) {
                     itemSubjectSelect.value = currentVal;
                 } else {
-                    // 默认选中第一个，并触发 change 事件以更  班级列表
+                    // 默认选中第一个，并触发 change 事件以更新班级列表
                     itemSubjectSelect.value = subjects[0];
                 }
 
-                //    手动调用一次更  班级，确保班级列表不为空
+                // [!!] 手动调用一次更新班级，确保班级列表不为空
                 if (typeof updateClassList === 'function') updateClassList();
 
             } else {
@@ -10950,6 +11023,7 @@ async function initAIModule() {
         const model = document.getElementById('ai-model-select').value;
         const qCount = document.getElementById('ai-q-count').value;
         const grade = document.getElementById('ai-grade-select').value;
+        
         // [修改后] -------------- 开始 --------------
         let targetSubject = document.getElementById('ai-item-subject').value;
         
@@ -18272,4 +18346,233 @@ async function generateAISeatingChart() {
     } finally {
         seatAIController = null;
     }
+}
+
+
+// ==========================================
+//  模块十三：AI 批量生成与打印系统
+// ==========================================
+
+let G_BatchResults = []; // 存储批量生成的结果
+window.stopBatchAI = false; // 停止标志
+
+/**
+ * 打开批量配置窗口
+ */
+function openBatchModal() {
+    const modal = document.getElementById('ai-batch-modal');
+    const classSelect = document.getElementById('ai-batch-class');
+    const modeDisplay = document.getElementById('ai-batch-mode-display');
+    const mainModeSelect = document.getElementById('ai-mode-select');
+
+    // 1. 填充班级
+    const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
+    classSelect.innerHTML = classes.map(c => `<option value="${c}">${c}</option>`).join('');
+
+    // 2. 同步当前模式
+    const modeText = mainModeSelect.options[mainModeSelect.selectedIndex].text;
+    modeDisplay.innerText = modeText;
+
+    // 3. 重置 UI
+    document.getElementById('ai-batch-config').style.display = 'block';
+    document.getElementById('ai-batch-progress-area').style.display = 'none';
+    
+    modal.style.display = 'flex';
+}
+
+/**
+ * 执行批量分析
+ */
+async function runBatchAnalysis() {
+    const apiKey = localStorage.getItem('G_DeepSeekKey');
+    if (!apiKey) { alert("请先设置 API Key"); return; }
+
+    const targetClass = document.getElementById('ai-batch-class').value;
+    const mode = document.getElementById('ai-mode-select').value; // 跟随主界面
+    const model = document.getElementById('ai-model-select').value; // 跟随主界面
+    const grade = document.getElementById('ai-grade-select').value;
+    const qCount = document.getElementById('ai-q-count').value;
+    
+    // 特殊处理科目：如果是综合模式，强制为空；否则读取下拉框
+    let targetSubject = document.getElementById('ai-item-subject').value;
+    if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
+
+    // 1. 筛选学生
+    const students = G_StudentsData.filter(s => s.class === targetClass);
+    if (students.length === 0) { alert("该班级无学生数据"); return; }
+
+    if (!confirm(`即将为【${targetClass}】的 ${students.length} 名学生生成【${mode}】报告。\n\n确定开始吗？`)) return;
+
+    // 2. UI 切换
+    document.getElementById('ai-batch-config').style.display = 'none';
+    document.getElementById('ai-batch-progress-area').style.display = 'block';
+    const logEl = document.getElementById('ai-batch-log');
+    const barEl = document.getElementById('ai-batch-bar');
+    const countEl = document.getElementById('ai-batch-count');
+    const statusEl = document.getElementById('ai-batch-status');
+    const printBtn = document.getElementById('ai-batch-print-btn');
+    const stopBtn = document.getElementById('ai-batch-stop-btn');
+
+    // 初始化状态
+    G_BatchResults = [];
+    window.stopBatchAI = false;
+    logEl.innerHTML = '';
+    printBtn.disabled = true;
+    stopBtn.disabled = false;
+    barEl.style.width = '0%';
+
+    // 3. 循环处理
+    for (let i = 0; i < students.length; i++) {
+        if (window.stopBatchAI) {
+            logLog("🛑 用户已停止任务", "red");
+            break;
+        }
+
+        const s = students[i];
+        const progress = i + 1;
+        countEl.innerText = `${progress}/${students.length}`;
+        barEl.style.width = `${(progress / students.length) * 100}%`;
+        statusEl.innerText = `正在生成: ${s.name}...`;
+
+        try {
+            // 生成 Prompt
+            const promptData = await generateAIPrompt(s.id, s.name, mode, qCount, grade, targetSubject, targetClass);
+            
+            // 调用 API (非流式，直接获取结果以便存储)
+            const content = await fetchBatchAIResponse(apiKey, model, promptData);
+            
+            // 存储结果
+            G_BatchResults.push({
+                student: s,
+                content: content,
+                subject: targetSubject || "综合",
+                mode: mode
+            });
+
+            logLog(`✅ [${s.name}] 生成成功`, "green");
+
+        } catch (err) {
+            console.error(err);
+            logLog(`❌ [${s.name}] 失败: ${err.message}`, "red");
+        }
+
+        // 延时防封 (2秒)
+        await new Promise(r => setTimeout(r, 2000));
+    }
+
+    // 4. 结束
+    statusEl.innerText = window.stopBatchAI ? "任务已终止" : "🎉 批量任务完成！";
+    stopBtn.disabled = true;
+    if (G_BatchResults.length > 0) {
+        printBtn.disabled = false;
+        printBtn.innerText = `🖨️ 批量打印 (${G_BatchResults.length}份)`;
+    }
+}
+
+// 辅助：批量专用的 API 调用 (无流式，直接返回文本)
+async function fetchBatchAIResponse(apiKey, model, promptData) {
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model: model,
+            messages: [
+                { role: "system", content: promptData.system },
+                { role: "user", content: promptData.user }
+            ],
+            temperature: 0.7,
+            stream: false // 批量模式下不使用流式，直接拿结果更稳
+        })
+    });
+
+    if (!response.ok) throw new Error("API Error");
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
+// 辅助：写日志
+function logLog(msg, color = "#333") {
+    const logEl = document.getElementById('ai-batch-log');
+    const div = document.createElement('div');
+    div.style.color = color;
+    div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+/**
+ * 批量打印逻辑
+ */
+function printBatchReports() {
+    if (G_BatchResults.length === 0) return;
+    
+    const grade = document.getElementById('ai-grade-select').value;
+    const modeEl = document.getElementById('ai-mode-select');
+    const modeText = modeEl.options[modeEl.selectedIndex].text;
+
+    let allHtml = "";
+
+    G_BatchResults.forEach((item, index) => {
+        // 渲染 Markdown
+        const renderedContent = marked.parse(item.content);
+        
+        // 分页符 (第一个不需要)
+        const pageBreak = index > 0 ? 'page-break-before: always;' : '';
+
+        allHtml += `
+            <div class="report-page" style="${pageBreak} padding: 2cm; position: relative;">
+                <div class="print-header" style="text-align:center; border-bottom:2px solid #333; margin-bottom:20px; padding-bottom:10px;">
+                    <h1 style="margin:0; font-size:24px;">学业分析报告 - ${item.student.name}</h1>
+                    <p style="margin:5px 0 0; color:#666; font-size:14px;">
+                        年级：${grade} | 科目：${item.subject} | 班级：${item.student.class}
+                    </p>
+                </div>
+                
+                <div class="report-body markdown-body" style="line-height:1.6; font-family:'Segoe UI', sans-serif;">
+                    ${renderedContent}
+                </div>
+
+                <div class="print-footer" style="margin-top:40px; text-align:center; font-size:12px; color:#999; border-top:1px solid #eee; padding-top:10px;">
+                     生成时间：${new Date().toLocaleString()} | 智慧棱镜 AI 分析系统
+                </div>
+            </div>
+        `;
+    });
+
+    // 打开打印窗口
+    const win = window.open('', '_blank');
+    win.document.write(`
+        <html>
+        <head>
+            <title>批量分析报告</title>
+            <style>
+                body { background: #eee; margin: 0; font-family: sans-serif; }
+                .report-page { background: white; width: 210mm; min-height: 297mm; margin: 20px auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); box-sizing: border-box; }
+                
+                /* 简易 Markdown 样式复刻 */
+                h1, h2, h3 { color: #333; }
+                strong { color: #000; background: #f0f0f0; padding: 0 4px; }
+                ul { padding-left: 20px; }
+                table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+
+                @media print {
+                    body { background: none; margin: 0; }
+                    .report-page { width: auto; height: auto; margin: 0; box-shadow: none; border: none; }
+                }
+            </style>
+        </head>
+        <body>
+            ${allHtml}
+        </body>
+        </html>
+    `);
+    win.document.close();
+    
+    // 等待图片等加载 (虽然这里主要是文本)
+    setTimeout(() => {
+        win.focus();
+        win.print();
+    }, 1000);
 }
