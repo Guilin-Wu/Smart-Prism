@@ -7597,6 +7597,42 @@ function renderItemAnalysis(container) {
                 </p>
                 <div class="chart-container" id="item-chart-layered" style="height: 500px;"></div>
             </div>
+
+            <div class="main-card-wrapper" style="margin-bottom: 20px; border-left: 5px solid #17a2b8;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-bottom:1px solid #eee; padding-bottom:10px; margin-bottom:15px;">
+                    <div style="display:flex; flex-direction:column;">
+                        <h3 style="margin:0;">👥 分层学生名单查询</h3>
+                        <span style="font-size:0.8em; color:#666; margin-top:4px;">查看特定分数段（层级）内的学生分布</span>
+                    </div>
+                    
+                    <div style="display:flex; align-items:center; gap:10px;">
+                         <label style="font-weight:bold;">选择层级:</label>
+                         <select id="item-layer-list-select" class="sidebar-select" style="width:auto; min-width:150px; font-weight:bold; color:#17a2b8;">
+                             </select>
+                         <button id="btn-export-layer-list" class="sidebar-button" style="background-color:var(--color-green); font-size:0.9em; padding:6px 12px;">
+                            📥 导出该层名单
+                         </button>
+                    </div>
+                </div>
+                
+                <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                    <table id="item-layer-table">
+                        <thead>
+                            <tr>
+                                <th>层级名称</th>
+                                <th>姓名</th>
+                                <th>班级</th>
+                                <th>总分</th>
+                                <th>本题组得分 (如适用)</th>
+                                <th>班排</th>
+                                <th>年排</th>
+                            </tr>
+                        </thead>
+                        <tbody id="item-layer-tbody">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
             
             <h3 style="margin-top: 30px;">📈 知识点掌握情况 (分层对比)</h3>
             <div class="main-card-wrapper" style="margin-bottom: 20px;">
@@ -7702,6 +7738,24 @@ function renderItemAnalysis(container) {
 
         renderItemAnalysisCharts();
     };
+
+    // [新增] 分层名单下拉框变更事件
+    const layerListSelect = document.getElementById('item-layer-list-select');
+    if (layerListSelect) {
+        layerListSelect.addEventListener('change', () => {
+            drawLayerStudentTable(); // 仅重绘表格
+        });
+    }
+
+    // [新增] 导出按钮事件
+    const exportLayerBtn = document.getElementById('btn-export-layer-list');
+    if (exportLayerBtn) {
+        exportLayerBtn.addEventListener('click', () => {
+            const subject = document.getElementById('item-subject-select').value;
+            const layerName = layerListSelect.options[layerListSelect.selectedIndex].text;
+            exportLayerTableToExcel(subject, layerName);
+        });
+    }
 
     // 4. 绑定文件上传事件 (修复版：允许连续导入)
     uploader.addEventListener('change', async (event) => {
@@ -8427,6 +8481,7 @@ function renderItemAnalysisCharts() {
         drawItemAnalysisOutlierTable();
         drawItemScatterQuadrantChart(); // [!! NEW !!]
         drawItemKnowledgeGraph();
+        drawLayerStudentTable();
     }, 0);
 }
 
@@ -16867,4 +16922,129 @@ function renderScoreCurve(elementId, students, subject, binSize) {
     };
 
     myChart.setOption(option);
+}
+
+/**
+ * [修复版] 13.21 绘制分层学生名单表格 (自动计算缺失的排名)
+ */
+function drawLayerStudentTable() {
+    const tbody = document.getElementById('item-layer-tbody');
+    const select = document.getElementById('item-layer-list-select');
+    if (!tbody || !select) return;
+
+    // 1. 获取环境参数
+    const subjectName = document.getElementById('item-subject-select').value;
+    const selectedClass = document.getElementById('item-class-filter').value;
+    const numGroups = parseInt(document.getElementById('item-layer-groups').value);
+
+    if (!G_ItemAnalysisData || !G_ItemAnalysisData[subjectName]) return;
+    
+    // 获取该科目下的所有学生
+    const allStudents = G_ItemAnalysisData[subjectName].students;
+
+    // ============================================================
+    // [核心修复] 自动补全排名 (如果数据中缺失)
+    // ============================================================
+    // 检查第一个有效学生是否有排名数据
+    const sample = allStudents.find(s => typeof s.totalScore === 'number');
+    
+    if (sample && (sample.rank === undefined || sample.gradeRank === undefined || sample.rank === null)) {
+        // A. 计算年级排名 (按分数降序)
+        // 注意：这里是基于“当前科目”的分数进行排名，这是最符合小题分析场景的
+        const sortedByGrade = [...allStudents].filter(s => typeof s.totalScore === 'number')
+            .sort((a, b) => b.totalScore - a.totalScore);
+            
+        sortedByGrade.forEach((s, index) => {
+            s.gradeRank = index + 1;
+        });
+
+        // B. 计算班级排名 (按班级分组后排序)
+        const classMap = {};
+        allStudents.forEach(s => {
+            if (typeof s.totalScore === 'number') {
+                if (!classMap[s.class]) classMap[s.class] = [];
+                classMap[s.class].push(s);
+            }
+        });
+
+        Object.keys(classMap).forEach(className => {
+            const classGroup = classMap[className];
+            classGroup.sort((a, b) => b.totalScore - a.totalScore);
+            classGroup.forEach((s, index) => {
+                s.rank = index + 1;
+            });
+        });
+    }
+    // ============================================================
+
+    // 2. 筛选 (基于班级)
+    const filteredStudents = (selectedClass === 'ALL') 
+        ? allStudents 
+        : allStudents.filter(s => s.class === selectedClass);
+
+    // 3. 排序 (用于分层逻辑)
+    const validStudents = filteredStudents
+        .filter(s => typeof s.totalScore === 'number' && !isNaN(s.totalScore))
+        .sort((a, b) => b.totalScore - a.totalScore); // 高分在前
+
+    if (validStudents.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#999;">无有效数据</td></tr>`;
+        return;
+    }
+
+    // 4. 分层逻辑 (计算分层区间)
+    const groupSize = Math.ceil(validStudents.length / numGroups);
+    const groups = [];
+    for (let i = 0; i < numGroups; i++) {
+        const group = validStudents.slice(i * groupSize, (i + 1) * groupSize);
+        if (group.length > 0) {
+            const maxScore = group[0].totalScore;
+            const minScore = group[group.length - 1].totalScore;
+            groups.push({
+                id: `G${i + 1}`,
+                name: `G${i + 1} (第${i * groupSize + 1}-${Math.min((i + 1) * groupSize, validStudents.length)}名)`,
+                range: `${minScore} - ${maxScore}分`,
+                students: group
+            });
+        }
+    }
+
+    // 5. 填充下拉框
+    const currentVal = select.value;
+    let htmlOpts = '';
+    groups.forEach(g => {
+        htmlOpts += `<option value="${g.id}">${g.name} [${g.range}]</option>`;
+    });
+    
+    if (select.innerHTML !== htmlOpts) {
+        select.innerHTML = htmlOpts;
+        if (currentVal && groups.some(g => g.id === currentVal)) {
+            select.value = currentVal;
+        } else {
+            select.value = 'G1';
+        }
+    }
+
+    // 6. 获取当前选中层级的学生并渲染
+    const selectedGroupId = select.value;
+    const targetGroup = groups.find(g => g.id === selectedGroupId);
+
+    if (!targetGroup) {
+        tbody.innerHTML = '';
+        return;
+    }
+
+    tbody.innerHTML = targetGroup.students.map(s => {
+        return `
+            <tr>
+                <td><span style="font-weight:bold; color:#17a2b8;">${targetGroup.id}</span></td>
+                <td style="font-weight:bold;">${s.name}</td>
+                <td>${s.class}</td>
+                <td style="font-weight:bold; color:#007bff;">${s.totalScore}</td>
+                <td style="color:#666;">-</td> 
+                <td>${s.rank || '-'}</td>
+                <td>${s.gradeRank || '-'}</td>
+            </tr>
+        `;
+    }).join('');
 }
