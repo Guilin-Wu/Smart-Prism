@@ -12721,6 +12721,7 @@ async function renderGoalSetting(container, activeData, stats) {
 
     // 局部变量
     let currentStudent = null;
+    let G_EditingPlanState = null;
     let currentPlanMode = 'total';
     let currentSubject = G_DynamicSubjectList[0];
     let currentStrategy = null;
@@ -13012,7 +13013,17 @@ async function renderGoalSetting(container, activeData, stats) {
 
 
     document.getElementById('goal-class-select').addEventListener('change', (e) => { const cls = e.target.value; const grid = document.getElementById('goal-student-grid'); if (!cls) { grid.innerHTML = ''; return; } const studentsInClass = G_GoalBaselineData.filter(s => s.class === cls); grid.innerHTML = studentsInClass.map(s => { let hasPlan = false; if (allArchives[s.id]) hasPlan = allArchives[s.id].some(r => r.sessionId === currentSessionId); const mark = hasPlan ? `<span style="color:#28a745; font-weight:bold;">✅</span>` : ''; return `<button class="sidebar-button goal-student-btn" data-id="${s.id}" style="background-color:#fff; color:#333; border:1px solid #dee2e6; justify-content:center; font-size:0.9em;">${s.name} ${mark}</button>`; }).join(''); document.querySelectorAll('.goal-student-btn').forEach(btn => btn.addEventListener('click', () => selectStudent(btn.dataset.id))); document.getElementById('goal-fast-search').value = ''; });
-    function selectStudent(id) { currentStudent = G_GoalBaselineData.find(s => String(s.id) === String(id)); if (!currentStudent) return; document.querySelectorAll('.goal-student-btn').forEach(b => { b.style.backgroundColor = '#fff'; b.style.color = '#333'; }); const activeBtn = document.querySelector(`.goal-student-btn[data-id="${id}"]`); if (activeBtn) { activeBtn.style.backgroundColor = '#007bff'; activeBtn.style.color = '#fff'; } document.getElementById('goal-workspace').style.display = 'block'; document.getElementById('goal-result-area').style.display = 'none'; updateCurrentInfoLabel(); }
+    function selectStudent(id) {
+        
+        if (G_EditingPlanState && String(G_EditingPlanState.sid) !== String(id)) {
+            G_EditingPlanState = null;
+            const saveBtn = document.getElementById('goal-save-btn');
+            saveBtn.innerHTML = "💾 保存并标记";
+            saveBtn.style.backgroundColor = "#28a745"; // 恢复绿色
+            document.getElementById('goal-target-val').value = ""; // 清空输入
+        }
+        
+        currentStudent = G_GoalBaselineData.find(s => String(s.id) === String(id)); if (!currentStudent) return; document.querySelectorAll('.goal-student-btn').forEach(b => { b.style.backgroundColor = '#fff'; b.style.color = '#333'; }); const activeBtn = document.querySelector(`.goal-student-btn[data-id="${id}"]`); if (activeBtn) { activeBtn.style.backgroundColor = '#007bff'; activeBtn.style.color = '#fff'; } document.getElementById('goal-workspace').style.display = 'block'; document.getElementById('goal-result-area').style.display = 'none'; updateCurrentInfoLabel(); }
 
     document.getElementsByName('plan-mode').forEach(r => r.addEventListener('change', (e) => { currentPlanMode = e.target.value; document.getElementById('goal-single-subject-select-wrapper').style.display = (currentPlanMode === 'single') ? 'block' : 'none'; document.getElementById('goal-chart-wrapper').style.display = (currentPlanMode === 'total') ? 'grid' : 'none'; updateCurrentInfoLabel(); }));
     document.getElementById('goal-single-subject-select').addEventListener('change', (e) => { currentSubject = e.target.value; updateCurrentInfoLabel(); });
@@ -13124,13 +13135,12 @@ async function renderGoalSetting(container, activeData, stats) {
     tabCreate.addEventListener('click', () => { document.getElementById('goal-tab-create').style.display = 'block'; document.getElementById('goal-tab-manage').style.display = 'none'; tabCreate.classList.add('active'); tabCreate.style.borderBottomColor = 'var(--primary-color)'; tabCreate.style.color = 'var(--primary-color)'; tabManage.classList.remove('active'); tabManage.style.borderBottomColor = 'transparent'; tabManage.style.color = '#666'; });
     document.getElementById('goal-manage-refresh').addEventListener('click', renderManageTable);
 
-// 渲染管理大厅表格 (正确显示 排名/分数 目标)
+// [升级版] 渲染管理表格 (新增修改按钮)
     async function renderManageTable() {
         allArchives = await localforage.getItem('G_Goal_Archives') || {};
         const tbody = document.getElementById('goal-manage-tbody');
         const rows = [];
         
-        // 1. 筛选当前列表内的规划
         Object.keys(allArchives).forEach(sid => { 
             if (Array.isArray(allArchives[sid])) { 
                 allArchives[sid].forEach((plan, idx) => { 
@@ -13146,24 +13156,17 @@ async function renderGoalSetting(container, activeData, stats) {
             return; 
         }
         
-        // 按时间倒序排列
         rows.sort((a, b) => b.id - a.id);
         
-        // 2. 生成表格行
         tbody.innerHTML = rows.map(r => { 
             const st = r.strategy || {}; 
-            
-            // [核心修复] 根据 targetType 决定显示内容
             let targetDisplay = "";
             const isTotal = st.mode === 'total';
             const subjectLabel = isTotal ? "总分" : st.subject;
 
             if (st.targetType === 'rank') {
-                // 如果是排名目标
                 targetDisplay = `${subjectLabel} 年排 <span style="color:#fd7e14; font-weight:bold;">${st.targetVal}</span> 名`;
             } else {
-                // 如果是分数目标 (默认)
-                // 注意：这里优先显示原始设定的 targetVal，或者计算后的 targetScoreCalculated
                 const scoreVal = st.targetVal || st.targetScoreCalculated;
                 targetDisplay = `${subjectLabel} <span style="color:#6f42c1; font-weight:bold;">${parseFloat(scoreVal).toFixed(1)}</span> 分`;
             }
@@ -13171,16 +13174,18 @@ async function renderGoalSetting(container, activeData, stats) {
             return `
                 <tr>
                     <td>${r.className}</td>
-                    <td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;" title="点击查看详情">
+                    <td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;">
                         ${r.studentName} 📊
                     </td>
                     <td onclick="renamePlan('${r.sid}', ${r.idx})" style="cursor:pointer; color:#333;">
-                        ${r.name || '未命名'} <span style="font-size:0.8em; color:#999;">✎</span>
+                        ${r.name || '未命名'} ✎
                     </td>
                     <td>${isTotal ? '全科' : '单科'}</td>
                     <td>${targetDisplay}</td>
                     <td>
-                        <button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#28a745; padding:4px 8px; font-size:0.8em;">复盘</button>
+                        <button onclick="editPlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#17a2b8; padding:4px 8px; font-size:0.8em;">修改</button>
+                        
+                        <button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#28a745; padding:4px 8px; font-size:0.8em; margin-left:5px;">复盘</button>
                         <button onclick="deletePlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#dc3545; padding:4px 8px; font-size:0.8em; margin-left:5px;">删除</button>
                     </td>
                 </tr>
@@ -13286,6 +13291,57 @@ async function renderGoalSetting(container, activeData, stats) {
             }
         }, 100);
     };
+
+    // [新增] 全局修改函数：回填数据并切换Tab
+    window.editPlanGlobal = async (sid, idx) => {
+        let archives = await localforage.getItem('G_Goal_Archives');
+        const plan = archives[sid][idx];
+        if (!plan) return;
+
+        // 1. 标记进入编辑模式
+        G_EditingPlanState = { sid: sid, idx: idx };
+        
+        // 2. 切换到“新建规划”Tab
+        document.querySelector('button[data-tab="create"]').click();
+        
+        // 3. 选中学生 (这会初始化界面)
+        selectStudent(sid); 
+
+        // 4. 回填表单数据
+        const st = plan.strategy;
+        
+        // 回填模式 (全科/单科) - 触发点击以联动显示隐藏
+        const modeRadio = document.querySelector(`input[name="plan-mode"][value="${st.mode}"]`);
+        if (modeRadio) modeRadio.click();
+
+        // 回填科目 (如果是单科)
+        if (st.mode === 'single') {
+            const subSelect = document.getElementById('goal-single-subject-select');
+            subSelect.value = st.subject;
+            // 手动触发 change 更新下方基准分
+            subSelect.dispatchEvent(new Event('change'));
+        }
+
+        // 回填目标类型 (分数/排名)
+        const typeSelect = document.getElementById('goal-target-type');
+        if (st.targetType) {
+            typeSelect.value = st.targetType;
+            typeSelect.dispatchEvent(new Event('change')); // 触发更新下方文字
+        }
+
+        // 回填目标值
+        document.getElementById('goal-target-val').value = st.targetVal || "";
+
+        // 5. 更新保存按钮的文字，提示用户正在修改
+        const saveBtn = document.getElementById('goal-save-btn');
+        saveBtn.innerHTML = "💾 确认修改 (覆盖旧记录)";
+        saveBtn.style.backgroundColor = "#17a2b8"; // 变蓝色提示
+        
+        // 提示用户
+        alert(`已加载【${plan.studentName}】的规划。\n请调整目标值后，点击“生成规划”，最后点击“确认修改”。`);
+    };
+
+
 
     // [辅助] 3维雷达图渲染 (基准 vs 目标 vs 实际)
     function renderGoalRadarComparison(elemId, details, actualStudent) {
