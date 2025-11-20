@@ -2622,7 +2622,7 @@ function renderGroups(container, students) {
                     ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
                 </select>
                 <input type="number" id="group-min" placeholder="最低分" value="0">
-                <label for="group-max"> < 分数 < </label>
+                <label for="group-max"> <= 分数 <= </label>
                 <input type="number" id="group-max" placeholder="最高分" value="900">
                 <button id="group-filter-btn" class="sidebar-button">筛选</button>
             </div>
