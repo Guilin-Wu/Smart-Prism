@@ -13016,8 +13016,33 @@ async function renderGoalSetting(container, activeData, stats) {
 
     document.getElementsByName('plan-mode').forEach(r => r.addEventListener('change', (e) => { currentPlanMode = e.target.value; document.getElementById('goal-single-subject-select-wrapper').style.display = (currentPlanMode === 'single') ? 'block' : 'none'; document.getElementById('goal-chart-wrapper').style.display = (currentPlanMode === 'total') ? 'grid' : 'none'; updateCurrentInfoLabel(); }));
     document.getElementById('goal-single-subject-select').addEventListener('change', (e) => { currentSubject = e.target.value; updateCurrentInfoLabel(); });
-    function updateCurrentInfoLabel() { if (!currentStudent) return; const infoEl = document.getElementById('goal-current-info'); if (currentPlanMode === 'total') infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 基准总分：${currentStudent.totalScore} | 基准年排：${currentStudent.gradeRank}`; else { const score = currentStudent.scores[currentSubject] || 0; infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 科目：<strong>${currentSubject}</strong> | 基准分：${score}`; } }
+    document.getElementById('goal-target-type').addEventListener('change', updateCurrentInfoLabel);
+    // 更新当前状态文字
+    function updateCurrentInfoLabel() { 
+        if (!currentStudent) return; 
+        const infoEl = document.getElementById('goal-current-info'); 
+        const targetType = document.getElementById('goal-target-type').value; // 获取当前选的是“分数”还是“排名”
 
+        if (currentPlanMode === 'total') {
+             // 全科模式：保持显示总分和总排名
+             infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 基准总分：${currentStudent.totalScore} | 基准年排：${currentStudent.gradeRank}`; 
+        } else { 
+             // 单科模式：根据目标类型智能切换
+             const score = currentStudent.scores[currentSubject] || 0; 
+             
+             if (targetType === 'rank') {
+                 // 如果目标设定为“排名”，则显示基准排名
+                 // (防御性检查：防止 gradeRanks 不存在)
+                 const rank = (currentStudent.gradeRanks && currentStudent.gradeRanks[currentSubject]) 
+                              ? currentStudent.gradeRanks[currentSubject] 
+                              : '-';
+                 infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 科目：<strong>${currentSubject}</strong> | <span style="color:#fd7e14; font-weight:bold;">基准年排：${rank}</span> <span style="color:#999; font-size:0.9em;">(当前分: ${score})</span>`; 
+             } else {
+                 // 如果目标设定为“分数”，显示基准分数
+                 infoEl.innerHTML = `学生：<strong>${currentStudent.name}</strong> | 科目：<strong>${currentSubject}</strong> | 基准分：${score}`; 
+             }
+        } 
+    }
     // 计算生成
     document.getElementById('goal-calc-btn').addEventListener('click', () => {
         if (!currentStudent) return;
@@ -13099,14 +13124,68 @@ async function renderGoalSetting(container, activeData, stats) {
     tabCreate.addEventListener('click', () => { document.getElementById('goal-tab-create').style.display = 'block'; document.getElementById('goal-tab-manage').style.display = 'none'; tabCreate.classList.add('active'); tabCreate.style.borderBottomColor = 'var(--primary-color)'; tabCreate.style.color = 'var(--primary-color)'; tabManage.classList.remove('active'); tabManage.style.borderBottomColor = 'transparent'; tabManage.style.color = '#666'; });
     document.getElementById('goal-manage-refresh').addEventListener('click', renderManageTable);
 
+// 渲染管理大厅表格 (正确显示 排名/分数 目标)
     async function renderManageTable() {
         allArchives = await localforage.getItem('G_Goal_Archives') || {};
         const tbody = document.getElementById('goal-manage-tbody');
         const rows = [];
-        Object.keys(allArchives).forEach(sid => { if (Array.isArray(allArchives[sid])) { allArchives[sid].forEach((plan, idx) => { if (plan.sessionId === currentSessionId || (!plan.sessionId && currentSessionId === sessionMeta[0].id)) { rows.push({ ...plan, idx, sid }); } }); } });
-        if (rows.length === 0) { tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px;">当前列表 [${sessionLabel.innerText}] 暂无记录</td></tr>`; return; }
+        
+        // 1. 筛选当前列表内的规划
+        Object.keys(allArchives).forEach(sid => { 
+            if (Array.isArray(allArchives[sid])) { 
+                allArchives[sid].forEach((plan, idx) => { 
+                    if (plan.sessionId === currentSessionId || (!plan.sessionId && currentSessionId === sessionMeta[0].id)) { 
+                        rows.push({ ...plan, idx, sid }); 
+                    } 
+                }); 
+            } 
+        });
+        
+        if (rows.length === 0) { 
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px;">当前列表 [${sessionLabel.innerText}] 暂无记录</td></tr>`; 
+            return; 
+        }
+        
+        // 按时间倒序排列
         rows.sort((a, b) => b.id - a.id);
-        tbody.innerHTML = rows.map(r => { const st = r.strategy || {}; const targetText = st.mode === 'total' ? `总分 ${st.targetScoreCalculated.toFixed(0)}` : `${st.subject} ${st.targetScoreCalculated.toFixed(0)}`; return `<tr><td>${r.className}</td><td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;" title="点击查看详情">${r.studentName} 📊</td><td onclick="renamePlan('${r.sid}', ${r.idx})" style="cursor:pointer; color:blue;">${r.name || '未命名'} ✎</td><td>${st.mode === 'total' ? '全科' : '单科'}</td><td>${targetText}</td><td><button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" style="border:1px solid #28a745; color:#28a745; background:#fff; border-radius:4px; cursor:pointer;">复盘</button><button onclick="deletePlanGlobal('${r.sid}', ${r.idx})" style="border:1px solid #dc3545; color:#dc3545; background:#fff; border-radius:4px; cursor:pointer; margin-left:5px;">删除</button></td></tr>`; }).join('');
+        
+        // 2. 生成表格行
+        tbody.innerHTML = rows.map(r => { 
+            const st = r.strategy || {}; 
+            
+            // [核心修复] 根据 targetType 决定显示内容
+            let targetDisplay = "";
+            const isTotal = st.mode === 'total';
+            const subjectLabel = isTotal ? "总分" : st.subject;
+
+            if (st.targetType === 'rank') {
+                // 如果是排名目标
+                targetDisplay = `${subjectLabel} 年排 <span style="color:#fd7e14; font-weight:bold;">${st.targetVal}</span> 名`;
+            } else {
+                // 如果是分数目标 (默认)
+                // 注意：这里优先显示原始设定的 targetVal，或者计算后的 targetScoreCalculated
+                const scoreVal = st.targetVal || st.targetScoreCalculated;
+                targetDisplay = `${subjectLabel} <span style="color:#6f42c1; font-weight:bold;">${parseFloat(scoreVal).toFixed(1)}</span> 分`;
+            }
+
+            return `
+                <tr>
+                    <td>${r.className}</td>
+                    <td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;" title="点击查看详情">
+                        ${r.studentName} 📊
+                    </td>
+                    <td onclick="renamePlan('${r.sid}', ${r.idx})" style="cursor:pointer; color:#333;">
+                        ${r.name || '未命名'} <span style="font-size:0.8em; color:#999;">✎</span>
+                    </td>
+                    <td>${isTotal ? '全科' : '单科'}</td>
+                    <td>${targetDisplay}</td>
+                    <td>
+                        <button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#28a745; padding:4px 8px; font-size:0.8em;">复盘</button>
+                        <button onclick="deletePlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#dc3545; padding:4px 8px; font-size:0.8em; margin-left:5px;">删除</button>
+                    </td>
+                </tr>
+            `; 
+        }).join('');
     }
 
     window.renamePlan = async (sid, idx) => { let archives = await localforage.getItem('G_Goal_Archives'); const newName = prompt("重命名:", archives[sid][idx].name); if (newName) { archives[sid][idx].name = newName; await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); } };
@@ -13267,7 +13346,7 @@ async function renderGoalSetting(container, activeData, stats) {
         archives[sid].splice(idx, 1); await localforage.setItem('G_Goal_Archives', archives); renderManageTable();
     };
 
-    // [核心升级] 复盘查看 (含全列表聚合)
+// [核心升级版] 复盘查看 (智能识别 排名/分数 目标)
     window.reviewPlanGlobal = async (sid, idx) => {
         if (!G_GoalOutcomeData) { alert("⚠️ 请先在顶部右侧导入【达成成绩表】，系统才能进行对比复盘！"); return; }
 
@@ -13279,48 +13358,119 @@ async function renderGoalSetting(container, activeData, stats) {
         const content = document.getElementById('goal-review-content');
         panel.style.display = 'block';
 
-        // --- 图表绘制逻辑 (支持切换模式) ---
-        const radios = document.getElementsByName('goal-trend-mode');
+        if (!actualStudent) { 
+            content.innerHTML = `<div style="padding:20px; text-align:center; color:#dc3545; background:#fff5f5; border-radius:8px;">❌ 错误：在“达成成绩表”中未找到该学生 (考号 ${sid})。<br>请检查是否导入了正确的考试数据。</div>`; 
+            return; 
+        }
 
+        // ------------------------------------------------------
+        // 1. 核心目标达成判定 (新增逻辑)
+        // ------------------------------------------------------
+        const st = plan.strategy;
+        const isRankGoal = st.targetType === 'rank';
+        const isTotal = st.mode === 'total';
+        const subject = st.subject;
+
+        // 获取目标值
+        const targetVal = parseFloat(st.targetVal || st.targetScoreCalculated); 
+
+        // 获取实际值
+        let actualVal = 0;
+        if (isRankGoal) {
+            // 如果目标是排名，获取实际排名
+            if (isTotal) {
+                actualVal = actualStudent.gradeRank;
+            } else {
+                // 单科排名 (防御性检查)
+                actualVal = (actualStudent.gradeRanks && actualStudent.gradeRanks[subject]) ? actualStudent.gradeRanks[subject] : 9999;
+            }
+        } else {
+            // 如果目标是分数，获取实际分数
+            if (isTotal) {
+                actualVal = actualStudent.totalScore;
+            } else {
+                actualVal = actualStudent.scores[subject] || 0;
+            }
+        }
+
+        // 计算差距 (分数是高好，排名是低好)
+        let diff = 0;
+        let isAchieved = false;
+        let resultHtml = "";
+
+        if (isRankGoal) {
+            // 排名逻辑：目标 50，实际 40，diff = 50 - 40 = 10 (进步10名)
+            diff = targetVal - actualVal; 
+            isAchieved = actualVal <= targetVal;
+            
+            const color = isAchieved ? '#28a745' : '#dc3545';
+            const icon = isAchieved ? '🎉 达成' : '⚠️ 未达成';
+            const diffText = diff > 0 ? `前进 ${Math.abs(diff)} 名` : (diff < 0 ? `后退 ${Math.abs(diff)} 名` : `持平`);
+            
+            resultHtml = `
+                <div class="kpi-card" style="background:#fff; border-left: 5px solid ${color}; width:100%; margin-bottom:20px;">
+                    <h3>核心目标 (${isTotal ? '总分' : subject}年排)</h3>
+                    <div style="display:flex; align-items:baseline; gap:15px;">
+                        <span style="font-size:1.2em; color:#666;">目标: <strong>${targetVal}</strong></span>
+                        <span style="font-size:1.2em; color:#333;">实际: <strong>${actualVal}</strong></span>
+                        <span style="font-size:1.4em; font-weight:bold; color:${color}; margin-left:auto;">${icon} <span style="font-size:0.6em;">(${diffText})</span></span>
+                    </div>
+                </div>
+            `;
+        } else {
+            // 分数逻辑：目标 600，实际 620，diff = 620 - 600 = 20 (进步20分)
+            diff = actualVal - targetVal;
+            isAchieved = actualVal >= targetVal;
+            
+            const color = isAchieved ? '#28a745' : '#dc3545';
+            const icon = isAchieved ? '🎉 达成' : '⚠️ 未达成';
+            const diffText = diff > 0 ? `超 ${Math.abs(diff).toFixed(1)} 分` : `差 ${Math.abs(diff).toFixed(1)} 分`;
+
+            resultHtml = `
+                <div class="kpi-card" style="background:#fff; border-left: 5px solid ${color}; width:100%; margin-bottom:20px;">
+                    <h3>核心目标 (${isTotal ? '总分' : subject})</h3>
+                    <div style="display:flex; align-items:baseline; gap:15px;">
+                        <span style="font-size:1.2em; color:#666;">目标: <strong>${targetVal}</strong></span>
+                        <span style="font-size:1.2em; color:#333;">实际: <strong>${actualVal}</strong></span>
+                        <span style="font-size:1.4em; font-weight:bold; color:${color}; margin-left:auto;">${icon} <span style="font-size:0.6em;">(${diffText})</span></span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ------------------------------------------------------
+        // 2. 图表绘制逻辑 (保持分数达成率，作为努力程度参考)
+        // ------------------------------------------------------
+        const radios = document.getElementsByName('goal-trend-mode');
         const drawChart = () => {
             let mode = 'student';
             radios.forEach(r => { if (r.checked) mode = r.value; });
-
             const trendX = [];
             const trendY = [];
 
+            // *注：趋势图依然使用【分数达成率】绘制，因为排名无法简单计算百分比 (排名1不是100%，排名500不是0%)
+            // 这里我们比较的是 "计算出的目标分" vs "实际分"
             if (mode === 'student') {
-                // 模式A: 当前学生在当前列表内的所有规划
                 const studentPlans = archives[sid] || [];
-                const sessionPlans = studentPlans.filter(p => p.sessionId === currentSessionId);
-                sessionPlans.sort((a, b) => a.id - b.id);
-
+                const sessionPlans = studentPlans.filter(p => p.sessionId === currentSessionId).sort((a, b) => a.id - b.id);
                 sessionPlans.forEach(p => {
                     if (p.strategy.mode === 'total' && actualStudent) {
-                        const target = p.strategy.targetScoreCalculated;
-                        const actual = actualStudent.totalScore;
-                        const rate = (actual / target) * 100;
+                        const rate = (actualStudent.totalScore / p.strategy.targetScoreCalculated) * 100;
                         trendX.push(p.name);
                         trendY.push(parseFloat(rate.toFixed(1)));
                     }
                 });
-                renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `达成率 (当前学生: ${plan.studentName})`);
-
+                renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `得分达成率趋势 (当前学生: ${plan.studentName})`);
             } else {
-                // 模式B: 全列表平均 (按规划名称聚合)
-                // 1. 收集所有属于当前 Session 的规划
+                // ... 全列表平均逻辑 (保持原样) ...
                 const allSessionPlans = [];
                 Object.values(archives).forEach(userPlans => {
                     userPlans.forEach(p => { if (p.sessionId === currentSessionId) allSessionPlans.push(p); });
                 });
-
-                // 2. 按名称分组计算平均达成率
                 const groups = {};
                 allSessionPlans.forEach(p => {
                     if (p.strategy.mode === 'total') {
                         if (!groups[p.name]) groups[p.name] = { sumRate: 0, count: 0, ts: p.id };
-
-                        // 获取该学生的实际分数 (注意: 必须在 outcomeData 里有这个人)
                         const sData = G_GoalOutcomeData.find(s => String(s.id) === String(p.studentId));
                         if (sData) {
                             const rate = (sData.totalScore / p.strategy.targetScoreCalculated) * 100;
@@ -13329,42 +13479,36 @@ async function renderGoalSetting(container, activeData, stats) {
                         }
                     }
                 });
-
-                // 3. 转换为数组并排序
                 const sortedGroups = Object.keys(groups).map(name => ({
-                    name: name,
-                    avgRate: groups[name].count > 0 ? (groups[name].sumRate / groups[name].count) : 0,
-                    ts: groups[name].ts
+                    name: name, avgRate: groups[name].count > 0 ? (groups[name].sumRate / groups[name].count) : 0, ts: groups[name].ts
                 })).sort((a, b) => a.ts - b.ts);
-
-                sortedGroups.forEach(g => {
-                    trendX.push(g.name);
-                    trendY.push(parseFloat(g.avgRate.toFixed(1)));
-                });
-
-                renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `达成率 (全列表平均)`);
+                sortedGroups.forEach(g => { trendX.push(g.name); trendY.push(parseFloat(g.avgRate.toFixed(1))); });
+                renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `得分达成率趋势 (全列表平均)`);
             }
         };
-
-        // 绑定切换事件
         radios.forEach(r => r.onclick = drawChart);
-        // 默认重置为学生模式并绘制
         radios[0].checked = true;
         drawChart();
 
-        // 渲染表格 (保持不变)
-        if (!actualStudent) { content.innerHTML = `<p style="color:red;">⚠️ 达成成绩表中无此学生。</p>`; return; }
-        let html = `<h4>${plan.studentName} - ${plan.name} (本次详情)</h4>`;
-        html += `<table><thead><tr><th>科目</th><th>规划目标</th><th>实际得分</th><th>达成情况</th></tr></thead><tbody>`;
-        plan.strategy.details.forEach(d => {
+        // ------------------------------------------------------
+        // 3. 渲染详情表格
+        // ------------------------------------------------------
+        let tableHtml = `<h4>${plan.studentName} - ${plan.name} (科目细分)</h4>`;
+        tableHtml += `<table><thead><tr><th>科目</th><th>规划分数目标</th><th>实际得分</th><th>状态</th></tr></thead><tbody>`;
+        
+        st.details.forEach(d => {
             const actual = actualStudent.scores[d.subject] || 0;
             const diff = actual - d.target;
-            const status = diff >= 0 ? '✅ 达成' : `❌ 未达标 (${diff.toFixed(1)})`;
+            // 科目细分依然对比分数（因为单科排名很难精确拆解）
+            const status = diff >= 0 ? '✅' : `🔻 ${diff.toFixed(1)}`;
             const color = diff >= 0 ? 'green' : 'red';
-            html += `<tr><td>${d.subject}</td><td>${d.target.toFixed(1)}</td><td style="font-weight:bold;">${actual}</td><td style="color:${color}">${status}</td></tr>`;
+            tableHtml += `<tr><td>${d.subject}</td><td>${d.target.toFixed(1)}</td><td style="font-weight:bold;">${actual}</td><td style="color:${color}">${status}</td></tr>`;
         });
-        html += `</tbody></table>`;
-        content.innerHTML = html;
+        tableHtml += `</tbody></table>`;
+
+        // 组合内容
+        content.innerHTML = resultHtml + tableHtml;
+        
         panel.scrollIntoView({ behavior: 'smooth' });
     };
 }
