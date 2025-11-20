@@ -1323,22 +1323,20 @@ function saveSubjectConfigsFromModal() {
 // ---------------------------------
 /**
 /**
- * 9.1. [完整旗舰版] 模块一：班级整体分析
- * - 包含 KPI 卡片
- * - 包含 成绩分段平滑曲线 (支持单科/全科)
- * - 包含 全科统计表
- * - 包含 2x2 核心图表网格
- * - [核心升级] 包含 动态成绩明细表 (支持科目筛选、实时重算总分排名、固定列)
+/**
+ * 9.1. [完整修复版] 模块一：班级整体分析
+ * - 修复：ReferenceError: drawHistogram is not defined
+ * - 优化：调整函数定义顺序，确保所有图表函数在调用前已定义
  */
 function renderDashboard(container, stats, activeData) {
     const totalStats = stats.totalScore || {};
 
     // 1. 计算基础 KPI
-    const totalStudentCount = activeData.length; // 总人数
-    const participantCount = totalStats.count || 0; // 参考人数
-    const missingCount = totalStudentCount - participantCount; // 缺考人数
+    const totalStudentCount = activeData.length;
+    const participantCount = totalStats.count || 0;
+    const missingCount = totalStudentCount - participantCount;
 
-    // [动态表格状态]：默认选中所有科目
+    // [动态表格状态]
     let currentSelectedSubjects = [...G_DynamicSubjectList];
 
     // 2. 构建 HTML 结构
@@ -1370,14 +1368,11 @@ function renderDashboard(container, stats, activeData) {
                         <option value="ALL_SUBJECTS" style="color:#6f42c1; font-weight:bold;">📌 全科对比 (All)</option>
                         ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
                     </select>
-                    
                     <label style="margin-left:10px;">分段间隔:</label>
                     <input type="number" id="curve-bin-size" value="50" style="width:60px; text-align:center;" class="sidebar-select">
-                    
                     <button id="btn-update-curve" class="sidebar-button" style="margin-left:10px; padding:5px 15px; background-color:#20c997;">确定</button>
                 </div>
             </div>
-            
             <div class="chart-container" id="score-distribution-curve" style="height: 400px;"></div>
             <div id="curve-analysis-text" style="background:#f8f9fa; padding:15px; border-radius:6px; margin-top:10px; color:#555; font-size:0.95em; line-height:1.6;"></div>
         </div>
@@ -1388,40 +1383,20 @@ function renderDashboard(container, stats, activeData) {
                 <table>
                     <thead>
                         <tr>
-                            <th>科目</th>
-                            <th>考试人数</th>
-                            <th>平均分</th>
-                            <th>最高分</th>
-                            <th>中位数</th>
-                            <th>优秀率 (%)</th>
-                            <th>良好率 (%)</th> 
-                            <th>及格率 (%)</th>
-                            <th>标准差</th>
+                            <th>科目</th><th>考试人数</th><th>平均分</th><th>最高分</th><th>中位数</th><th>优秀率 (%)</th><th>良好率 (%)</th><th>及格率 (%)</th><th>标准差</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr class="total-score-row">
                             <td><strong>${stats.totalScore.name}</strong></td>
-                            <td>${stats.totalScore.count}</td>
-                            <td>${stats.totalScore.average}</td>
-                            <td>${stats.totalScore.max}</td>
-                            <td>${stats.totalScore.median}</td>
-                            <td>${stats.totalScore.excellentRate}</td>
-                            <td>${stats.totalScore.goodRate || 0}</td> 
-                            <td>${stats.totalScore.passRate}</td>
-                            <td>${stats.totalScore.stdDev || 0}</td>
+                            <td>${stats.totalScore.count}</td><td>${stats.totalScore.average}</td><td>${stats.totalScore.max}</td><td>${stats.totalScore.median}</td>
+                            <td>${stats.totalScore.excellentRate}</td><td>${stats.totalScore.goodRate || 0}</td><td>${stats.totalScore.passRate}</td><td>${stats.totalScore.stdDev || 0}</td>
                         </tr>
                         ${G_DynamicSubjectList.map(subject => stats[subject]).filter(s => s).map(s => `
                             <tr>
                                 <td><strong>${s.name}</strong></td>
-                                <td>${s.count}</td>
-                                <td>${s.average}</td>
-                                <td>${s.max}</td>
-                                <td>${s.median}</td>
-                                <td>${s.excellentRate}</td>
-                                <td>${s.goodRate || 0}</td> 
-                                <td>${s.passRate}</td>
-                                <td>${s.stdDev || 0}</td>
+                                <td>${s.count}</td><td>${s.average}</td><td>${s.max}</td><td>${s.median}</td>
+                                <td>${s.excellentRate}</td><td>${s.goodRate || 0}</td><td>${s.passRate}</td><td>${s.stdDev || 0}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -1430,130 +1405,46 @@ function renderDashboard(container, stats, activeData) {
         </div>
 
         <div class="dashboard-chart-grid-2x2">
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><h4 style="margin:0;">全科分数分布箱形图</h4></div><div class="chart-container" id="subject-boxplot-chart" style="height: 350px;"></div></div>
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>科目:</label><select id="class-compare-subject" class="sidebar-select" style="min-width: 100px;"><option value="totalScore">总分</option>${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}</select><label>指标:</label><select id="class-compare-metric" class="sidebar-select" style="min-width: 120px;"><option value="average">平均分</option><option value="passRate">及格率 (%)</option><option value="stdDev">标准差</option><option value="max">最高分</option><option value="median">中位数</option></select></div><div class="chart-container" id="class-compare-chart" style="height: 350px;"></div></div>
+            <div class="main-card-wrapper"><div class="chart-container" id="radar-chart" style="height: 400px;"></div></div>
             
-            <div class="main-card-wrapper">
-                <div class="controls-bar chart-controls">
-                    <h4 style="margin:0;">全科分数分布箱形图</h4>
-                </div>
-                <div class="chart-container" id="subject-boxplot-chart" style="height: 350px;"></div>
-            </div>
-
-            <div class="main-card-wrapper">
-                 <div class="controls-bar chart-controls">
-                    <label for="class-compare-subject">科目:</label>
-                    <select id="class-compare-subject" class="sidebar-select" style="min-width: 100px;">
-                        <option value="totalScore">总分</option>
-                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
-                    </select>
-                    <label for="class-compare-metric">指标:</label>
-                    <select id="class-compare-metric" class="sidebar-select" style="min-width: 120px;">
-                        <option value="average">平均分</option>
-                        <option value="passRate">及格率 (%)</option>
-                        <option value="stdDev">标准差</option>
-                        <option value="max">最高分</option>
-                        <option value="median">中位数</option>
-                    </select>
-                </div>
-                <div class="chart-container" id="class-compare-chart" style="height: 350px;"></div>
-            </div>
-
-            <div class="main-card-wrapper">
-                <div class="chart-container" id="radar-chart" style="height: 400px;"></div>
-            </div>
-
-            <div class="main-card-wrapper">
-                 <div class="controls-bar chart-controls">
-                    <label for="histogram-bin-size">分段大小:</label>
-                    <input type="number" id="histogram-bin-size" value="30" style="width: 60px;">
-                    <button id="histogram-redraw-btn" class="sidebar-button" style="width: auto;">重绘</button>
-                </div>
-                <div class="chart-container" id="histogram-chart" style="height: 350px;"></div>
-            </div>
-
-            <div class="main-card-wrapper">
-                <div class="controls-bar chart-controls">
-                    <label for="scatter-x-subject">X轴:</label>
-                    <select id="scatter-x-subject" class="sidebar-select">
-                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
-                    </select>
-                    <label for="scatter-y-subject">Y轴:</label>
-                    <select id="scatter-y-subject" class="sidebar-select">
-                        ${G_DynamicSubjectList.map((s, i) => `<option value="${s}" ${i === 1 ? 'selected' : ''}>${s}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="chart-container" id="correlation-scatter-chart" style="height: 350px;"></div>
-            </div>
-
-            <div class="main-card-wrapper">
-                <div class="controls-bar chart-controls">
-                    <h4 style="margin:0;">各科 A/B/C/D 构成 (百分比)</h4>
-                </div>
-                <div class="chart-container" id="stacked-bar-chart" style="height: 350px;"></div>
-            </div>
-
-            <div class="main-card-wrapper" style="grid-column: span 2;"> 
-                <div class="controls-bar chart-controls">
-                    <h4 style="margin:0;">各科对总分差距的贡献度分析 (Contribution)</h4>
-                    <span style="font-size: 0.8em; color: var(--text-muted);">(正值表示该科均分高于年级，拉高了总分；负值表示拉低了总分)</span>
-                </div>
-                 <div class="chart-container" id="contribution-chart" style="height: 400px;"></div>
-            </div>
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>分段:</label><input type="number" id="histogram-bin-size" value="30" style="width: 60px;"><button id="histogram-redraw-btn" class="sidebar-button" style="width: auto;">重绘</button></div><div class="chart-container" id="histogram-chart" style="height: 350px;"></div></div>
+            
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>X轴:</label><select id="scatter-x-subject" class="sidebar-select">${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}</select><label>Y轴:</label><select id="scatter-y-subject" class="sidebar-select">${G_DynamicSubjectList.map((s, i) => `<option value="${s}" ${i === 1 ? 'selected' : ''}>${s}</option>`).join('')}</select></div><div class="chart-container" id="correlation-scatter-chart" style="height: 350px;"></div></div>
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><h4 style="margin:0;">各科 A/B/C/D 构成</h4></div><div class="chart-container" id="stacked-bar-chart" style="height: 350px;"></div></div>
+            <div class="main-card-wrapper" style="grid-column: span 2;"><div class="controls-bar chart-controls"><h4 style="margin:0;">贡献度分析</h4></div><div class="chart-container" id="contribution-chart" style="height: 400px;"></div></div>
         </div>
 
         <div class="main-card-wrapper" style="margin-top: 20px; min-height: 500px;">
-            
             <style>
-                /* 固定列样式 */
                 #dashboard-full-table th:nth-child(1), #dashboard-full-table td:nth-child(1) { position: sticky; left: 0; z-index: 2; background-color: #fff; width: 90px; }
                 #dashboard-full-table th:nth-child(2), #dashboard-full-table td:nth-child(2) { position: sticky; left: 90px; z-index: 2; background-color: #fff; width: 90px; }
                 #dashboard-full-table th:nth-child(3), #dashboard-full-table td:nth-child(3) { position: sticky; left: 180px; z-index: 2; background-color: #fff; width: 110px; border-right: 2px solid #dcdfe6 !important; box-shadow: 2px 0 5px -2px rgba(0,0,0,0.1); }
-                
-                /* 表头固定 */
-                #dashboard-full-table thead th:nth-child(1),
-                #dashboard-full-table thead th:nth-child(2),
-                #dashboard-full-table thead th:nth-child(3) { z-index: 5; background-color: #f8f9fa; }
-
-                /* 科目选择下拉菜单 */
-                .subject-dropdown-content {
-                    display: none;
-                    position: absolute;
-                    background-color: #fff;
-                    min-width: 200px;
-                    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-                    z-index: 10;
-                    padding: 10px;
-                    border-radius: 4px;
-                    border: 1px solid #eee;
-                    top: 100%;
-                    left: 0;
-                }
+                #dashboard-full-table thead th:nth-child(1), #dashboard-full-table thead th:nth-child(2), #dashboard-full-table thead th:nth-child(3) { z-index: 5; background-color: #f8f9fa; }
+                .subject-dropdown-content { display: none; position: absolute; background-color: #fff; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); z-index: 10; padding: 10px; border-radius: 4px; border: 1px solid #eee; top: 100%; left: 0; }
                 .subject-dropdown-content.show { display: block; }
                 .subject-checkbox-item { display: block; margin: 5px 0; cursor: pointer; }
-                .subject-checkbox-item input { margin-right: 8px; }
             </style>
 
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap: 15px; margin-bottom:15px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
                 <div style="display:flex; flex-direction:column;">
                     <h3 style="margin:0; white-space: nowrap;">📋 动态成绩明细表</h3>
-                    <span style="font-size:0.8em; color:#e6a23c; margin-top:4px;">⚡️ 总分与排名将根据勾选的科目实时重算</span>
+                    <span style="font-size:0.8em; color:#e6a23c; margin-top:4px;">⚡️ 勾选科目后，总分与排名将实时重算</span>
                 </div>
                 
                 <div style="display:flex; align-items:center; gap:10px;">
-                    
                     <div style="position: relative;">
-                        <button id="btn-toggle-subjects" class="sidebar-button" style="background-color:#6f42c1; padding: 6px 15px; font-size: 0.9em;">
-                            📚 选择科目 (N) ▼
-                        </button>
+                        <button id="btn-toggle-subjects" class="sidebar-button" style="background-color:#6f42c1; padding: 6px 15px; font-size: 0.9em;">📚 选择科目 ▼</button>
                         <div id="subject-dropdown" class="subject-dropdown-content">
                             <div style="border-bottom:1px solid #eee; padding-bottom:5px; margin-bottom:5px; display:flex; justify-content:space-between;">
-                                <span style="font-weight:bold; font-size:0.9em;">勾选参与计算的科目:</span>
+                                <span style="font-weight:bold; font-size:0.9em;">参与计算的科目:</span>
                                 <a href="#" id="btn-all-subjects" style="font-size:0.8em; color:#007bff;">全选</a>
                             </div>
-                            <div id="subject-checkbox-list" style="max-height:200px; overflow-y:auto;">
-                                </div>
+                            <div id="subject-checkbox-list" style="max-height:200px; overflow-y:auto;"></div>
                         </div>
                     </div>
-
+                    <button id="btn-print-dynamic-table" class="sidebar-button" style="background-color:#17a2b8; padding: 6px 15px; font-size: 0.9em;">🖨️ 打印清单</button>
                     <div style="display:flex; align-items:center; gap:10px; background-color: #f8f9fa; padding: 6px 15px; border-radius: 20px; border: 1px solid #e9ecef;">
                         <span style="font-size:1.1em;">🔍</span>
                         <select id="dashboard-table-filter" class="sidebar-select" style="width:auto; min-width:130px; padding: 4px 8px; height: 34px; margin:0;">
@@ -1571,74 +1462,58 @@ function renderDashboard(container, stats, activeData) {
                 </table>
             </div>
             <div style="margin-top:8px; font-size:0.85em; color:#999; text-align:right;">
-                * 前三列固定。表格展示 "分数 (动态排名)"。点击表头可排序。
+                * 向右滑动表格可固定身份列。显示格式：<b>分数 (年排)</b>。<span style="color:#dc3545;">红色</span>代表不及格。
             </div>
         </div>
     `;
 
     // ============================================
-    // 3. 绑定图表事件逻辑
+    // 3. 定义绘图辅助函数 (关键修复：先定义，再绑定)
     // ============================================
 
-    // --- 曲线图 ---
-    const curveSubjectSelect = document.getElementById('curve-subject-select');
-    const curveBinInput = document.getElementById('curve-bin-size');
-    const curveUpdateBtn = document.getElementById('btn-update-curve');
-
-    const updateCurveChart = () => {
-        const subject = curveSubjectSelect.value;
-        const binSize = parseInt(curveBinInput.value) || 50;
-        if (typeof renderScoreCurve === 'function') {
-            renderScoreCurve('score-distribution-curve', activeData, subject, binSize);
-        }
-    };
-    curveUpdateBtn.addEventListener('click', updateCurveChart);
-    curveSubjectSelect.addEventListener('change', () => {
-        if (curveSubjectSelect.value === 'totalScore') curveBinInput.value = 50;
-        else curveBinInput.value = 10;
-        updateCurveChart();
-    });
-    updateCurveChart(); // 初始绘制
-
-    // --- 直方图 ---
+    // (1) 直方图函数
     const drawHistogram = () => {
         if (totalStats.scores && totalStats.scores.length > 0) {
             const fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
             const binSize = parseInt(document.getElementById('histogram-bin-size').value) || 30;
-            renderHistogram('histogram-chart', activeData, 'totalScore', fullScore, `总分分数段直方图 (分段=${binSize})`, binSize);
+            if (typeof renderHistogram === 'function') {
+                renderHistogram('histogram-chart', activeData, 'totalScore', fullScore, `总分分数段直方图 (分段=${binSize})`, binSize);
+            }
         }
     };
-    document.getElementById('histogram-redraw-btn').addEventListener('click', drawHistogram);
 
-    // --- 班级对比图 ---
-    const classSubjectSelect = document.getElementById('class-compare-subject');
-    const classMetricSelect = document.getElementById('class-compare-metric');
-    const drawClassCompareChart = () => {
-        const subject = classSubjectSelect.value;
-        const metric = classMetricSelect.value;
-        if (G_CurrentClassFilter === 'ALL') {
-            const data = calculateClassComparison(metric, subject);
-            let subjectName = subject === 'totalScore' ? '总分' : subject;
-            let metricName = classMetricSelect.options[classMetricSelect.selectedIndex].text;
-            renderClassComparisonChart('class-compare-chart', data, `各班级 - ${subjectName} ${metricName} 对比`);
-        } else {
-            document.getElementById('class-compare-chart').innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">请在侧边栏选择 "全体年段" 以查看班级对比。</p>`;
+    // (2) 曲线图函数
+    const updateCurveChart = () => {
+        const subject = document.getElementById('curve-subject-select').value;
+        const binSize = parseInt(document.getElementById('curve-bin-size').value) || 50;
+        if (typeof renderScoreCurve === 'function') {
+            renderScoreCurve('score-distribution-curve', activeData, subject, binSize);
         }
     };
-    classSubjectSelect.addEventListener('change', drawClassCompareChart);
-    classMetricSelect.addEventListener('change', drawClassCompareChart);
 
-    // --- 散点图 ---
-    const scatterXSelect = document.getElementById('scatter-x-subject');
-    const scatterYSelect = document.getElementById('scatter-y-subject');
-    const drawScatterPlot = () => {
-        renderCorrelationScatterPlot('correlation-scatter-chart', activeData, scatterXSelect.value, scatterYSelect.value);
+    // (3) 班级对比图函数
+    const updateClassChart = () => {
+        const classCompareSel = document.getElementById('class-compare-subject');
+        const classMetricSel = document.getElementById('class-compare-metric');
+        if (!classCompareSel || G_CurrentClassFilter !== 'ALL') return;
+        
+        const d = calculateClassComparison(classMetricSel.value, classCompareSel.value);
+        let subName = classCompareSel.value === 'totalScore' ? '总分' : classCompareSel.value;
+        let metName = classMetricSel.options[classMetricSel.selectedIndex].text;
+        renderClassComparisonChart('class-compare-chart', d, `各班级 - ${subName} ${metName} 对比`);
     };
-    scatterXSelect.addEventListener('change', drawScatterPlot);
-    scatterYSelect.addEventListener('change', drawScatterPlot);
 
-    // --- 贡献度图 ---
-    const drawContributionChart = () => {
+    // (4) 散点图函数
+    const updateScat = () => {
+        const scatX = document.getElementById('scatter-x-subject');
+        const scatY = document.getElementById('scatter-y-subject');
+        if (scatX && scatY) {
+            renderCorrelationScatterPlot('correlation-scatter-chart', activeData, scatX.value, scatY.value);
+        }
+    };
+
+    // (5) 贡献度图函数
+    const drawContribution = () => {
         if (G_CurrentClassFilter === 'ALL') {
             document.getElementById('contribution-chart').innerHTML = `<p style="text-align:center; padding-top:50px; color:#999;">请选择具体班级以查看贡献度分析。</p>`;
             return;
@@ -1655,7 +1530,40 @@ function renderDashboard(container, stats, activeData) {
     };
 
     // ============================================
-    // 4. [核心] 动态表格逻辑实现
+    // 4. 绑定事件
+    // ============================================
+    
+    // 曲线图
+    const curveBinInput = document.getElementById('curve-bin-size');
+    const curveSubjectSelect = document.getElementById('curve-subject-select');
+    document.getElementById('btn-update-curve').addEventListener('click', updateCurveChart);
+    curveSubjectSelect.addEventListener('change', () => {
+        if (curveSubjectSelect.value === 'totalScore') curveBinInput.value = 50;
+        else curveBinInput.value = 10;
+        updateCurveChart();
+    });
+
+    // 直方图
+    document.getElementById('histogram-redraw-btn').addEventListener('click', drawHistogram);
+
+    // 班级对比
+    const classCompareSel = document.getElementById('class-compare-subject');
+    const classMetricSel = document.getElementById('class-compare-metric');
+    if(classCompareSel) {
+        classCompareSel.addEventListener('change', updateClassChart);
+        classMetricSel.addEventListener('change', updateClassChart);
+    }
+
+    // 散点图
+    const scatX = document.getElementById('scatter-x-subject');
+    const scatY = document.getElementById('scatter-y-subject');
+    if(scatX) {
+        scatX.addEventListener('change', updateScat);
+        scatY.addEventListener('change', updateScat);
+    }
+
+    // ============================================
+    // 5. [核心] 动态表格逻辑实现
     // ============================================
     const initDynamicTable = () => {
         const dropdownBtn = document.getElementById('btn-toggle-subjects');
@@ -1682,50 +1590,31 @@ function renderDashboard(container, stats, activeData) {
 
         // --- 核心渲染函数 ---
         const renderDynamicData = () => {
-            // 1. [核心计算] 基于勾选科目，重算所有人的总分和排名
-            // 必须对 G_StudentsData (全体) 计算，才能得到正确年排
             const dynamicData = G_StudentsData.map(s => {
                 let dynamicTotal = 0;
                 let hasScore = false;
-
                 currentSelectedSubjects.forEach(sub => {
                     const score = s.scores[sub];
-                    if (typeof score === 'number') {
-                        dynamicTotal += score;
-                        hasScore = true;
-                    }
+                    if (typeof score === 'number') { dynamicTotal += score; hasScore = true; }
                 });
-
-                if (!hasScore) dynamicTotal = -1; // 无成绩标记
-
-                return {
-                    raw: s,
-                    id: s.id,
-                    name: s.name,
-                    class: s.class,
-                    dynamicTotal: parseFloat(dynamicTotal.toFixed(2)),
-                    dynamicRank: 0 // 待计算
-                };
+                if (!hasScore) dynamicTotal = -1;
+                return { raw: s, id: s.id, name: s.name, class: s.class, dynamicTotal: parseFloat(dynamicTotal.toFixed(2)), dynamicRank: 0 };
             });
 
-            // 2. 计算动态排名
             dynamicData.sort((a, b) => b.dynamicTotal - a.dynamicTotal);
             dynamicData.forEach((item, index) => {
                 item.dynamicRank = (item.dynamicTotal >= 0) ? (index + 1) : '-';
-                if (item.dynamicTotal < 0) item.dynamicTotal = 0; // 显示修复
+                if (item.dynamicTotal < 0) item.dynamicTotal = 0;
             });
 
-            // 3. 筛选 (班级/搜索)
             const filterClass = filterSelect.value;
             const searchText = searchInput.value.toLowerCase().trim();
-
             let displayList = dynamicData.filter(item => {
                 if (filterClass !== 'ALL' && item.class !== filterClass) return false;
                 if (searchText && !item.name.includes(searchText) && !String(item.id).includes(searchText)) return false;
                 return true;
             });
 
-            // 4. 排序 (基于点击表头)
             const { key, direction } = G_DashboardTableSort;
             displayList.sort((a, b) => {
                 let valA, valB;
@@ -1736,32 +1625,16 @@ function renderDashboard(container, stats, activeData) {
                     const sub = key.split('.')[1];
                     valA = a.raw.scores[sub] ?? -Infinity;
                     valB = b.raw.scores[sub] ?? -Infinity;
-                } else {
-                    valA = a[key]; valB = b[key];
-                }
-                
+                } else { valA = a[key]; valB = b[key]; }
                 if (typeof valA === 'string') return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
                 return direction === 'asc' ? valA - valB : valB - valA;
             });
 
-            // 5. 渲染表头
-            let theadHtml = `
-                <tr>
-                    <th data-sort="id" style="cursor:pointer;">学号 ⇅</th>
-                    <th data-sort="name" style="cursor:pointer;">姓名 ⇅</th>
-                    <th data-sort="class" style="cursor:pointer;">班级 ⇅</th>
-            `;
-            currentSelectedSubjects.forEach(sub => {
-                theadHtml += `<th data-sort="scores.${sub}" style="cursor:pointer; min-width:80px;">${sub} ⇅</th>`;
-            });
-            theadHtml += `
-                    <th data-sort="dynamicTotal" style="cursor:pointer; background-color:#e8f0fe; min-width:90px; border-left:2px solid #eee;">自定义总分 ⇅</th>
-                    <th data-sort="dynamicRank" style="cursor:pointer; background-color:#e8f0fe; min-width:80px;">新排名 ⇅</th>
-                </tr>
-            `;
+            let theadHtml = `<tr><th data-sort="id" style="cursor:pointer;">学号 ⇅</th><th data-sort="name" style="cursor:pointer;">姓名 ⇅</th><th data-sort="class" style="cursor:pointer;">班级 ⇅</th>`;
+            currentSelectedSubjects.forEach(sub => { theadHtml += `<th data-sort="scores.${sub}" style="cursor:pointer; min-width:80px;">${sub} ⇅</th>`; });
+            theadHtml += `<th data-sort="dynamicTotal" style="cursor:pointer; background-color:#e8f0fe; min-width:90px; border-left:2px solid #eee;">自定义总分 ⇅</th><th data-sort="dynamicRank" style="cursor:pointer; background-color:#e8f0fe; min-width:80px;">新排名 ⇅</th></tr>`;
             tableHead.innerHTML = theadHtml;
 
-            // 6. 渲染内容 (懒加载优化，限500条)
             const limit = 500;
             const renderList = displayList.slice(0, limit);
 
@@ -1771,39 +1644,78 @@ function renderDashboard(container, stats, activeData) {
             }
 
             tableBody.innerHTML = renderList.map(item => {
-                let row = `<tr>
-                    <td>${item.id}</td>
-                    <td style="font-weight:bold;">${item.name}</td>
-                    <td>${item.class}</td>`;
-                
+                let row = `<tr><td>${item.id}</td><td style="font-weight:bold;">${item.name}</td><td>${item.class}</td>`;
                 currentSelectedSubjects.forEach(sub => {
                     const score = item.raw.scores[sub];
                     const val = score !== undefined ? score : '-';
-                    row += `<td>${val}</td>`;
+                    const rank = (item.raw.gradeRanks && item.raw.gradeRanks[sub]) ? item.raw.gradeRanks[sub] : '-';
+                    const passLine = (G_SubjectConfigs[sub] && G_SubjectConfigs[sub].pass) ? G_SubjectConfigs[sub].pass : 60;
+                    const style = (typeof score === 'number' && score < passLine) ? 'color:#dc3545; font-weight:bold;' : '';
+                    row += `<td style="${style}">${val} <span style="font-size:0.8em; color:#999; font-weight:normal;">(${rank})</span></td>`;
                 });
-
-                row += `<td style="font-weight:bold; color:#6f42c1; background-color:#f8faff; border-left:2px solid #eee;">${item.dynamicTotal}</td>
-                        <td style="font-weight:bold; color:#6f42c1; background-color:#f8faff;">${item.dynamicRank}</td>
-                    </tr>`;
+                row += `<td style="font-weight:bold; color:#6f42c1; background-color:#f8faff; border-left:2px solid #eee;">${item.dynamicTotal}</td><td style="font-weight:bold; color:#6f42c1; background-color:#f8faff;">${item.dynamicRank}</td></tr>`;
                 return row;
             }).join('');
 
-            if (displayList.length > limit) {
-                tableBody.innerHTML += `<tr><td colspan="100" style="text-align:center; color:#999;">(仅显示前 ${limit} 条，请使用筛选缩小范围)</td></tr>`;
-            }
+            if (displayList.length > limit) tableBody.innerHTML += `<tr><td colspan="100" style="text-align:center; color:#999;">(仅显示前 ${limit} 条，请使用筛选缩小范围)</td></tr>`;
         };
 
+        // 打印功能
+        document.getElementById('btn-print-dynamic-table').addEventListener('click', () => {
+            const dynamicData = G_StudentsData.map(s => {
+                let dynamicTotal = 0;
+                let hasScore = false;
+                currentSelectedSubjects.forEach(sub => {
+                    const score = s.scores[sub];
+                    if (typeof score === 'number') { dynamicTotal += score; hasScore = true; }
+                });
+                if (!hasScore) dynamicTotal = -1;
+                return { raw: s, dynamicTotal: parseFloat(dynamicTotal.toFixed(2)) };
+            });
+            dynamicData.sort((a, b) => b.dynamicTotal - a.dynamicTotal);
+            dynamicData.forEach((item, index) => { item.dynamicRank = (item.dynamicTotal >= 0) ? (index + 1) : '-'; });
+
+            const filterClass = filterSelect.value;
+            const searchText = searchInput.value.toLowerCase().trim();
+            const printList = dynamicData.filter(item => {
+                if (filterClass !== 'ALL' && item.raw.class !== filterClass) return false;
+                if (searchText && !item.raw.name.includes(searchText) && !String(item.raw.id).includes(searchText)) return false;
+                return true;
+            });
+
+            if (printList.length === 0) { alert("当前列表为空"); return; }
+            if (printList.length > 300 && !confirm(`即将打印 ${printList.length} 条数据，确认？`)) return;
+
+            let rowsHtml = '';
+            printList.forEach((item, index) => {
+                const s = item.raw;
+                let scoresHtml = '';
+                currentSelectedSubjects.forEach(sub => {
+                    const score = s.scores[sub] !== undefined ? s.scores[sub] : '-';
+                    const rank = (s.gradeRanks && s.gradeRanks[sub]) ? s.gradeRanks[sub] : '-';
+                    const passLine = (G_SubjectConfigs[sub] && G_SubjectConfigs[sub].pass) ? G_SubjectConfigs[sub].pass : 60;
+                    const colorStyle = (typeof s.scores[sub] === 'number' && s.scores[sub] < passLine) ? 'color:#dc3545;' : '';
+                    scoresHtml += `<div class="score-item"><span class="subject-name">${sub}</span><span class="score-val" style="${colorStyle}">${score} <span style="font-size:0.8em; color:#999; font-weight:normal;">(${rank})</span></span></div>`;
+                });
+                rowsHtml += `<div class="student-row"><div class="student-info"><span class="rank-badge">${item.dynamicRank}</span><span class="name">${s.name}</span><span class="class">(${s.class})</span></div><div class="scores-grid">${scoresHtml}</div><div class="total-info"><span>总分: <strong>${item.dynamicTotal >= 0 ? item.dynamicTotal : '-'}</strong></span></div></div>`;
+                if (index < printList.length - 1) rowsHtml += `<div class="spacer"></div><div class="dashed-line"></div><div class="spacer"></div>`;
+            });
+
+            const printHtml = `<html><head><title>成绩清单</title><style>body{font-family:sans-serif;padding:20px}.student-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0}.student-info{width:180px;display:flex;align-items:center;gap:8px}.rank-badge{background:#6f42c1;color:white;padding:2px 6px;border-radius:4px;min-width:25px;text-align:center}.name{font-weight:bold}.class{color:#666;font-size:0.9em}.scores-grid{display:flex;flex-wrap:wrap;gap:8px;flex:1;padding:0 10px}.score-item{border:1px solid #eee;padding:2px 6px;font-size:0.9em;background:#f9f9f9;border-radius:3px}.subject-name{color:#888;margin-right:3px}.score-val{font-weight:bold}.total-info{width:120px;text-align:right;color:#6f42c1}.dashed-line{border-bottom:1px dashed #999;width:100%}.spacer{height:10px}@media print{.rank-badge{-webkit-print-color-adjust:exact}}</style></head><body><h2>📄 动态成绩清单</h2><p style="text-align:center;color:#666;font-size:0.9em;">包含科目：${currentSelectedSubjects.join('、')}</p>${rowsHtml}</body></html>`;
+            const win = window.open('', '_blank');
+            win.document.write(printHtml);
+            win.document.close();
+            setTimeout(() => { win.focus(); win.print(); }, 500);
+        });
+
         // --- 事件绑定 ---
-        // 科目勾选更新
         const triggerUpdate = () => {
             const cbs = checkboxList.querySelectorAll('input:checked');
             currentSelectedSubjects = Array.from(cbs).map(cb => cb.value);
             dropdownBtn.innerText = `📚 选择科目 (${currentSelectedSubjects.length}) ▼`;
             renderDynamicData();
         };
-
         checkboxList.addEventListener('change', triggerUpdate);
-        
         btnAll.addEventListener('click', (e) => {
             e.preventDefault();
             const cbs = checkboxList.querySelectorAll('input');
@@ -1811,51 +1723,35 @@ function renderDashboard(container, stats, activeData) {
             cbs.forEach(cb => cb.checked = !allChecked);
             triggerUpdate();
         });
-
-        // 下拉菜单显示
         dropdownBtn.addEventListener('click', (e) => { e.stopPropagation(); dropdownContent.classList.toggle('show'); });
-        document.addEventListener('click', (e) => {
-            if (!dropdownBtn.contains(e.target) && !dropdownContent.contains(e.target)) dropdownContent.classList.remove('show');
-        });
-
-        // 筛选与排序
+        document.addEventListener('click', (e) => { if (!dropdownBtn.contains(e.target) && !dropdownContent.contains(e.target)) dropdownContent.classList.remove('show'); });
         filterSelect.addEventListener('change', renderDynamicData);
         searchInput.addEventListener('input', renderDynamicData);
-
         tableHead.addEventListener('click', (e) => {
-            const th = e.target.closest('th');
-            if (!th) return;
+            const th = e.target.closest('th'); if (!th) return;
             const sortKey = th.dataset.sort;
             if (sortKey) {
-                if (G_DashboardTableSort.key === sortKey) {
-                    G_DashboardTableSort.direction = G_DashboardTableSort.direction === 'asc' ? 'desc' : 'asc';
-                } else {
-                    G_DashboardTableSort.key = sortKey;
-                    G_DashboardTableSort.direction = 'desc';
-                }
+                if (G_DashboardTableSort.key === sortKey) G_DashboardTableSort.direction = G_DashboardTableSort.direction === 'asc' ? 'desc' : 'asc';
+                else { G_DashboardTableSort.key = sortKey; G_DashboardTableSort.direction = 'desc'; }
                 renderDynamicData();
             }
         });
 
-        // 初始调用
         renderDynamicData();
     };
 
-    // ============================================
-    // 5. 执行所有绘制
-    // ============================================
+    // 6. 初始执行
+    updateCurveChart();
     drawHistogram();
-    drawClassCompareChart();
-    renderAverageRadar('radar-chart', stats);
-    renderSubjectBoxPlot('subject-boxplot-chart', G_Statistics, activeData);
-    renderStackedBar('stacked-bar-chart', G_Statistics, G_SubjectConfigs);
-    drawScatterPlot();
-    drawContributionChart();
+    updateClassChart();
+    updateScat();
+    drawContribution();
+    if(typeof renderAverageRadar === 'function') renderAverageRadar('radar-chart', stats);
+    if(typeof renderSubjectBoxPlot === 'function') renderSubjectBoxPlot('subject-boxplot-chart', G_Statistics, activeData);
+    if(typeof renderStackedBar === 'function') renderStackedBar('stacked-bar-chart', G_Statistics, G_SubjectConfigs);
     
-    // 启动动态表格
     initDynamicTable();
 }
-
 /**
  * (修改后) 9.2. 模块二：学生个体报告 (新增：隐藏排名按钮)
  */
