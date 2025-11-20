@@ -13135,8 +13135,63 @@ async function renderGoalSetting(container, activeData, stats) {
     tabCreate.addEventListener('click', () => { document.getElementById('goal-tab-create').style.display = 'block'; document.getElementById('goal-tab-manage').style.display = 'none'; tabCreate.classList.add('active'); tabCreate.style.borderBottomColor = 'var(--primary-color)'; tabCreate.style.color = 'var(--primary-color)'; tabManage.classList.remove('active'); tabManage.style.borderBottomColor = 'transparent'; tabManage.style.color = '#666'; });
     document.getElementById('goal-manage-refresh').addEventListener('click', renderManageTable);
 
-// [升级版] 渲染管理表格 (新增修改按钮)
+// [升级版] 渲染管理大厅表格 (支持点击表头排序)
     async function renderManageTable() {
+        // 1. 初始化排序状态 (全局持久化，防止切换Tab丢失)
+        if (typeof window.G_GoalManageSort === 'undefined') {
+            window.G_GoalManageSort = { key: 'id', direction: 'desc' }; // 默认按创建时间倒序
+        }
+
+        // 2. 动态升级表头 (注入排序功能)
+        const thead = document.querySelector('#goal-manage-table thead');
+        if (thead && !thead.dataset.sortEnabled) {
+            thead.dataset.sortEnabled = "true";
+            thead.innerHTML = `
+                <tr>
+                    <th data-sort="className" style="cursor:pointer; user-select:none;">班级 ⇅</th>
+                    <th data-sort="studentName" style="cursor:pointer; user-select:none;">姓名 ⇅</th>
+                    <th data-sort="name" style="cursor:pointer; user-select:none;">规划名称 ⇅</th>
+                    <th data-sort="mode" style="cursor:pointer; user-select:none;">类型 ⇅</th>
+                    <th data-sort="target" style="cursor:pointer; user-select:none;">目标 ⇅</th>
+                    <th>操作</th>
+                </tr>
+            `;
+            // 绑定点击事件
+            thead.addEventListener('click', (e) => {
+                const th = e.target.closest('th');
+                if (!th || !th.dataset.sort) return;
+                const key = th.dataset.sort;
+                
+                // 切换排序逻辑
+                if (window.G_GoalManageSort.key === key) {
+                    window.G_GoalManageSort.direction = window.G_GoalManageSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    window.G_GoalManageSort.key = key;
+                    window.G_GoalManageSort.direction = 'desc'; // 默认降序
+                }
+                // 重新渲染表格
+                renderManageTable();
+            });
+        }
+
+        // 3. 更新表头样式 (高亮当前排序列)
+        if (thead) {
+            const ths = thead.querySelectorAll('th[data-sort]');
+            ths.forEach(th => {
+                th.style.color = '';
+                // 重置图标
+                let text = th.innerText.replace(/[↑↓⇅]/g, '').trim();
+                th.innerText = text + ' ⇅';
+                
+                if (th.dataset.sort === window.G_GoalManageSort.key) {
+                    th.style.color = '#007bff'; // 高亮颜色
+                    const icon = window.G_GoalManageSort.direction === 'asc' ? ' ↑' : ' ↓';
+                    th.innerText = text + icon;
+                }
+            });
+        }
+
+        // 4. 获取并整理数据
         allArchives = await localforage.getItem('G_Goal_Archives') || {};
         const tbody = document.getElementById('goal-manage-tbody');
         const rows = [];
@@ -13156,8 +13211,36 @@ async function renderGoalSetting(container, activeData, stats) {
             return; 
         }
         
-        rows.sort((a, b) => b.id - a.id);
+        // 5. [核心] 执行排序
+        const { key, direction } = window.G_GoalManageSort;
+        rows.sort((a, b) => {
+            let valA, valB;
+            
+            // 提取排序值
+            if (key === 'target') {
+                // 目标值排序 (优先用计算后的分数，保证排名和分数能混合比较)
+                valA = a.strategy.targetScoreCalculated || 0;
+                valB = b.strategy.targetScoreCalculated || 0;
+            } else if (key === 'mode') {
+                valA = a.strategy.mode; // 'total' or 'single'
+                valB = b.strategy.mode;
+            } else if (key === 'id') {
+                valA = a.id; valB = b.id; // 创建时间
+            } else {
+                // 班级、姓名、规划名称
+                valA = a[key] || ''; 
+                valB = b[key] || '';
+            }
+            
+            // 执行比较
+            if (typeof valA === 'string') {
+                return direction === 'asc' ? valA.localeCompare(valB, 'zh-CN') : valB.localeCompare(valA, 'zh-CN');
+            } else {
+                return direction === 'asc' ? valA - valB : valB - valA;
+            }
+        });
         
+        // 6. 渲染表格行
         tbody.innerHTML = rows.map(r => { 
             const st = r.strategy || {}; 
             let targetDisplay = "";
@@ -13174,17 +13257,16 @@ async function renderGoalSetting(container, activeData, stats) {
             return `
                 <tr>
                     <td>${r.className}</td>
-                    <td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;">
+                    <td onclick="showPlanDetail('${r.sid}', ${r.idx})" style="cursor:pointer; color:#007bff; font-weight:bold;" title="点击查看详情">
                         ${r.studentName} 📊
                     </td>
                     <td onclick="renamePlan('${r.sid}', ${r.idx})" style="cursor:pointer; color:#333;">
-                        ${r.name || '未命名'} ✎
+                        ${r.name || '未命名'} <span style="font-size:0.8em; color:#999;">✎</span>
                     </td>
                     <td>${isTotal ? '全科' : '单科'}</td>
                     <td>${targetDisplay}</td>
                     <td>
                         <button onclick="editPlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#17a2b8; padding:4px 8px; font-size:0.8em;">修改</button>
-                        
                         <button onclick="reviewPlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#28a745; padding:4px 8px; font-size:0.8em; margin-left:5px;">复盘</button>
                         <button onclick="deletePlanGlobal('${r.sid}', ${r.idx})" class="sidebar-button" style="background-color:#dc3545; padding:4px 8px; font-size:0.8em; margin-left:5px;">删除</button>
                     </td>
