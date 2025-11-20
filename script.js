@@ -534,7 +534,7 @@ function loadExcelData(file) {
                     return reject(new Error("文件数据不完整，至少需要1行表头和1行数据。"));
                 }
 
-                // --- 🚀 智能定位表头行 (重构) ---
+                // --- 🚀 智能定位表头行   ---
                 let keyRowIndex = -1;
                 //      我们只依赖 "姓名" 和 "班级"
                 const REQUIRED_METRICS = ["姓名", "班级"];
@@ -574,7 +574,7 @@ function loadExcelData(file) {
                 const headerLength = keyHeader.length;
                 const dynamicSubjectList = [];
 
-                //    (重构) 2. 核心：动态构建列映射 (colMap)
+                //      2. 核心：动态构建列映射 (colMap)
                 for (let i = 0; i < headerLength; i++) {
                     const subject = String(subjectHeader[i] || "").trim(); // 科目行
                     const key = keyHeader[i]; // 关键行
@@ -704,13 +704,13 @@ function loadExcelData(file) {
     });
 }
 /**
- * (重构) 6.2. 为数据添加单科排名
+ *   6.2. 为数据添加单科排名
  * (总分排名 'rank' 和 'gradeRank' 已经从Excel读取)
  * @param {Array<Object>} studentsData
  * @returns {Array<Object>}
  */
 /**
- * (重构) 6.2. [修复版] 为数据添加单科排名 (班排 & 年排)
+ *   6.2.    为数据添加单科排名 (班排 & 年排)
  */
 function addSubjectRanksToData(studentsData) {
     if (!studentsData || studentsData.length === 0) return [];
@@ -781,7 +781,7 @@ function addSubjectRanksToData(studentsData) {
 
 
 /**
- * (重构) 6.3. 计算所有统计数据
+ *   6.3. 计算所有统计数据
  * @param {Array<Object>} studentsData (这是 *已筛选* 后的数据)
  * @returns {Object}
  */
@@ -958,7 +958,7 @@ function calculateFujianAssignedScore(studentScore, allScores) {
 }
 
 /**
- * (重构) 6.4. 辅助函数：计算单个分数数组的统计值
+ *   6.4. 辅助函数：计算单个分数数组的统计值
  *        加了 superExcelLine (特优线) 和 lowLine (低分线) 参数
  */
 function calculateStatsForScores(scores, fullMark, passLine, excellentLine, goodLine, superExcelLine, lowLine) {
@@ -1037,7 +1037,7 @@ function calculateStatsForScores(scores, fullMark, passLine, excellentLine, good
 
 /**
  * (    ) 7.1. 核心分析与渲染触发器
- *    (已修改) 允许 multi-exam 模块在没有 G_StudentsData 时运行
+ *       允许 multi-exam 模块在没有 G_StudentsData 时运行
  */
 function runAnalysisAndRender() {
     // 1.      先获取当前要渲染的模块
@@ -1075,7 +1075,7 @@ function runAnalysisAndRender() {
         }
     }
 
-    // 5. (重构) 重  计算统计数据
+    // 5.   重  计算统计数据
     G_Statistics = calculateAllStatistics(activeData);
     calculateStandardScores(activeData, G_Statistics);
     if (activeCompareData.length > 0) {
@@ -1084,13 +1084,13 @@ function runAnalysisAndRender() {
         calculateStandardScores(activeCompareData, G_CompareStatistics); // <-- 关键：这一行之前漏了
     }
 
-    // 6. (重构) 渲染当前激活的模块
+    // 6.   渲染当前激活的模块
     // (currentModule 已在最前面获取)
     renderModule(currentModule, activeData, activeCompareData);
 }
 
 /**
- * (重构) 7.2. 模块渲染的“路由器”
+ *   7.2. 模块渲染的“路由器”
  *    已     case 'weakness'
  */
 function renderModule(moduleName, activeData, activeCompareData) {
@@ -1102,7 +1102,7 @@ function renderModule(moduleName, activeData, activeCompareData) {
     if (!container) return;
     container.style.display = 'block';
 
-    // (重构) G_Statistics 已经是算好的
+    //   G_Statistics 已经是算好的
     switch (moduleName) {
         case 'dashboard':
             renderDashboard(container, G_Statistics, activeData);
@@ -2136,7 +2136,7 @@ function renderStudent(container, students, stats) {
  *    已修改：签名  加 activeData, drawChart 传递 activeData
  */
 function renderPaper(container, stats, activeData) {
-    // 1. (重构) 渲染 1x4 垂直布局
+    // 1.   渲染 1x4 垂直布局
     container.innerHTML = `
         <h2>模块三：试卷科目分析 (当前筛选: ${G_CurrentClassFilter})</h2>
         
@@ -2200,7 +2200,7 @@ function renderPaper(container, stats, activeData) {
         </div>
     `;
 
-    // 2. (重构) 绘制直方图
+    // 2.   绘制直方图
     const drawChart = () => {
         //    核心修改
         const subjectName = document.getElementById('subject-select').value;
@@ -2225,7 +2225,7 @@ function renderPaper(container, stats, activeData) {
         );
     };
 
-    // 3. (重构) 绑定事件 (不变)
+    // 3.   绑定事件 (不变)
     document.getElementById('subject-select').addEventListener('change', drawChart);
     document.getElementById('paper-redraw-btn').addEventListener('click', drawChart);
 
@@ -2606,7 +2606,7 @@ function renderTrend(container, currentData, compareData) {
  *    (关键) A/B/C/D 快捷按钮现在从 config.good 读取
  */
 function renderGroups(container, students) {
-    // 1. (重构) 渲染筛选器卡片
+    // 1.   渲染筛选器卡片
     container.innerHTML = `
         <h2>模块八：学生分层筛选 (当前筛选: ${G_CurrentClassFilter})</h2>
         
@@ -3556,7 +3556,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
 }
 
 /**
- * (重构) 9.11. 模块：数据管理中心
+ *   9.11. 模块：数据管理中心
  *    修复版    解决 loadMultiExamData 异步调用问题
  */
 function renderMultiExam(container) {
@@ -4576,8 +4576,8 @@ function renderClassComparisonChart(elementId, data, title) {
 }
 
 /**
- * (已修改) 10.5. 渲染多科目箱形图
- *    (重构) 手动计算箱形图数据，以便在异常值中显示学生姓名
+ *    10.5. 渲染多科目箱形图
+ *      手动计算箱形图数据，以便在异常值中显示学生姓名
  * @param {string} elementId
  * @param {Object} stats - G_Statistics
  * @param {Array} activeData - 传入学生数据
@@ -4608,7 +4608,7 @@ function renderSubjectBoxPlot(elementId, stats, activeData) {
     const scatterData = []; // 存储异常值数据 (带姓名)
     const labels = G_DynamicSubjectList;
 
-    // 2.    (重构) 遍历所有科目
+    // 2.      遍历所有科目
     labels.forEach((subject, subjectIndex) => {
         const s = stats[subject];
         // (如果该科目没有数据，跳过)
@@ -4656,7 +4656,7 @@ function renderSubjectBoxPlot(elementId, stats, activeData) {
     // const allScores = ...
     // const boxplotData = echarts.dataTool.prepareBoxplotData(allScores);
 
-    // 4. (重构) ECharts 配置
+    // 4.   ECharts 配置
     const option = {
         title: {
             left: 'center',
@@ -4722,8 +4722,8 @@ function renderSubjectBoxPlot(elementId, stats, activeData) {
     echartsInstances[elementId].setOption(option);
 }
 /**
- * (已修改) 10.6. 渲染学科关联性散点图
- *    (重构) 现在调用 calculateCorrelation() 辅助函数
+ * 10.6. 渲染学科关联性散点图
+ * 现在调用 calculateCorrelation() 辅助函数
  */
 function renderCorrelationScatterPlot(elementId, activeData, xSubject, ySubject) {
     const chartDom = document.getElementById(elementId);
@@ -4747,8 +4747,6 @@ function renderCorrelationScatterPlot(elementId, activeData, xSubject, ySubject)
             yScores.push(yScore);
         }
     });
-
-    // 2.    (重构) 调用  的辅助函数
     const correlationCoefficient = calculateCorrelation(xScores, yScores);
     const formattedCorrelation = correlationCoefficient.toFixed(2);
 
@@ -4840,8 +4838,8 @@ function renderCorrelationScatterPlot(elementId, activeData, xSubject, ySubject)
 
 
 /**
- * (已修改) 10.7. 渲染 A/B/C/D 堆叠百分比条形图
- *    (关键) A/B/C/D 的分界线现在从 config.good 读取
+ * 10.7. 渲染 A/B/C/D 堆叠百分比条形图
+ * A/B/C/D 的分界线现在从 config.good 读取
  */
 function renderStackedBar(elementId, stats, configs) {
     const chartDom = document.getElementById(elementId);
@@ -4976,7 +4974,7 @@ function renderStackedBar(elementId, stats, configs) {
 }
 
 /**
- * (已修改) 10.8. 渲染学生个体 vs 年级平均雷达图
+ *    10.8. 渲染学生个体 vs 年级平均雷达图
  *        了颜色区分
  */
 function renderStudentRadar(elementId, student, stats) {
@@ -5351,7 +5349,7 @@ function renderTrendScatter(elementId, students) {
 }
 
 /**
- * (已修改) 10.11. 渲染学生进退步条形图
+ *    10.11. 渲染学生进退步条形图
  *    修复版：支持按【年级排名变化】排序
  */
 function renderRankChangeBarChart(elementId, students, sortBy = 'name', subject = 'totalScore') {
@@ -5505,7 +5503,7 @@ function renderRankChangeBarChart(elementId, students, sortBy = 'name', subject 
 }
 
 /**
- * (已修改) 10.11. 渲染学生进退步条形图
+ *    10.11. 渲染学生进退步条形图
  *    修复版：支持按【年级排名变化】排序
  * 务必更  此函数，否则下拉框选了没反应！
  */
@@ -6384,7 +6382,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
 
 /**
  * (    ) 10.24. 渲染临界生模块 - 单个学生科目详情
- *    (已修改) - 不及格科目和分数均标红
+ *       - 不及格科目和分数均标红
  */
 function renderBoundaryStudentDetail(containerElement, student) {
 
@@ -6780,8 +6778,7 @@ function renderFailureCountChart(elementId, failureData) {
 }
 
 /**
- * 渲染排名流动桑基图 (修复颜色版)
- *    修复点：为不同的排名层级分配了不同的颜色，不再全显示为灰色
+ * 渲染排名流动桑基图
  */
 function renderRankingSankey(elementId, mergedData, rankTiers, getRankCategory, currentFilter, subject = 'totalScore') {
     const chartDom = document.getElementById(elementId);
@@ -6943,7 +6940,7 @@ function calculateClassComparison(metric, subject) {
 }
 
 /**
- * (    ) 10.25. (ECharts) 渲染多次考试曲线图 (通用)
+ * 10.25. (ECharts) 渲染多次考试曲线图
  */
 function renderMultiExamLineChart(elementId, title, examNames, seriesData, yAxisInverse) {
     const chartDom = document.getElementById(elementId);
@@ -7011,7 +7008,6 @@ function renderMultiExamLineChart(elementId, title, examNames, seriesData, yAxis
 /**
  * [修改版] 11. 启动时从 IndexedDB 加载数据
  * 保留了您原有的所有解析逻辑和容错处理
- *     ：预加载 G_ItemAnalysisData，确保“错题攻坚本”开机即用
  */
 async function loadDataFromStorage() {
     console.log("🚀 系统启动：正在连接 IndexedDB 加载数据...");
@@ -7146,7 +7142,7 @@ async function loadDataFromStorage() {
 }
 
 /**
- * (    ) 11.2. (重构) 渲染“多次考试”的UI列表
+ * (    ) 11.2.   渲染“多次考试”的UI列表
  */
 function renderMultiExamList(multiExamData) {
     const listContainer = document.getElementById('multi-exam-list');
@@ -7221,7 +7217,7 @@ async function loadMultiExamData() {
 
 
 /**
- * (重构) 11.5. 初始化“多次考试分析”的学生搜索框
+ *   11.5. 初始化“多次考试分析”的学生搜索框
  *    修复版    解决 loadMultiExamData 返回 Promise 导致的 .filter 报错
  */
 function initializeStudentSearch(multiExamData) {
@@ -7331,7 +7327,7 @@ function initializeStudentSearch(multiExamData) {
 }
 
 /**
- * (重构) 11.6. (核心) 绘制多次考试的图表和表格
+ *   11.6. (核心) 绘制多次考试的图表和表格
  *      强版        ：批量打印同班同学功能 (每人一页)
  * 修复：删除了未定义的 validClassRank 报错代码
  */
@@ -8725,7 +8721,7 @@ function renderItemAnalysisBarChart(elementId, title, qNames, data, yAxisRange) 
 // =====================================================================
 
 /**
- * 13.5. [NEW] (Feature 3) 
+ * 13.5.    (Feature 3) 
  * 获取重  计算后的统计数据 (应用了用户配置的满分)
  */
 function getRecalculatedItemStats(subjectName) {
@@ -8788,7 +8784,7 @@ function getRecalculatedItemStats(subjectName) {
 }
 
 /**
- * 13.6. [NEW] (Feature 2) 
+ * 13.6.    (Feature 2) 
  * 绘制单个小题/大题图表 (根据下拉框选择)
  */
 function drawItemAnalysisChart(type) { // type is 'minor' or 'major'
@@ -8853,7 +8849,7 @@ function populateItemAnalysisConfigModal() {
     // 我们使用一个特殊的 key "_full_paper_context_" 来存储试卷文本
     paperTextarea.value = subjectConfig['_full_paper_context_'] || "";
 
-    // [NEW] 回显图谱定义
+    //    回显图谱定义
     const graphDefTextarea = document.getElementById('item-config-graph-def');
     graphDefTextarea.value = subjectConfig['_knowledge_graph_def_'] || "";
 
@@ -8915,7 +8911,7 @@ function saveItemAnalysisConfigFromModal() {
     const fullPaperText = document.getElementById('item-config-full-paper').value;
     subjectConfig['_full_paper_context_'] = fullPaperText;
 
-    // [NEW] 保存图谱定义
+    //    保存图谱定义
     const graphDefText = document.getElementById('item-config-graph-def').value;
     subjectConfig['_knowledge_graph_def_'] = graphDefText;
 
@@ -9627,7 +9623,7 @@ function drawItemAnalysisOutlierTable() {
 // =====================================================================
 
 /**
- * 13.15. [NEW] (Feature 1) 
+ * 13.15.    (Feature 1) 
  * 填充模块十三的班级筛选器
  */
 function populateItemClassFilter(allStudents) {
@@ -9829,7 +9825,7 @@ function drawItemStudentDetailTable(studentId, studentName, studentLayer, questi
 // =====================================================================
 
 /**
- * 13.17. [NEW] (Feature 8) 
+ * 13.17.    (Feature 8) 
  * 绘制 题目-学生 诊断散点图 (四象限图)
  */
 function drawItemScatterQuadrantChart() {
@@ -10364,7 +10360,7 @@ function generateStudentReportHTML(student) {
 // =====================================================================
 
 /**
- * 13.18. [NEW] 启动“小题分析-学生诊断表”的打印作业 (智能版)
+ * 13.18.    启动“小题分析-学生诊断表”的打印作业 (智能版)
  * (此函数由 "item-print-btn" 按钮直接调用)
  */
 function startItemDetailPrintJob() {
@@ -10523,7 +10519,7 @@ function startItemDetailPrintJob() {
 
 
 /**
- * 13.19. [NEW] (打印辅助函数) 生成单个学生的诊断报告HTML
+ * 13.19.    (打印辅助函数) 生成单个学生的诊断报告HTML
  * (这是 drawItemStudentDetailTable 的 "返回字符串" 版本)
  * @returns {string} - 该学生报告的 HTML
  */
@@ -10635,7 +10631,7 @@ function generateItemDetailReportHTML(student, studentLayer, subjectName, questi
 }
 
 /**
- * 11.8. [NEW] 启动“多次考试-成绩详情表”的打印作业
+ * 11.8.    启动“多次考试-成绩详情表”的打印作业
  */
 function startMultiTablePrintJob(studentName, tableHtml) {
     const html = `
@@ -10684,7 +10680,7 @@ function startMultiTablePrintJob(studentName, tableHtml) {
 
 
 /**
- * 11.9. [NEW] 专门负责渲染“图表3：各科排名变化曲线”
+ * 11.9.    专门负责渲染“图表3：各科排名变化曲线”
  * - (核心修复) 数据清洗：只有当学生在某次考试中有有效分数时，才显示排名。
  * - (解决痛点) 即使后台计算了缺考排位，这里也会将其过滤为 null，防止图表乱连线。
  */
@@ -11629,7 +11625,7 @@ function renderMarkdownWithMath(element, markdown) {
 }
 
 /**
- * 14.1 [修复版] 打印 AI 分析报告 (包含追问记录)
+ * 14.1    打印 AI 分析报告 (包含追问记录)
  */
 function printAIReport() {
     const contentDiv = document.getElementById('ai-content');
@@ -11988,7 +11984,7 @@ function deleteAIHistoryItem(event, id) {
 
 
 /**
- * [NEW] 打印单轮对话 (追问记录)
+ *    打印单轮对话 (追问记录)
  */
 function printSingleChatTurn(userQuestion, aiAnswerHtml, aiReasoningText) {
     // 1. 获取基本信息 (用于页眉)
@@ -12088,7 +12084,7 @@ function printSingleChatTurn(userQuestion, aiAnswerHtml, aiReasoningText) {
 
 
 /**
- * 14.2 [NEW] 范围打印功能 (按对话轮次切片)
+ * 14.2    范围打印功能 (按对话轮次切片)
  * @param {string} rangeStr - 用户输入的范围字符串，如 "1-3" 或 "2"
  */
 function printRangeReport(rangeStr) {
@@ -12935,7 +12931,7 @@ async function renderGoalSetting(container, activeData, stats) {
             refreshClassSelector();
             document.getElementById('goal-workspace').style.display = 'none';
         } else if (type === 'outcome') {
-            // [NEW] 更  来源名
+            //    更  来源名
             currentOutcomeSourceName = fileName;
             // 保存到本地防止刷  丢失
             localStorage.setItem('G_GoalOutcome_FileName', fileName);
@@ -13116,7 +13112,7 @@ async function renderGoalSetting(container, activeData, stats) {
     window.renamePlan = async (sid, idx) => { let archives = await localforage.getItem('G_Goal_Archives'); const newName = prompt("重命名:", archives[sid][idx].name); if (newName) { archives[sid][idx].name = newName; await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); } };
     window.deletePlanGlobal = async (sid, idx) => { if (!confirm("确定删除?")) return; let archives = await localforage.getItem('G_Goal_Archives'); archives[sid].splice(idx, 1); await localforage.setItem('G_Goal_Archives', archives); renderManageTable(); };
 
-    // [NEW] 详情查看 (含来源显示 + 打印)
+    //    详情查看 (含来源显示 + 打印)
     window.showPlanDetail = async (sid, idx) => {
         let archives = await localforage.getItem('G_Goal_Archives');
         const plan = archives[sid][idx];
@@ -13135,7 +13131,7 @@ async function renderGoalSetting(container, activeData, stats) {
 
         titleEl.innerText = `${plan.studentName} - ${plan.name}`;
 
-        // [NEW] 来源显示逻辑
+        //    来源显示逻辑
         const baseSource = plan.baselineSource || '系统默认/未知';
         const outSource = actualStudent ? currentOutcomeSourceName : null; // 使用 currentOutcomeSourceName
 
@@ -13726,7 +13722,7 @@ function renderGoalRadar(elementId, student, details) {
 
 
 /**
- * [修复版] 打印目标规划书
+ *    打印目标规划书
  * 1. 修复文件名显示 (从 IndexedDB 读取)
  * 2. 修复 NaN 问题 (正确读取 totalDeficit)
  */
@@ -13861,7 +13857,7 @@ async function startGoalPrintJob(student, targetScore, targetRank, strategy) {
 
 
 /**
- * [NEW] 打印规划详情单 (含来源信息)
+ *    打印规划详情单 (含来源信息)
  */
 function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseName, outName) {
     const st = plan.strategy;
@@ -13914,7 +13910,7 @@ function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseNa
         `;
     }
 
-    // [NEW] 来源信息行
+    //    来源信息行
     const sourceHtml = `
         <div class="source-line">
             <span>📋 规划基准：${baseName}</span>
@@ -13988,7 +13984,7 @@ function startDetailPrintJob(plan, actualStudent, baseTotal, actualTotal, baseNa
 }
 
 /**
- * [NEW] 13.20 绘制知识点归因图谱
+ *    13.20 绘制知识点归因图谱
  */
 function drawItemKnowledgeGraph() {
     const chartDom = document.getElementById('item-chart-knowledge-graph');
@@ -15525,7 +15521,7 @@ function bindRowEvents() {
 
 
 /**
- * 17.3 [NEW] AI 生成逻辑 (支持 4 种模式)
+ * 17.3    AI 生成逻辑 (支持 4 种模式)
  */
 async function fetchMultiModeAIComment(apiKey, record, dailyInfo, mode, signal) {
     let promptContext = "";
@@ -16082,7 +16078,7 @@ function renderWorkbookPreview(data) {
     const container = document.getElementById('wb-preview-area');
     const tbody = document.getElementById('wb-preview-tbody');
     const printBtn = document.getElementById('btn-print-workbook');
-    const batchAiBtn = document.getElementById('btn-batch-ai-workbook'); // [NEW]
+    const batchAiBtn = document.getElementById('btn-batch-ai-workbook'); //   
     const countEl = document.getElementById('wb-student-count');
     const totalEl = document.getElementById('wb-question-total');
 
@@ -16177,7 +16173,7 @@ function renderWorkbookPreview(data) {
 }
 
 /**
- * 18.5 [NEW] 请求 AI 生成变式题
+ * 18.5    请求 AI 生成变式题
  */
 async function fetchAIExercises(apiKey, studentName, kps, subject) {
     // 限制一下知识点数量
@@ -17071,7 +17067,7 @@ function renderScoreCurve(elementId, students, subject, binSize) {
 }
 
 /**
- * [修复版] 13.21 绘制分层学生名单表格 (自动计算缺失的排名)
+ *    13.21 绘制分层学生名单表格 (自动计算缺失的排名)
  */
 function drawLayerStudentTable() {
     const tbody = document.getElementById('item-layer-tbody');
@@ -17089,7 +17085,7 @@ function drawLayerStudentTable() {
     const allStudents = G_ItemAnalysisData[subjectName].students;
 
     // ============================================================
-    // [核心修复] 自动补全排名 (如果数据中缺失)
+    //    自动补全排名 (如果数据中缺失)
     // ============================================================
     // 检查第一个有效学生是否有排名数据
     const sample = allStudents.find(s => typeof s.totalScore === 'number');
