@@ -300,7 +300,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // [!! 核心修复 !!] “清除所有数据”按钮逻辑升级
     // 必须同时清除 localStorage (旧) 和 localforage (新数据库)
     clearAllBtn.addEventListener('click', async () => {
-        if (confirm("⚠️ 高能预警\n\n您确定要清除所有已导入的“本次成绩”和“对比成绩”吗？\n此操作不可恢复！\n\n(注意：此操作【不会】清除“模块十二”中的历史存档)")) {
+        if (confirm("⚠️ 高能预警\n\n您确定要清除所有已导入的“本次成绩”和“对比成绩”吗？\n此操作不可恢复！\n\n(注意：此操作【不会】清除“数据管理中心”中的历史存档)")) {
 
             // 给按钮一点反馈
             const originalText = clearAllBtn.innerHTML;
