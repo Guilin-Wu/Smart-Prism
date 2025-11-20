@@ -1660,8 +1660,9 @@ function renderDashboard(container, stats, activeData) {
             if (displayList.length > limit) tableBody.innerHTML += `<tr><td colspan="100" style="text-align:center; color:#999;">(仅显示前 ${limit} 条，请使用筛选缩小范围)</td></tr>`;
         };
 
-        // 打印功能
+        // 打印功能 (修复版：新增动态班级排名 + 调整宽度)
         document.getElementById('btn-print-dynamic-table').addEventListener('click', () => {
+            // 1. [第一步] 基础计算：算总分、算年排
             const dynamicData = G_StudentsData.map(s => {
                 let dynamicTotal = 0;
                 let hasScore = false;
@@ -1672,9 +1673,30 @@ function renderDashboard(container, stats, activeData) {
                 if (!hasScore) dynamicTotal = -1;
                 return { raw: s, dynamicTotal: parseFloat(dynamicTotal.toFixed(2)) };
             });
+            
+            // 全校排序 -> 得到年级排名
             dynamicData.sort((a, b) => b.dynamicTotal - a.dynamicTotal);
-            dynamicData.forEach((item, index) => { item.dynamicRank = (item.dynamicTotal >= 0) ? (index + 1) : '-'; });
+            dynamicData.forEach((item, index) => { 
+                item.dynamicRank = (item.dynamicTotal >= 0) ? (index + 1) : '-'; 
+            });
 
+            // 2. [新增第二步] 进阶计算：算班级排名
+            // 先按班级分组
+            const classGroups = {};
+            dynamicData.forEach(item => {
+                const cls = item.raw.class;
+                if (!classGroups[cls]) classGroups[cls] = [];
+                classGroups[cls].push(item);
+            });
+            // 组内排序并标记班排
+            Object.values(classGroups).forEach(group => {
+                group.sort((a, b) => b.dynamicTotal - a.dynamicTotal);
+                group.forEach((item, idx) => {
+                    item.dynamicClassRank = (item.dynamicTotal >= 0) ? (idx + 1) : '-';
+                });
+            });
+
+            // 3. [第三步] 筛选 (应用当前的搜索/筛选条件)
             const filterClass = filterSelect.value;
             const searchText = searchInput.value.toLowerCase().trim();
             const printList = dynamicData.filter(item => {
@@ -1686,22 +1708,98 @@ function renderDashboard(container, stats, activeData) {
             if (printList.length === 0) { alert("当前列表为空"); return; }
             if (printList.length > 300 && !confirm(`即将打印 ${printList.length} 条数据，确认？`)) return;
 
+            // 4. [第四步] 生成 HTML
             let rowsHtml = '';
             printList.forEach((item, index) => {
                 const s = item.raw;
                 let scoresHtml = '';
+                
                 currentSelectedSubjects.forEach(sub => {
                     const score = s.scores[sub] !== undefined ? s.scores[sub] : '-';
                     const rank = (s.gradeRanks && s.gradeRanks[sub]) ? s.gradeRanks[sub] : '-';
                     const passLine = (G_SubjectConfigs[sub] && G_SubjectConfigs[sub].pass) ? G_SubjectConfigs[sub].pass : 60;
                     const colorStyle = (typeof s.scores[sub] === 'number' && s.scores[sub] < passLine) ? 'color:#dc3545;' : '';
-                    scoresHtml += `<div class="score-item"><span class="subject-name">${sub}</span><span class="score-val" style="${colorStyle}">${score} <span style="font-size:0.8em; color:#999; font-weight:normal;">(${rank})</span></span></div>`;
+
+                    scoresHtml += `
+                        <div class="score-item">
+                            <span class="subject-name">${sub}</span>
+                            <span class="score-val" style="${colorStyle}">
+                                ${score} <span style="font-size:0.8em; color:#999; font-weight:normal;">(${rank})</span>
+                            </span>
+                        </div>`;
                 });
-                rowsHtml += `<div class="student-row"><div class="student-info"><span class="rank-badge">${item.dynamicRank}</span><span class="name">${s.name}</span><span class="class">(${s.class})</span></div><div class="scores-grid">${scoresHtml}</div><div class="total-info"><span>总分: <strong>${item.dynamicTotal >= 0 ? item.dynamicTotal : '-'}</strong></span></div></div>`;
-                if (index < printList.length - 1) rowsHtml += `<div class="spacer"></div><div class="dashed-line"></div><div class="spacer"></div>`;
+
+                // [修改] 左侧增加了班排徽章
+                rowsHtml += `
+                    <div class="student-row">
+                        <div class="student-info">
+                            <div style="display:flex; flex-direction:column; gap:2px; margin-right:5px;">
+                                <span class="rank-badge" style="background:#555;" title="年级排名">年${item.dynamicRank}</span>
+                                <span class="rank-badge" style="background:#17a2b8;" title="班级排名">班${item.dynamicClassRank}</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column;">
+                                <span class="name">${s.name}</span>
+                                <span class="class">${s.class}</span>
+                            </div>
+                        </div>
+                        <div class="scores-grid">${scoresHtml}</div>
+                        <div class="total-info">
+                            <span>总分: <strong>${item.dynamicTotal >= 0 ? item.dynamicTotal : '-'}</strong></span>
+                        </div>
+                    </div>
+                `;
+                
+                if (index < printList.length - 1) {
+                    rowsHtml += `<div class="spacer"></div><div class="dashed-line"></div><div class="spacer"></div>`;
+                }
             });
 
-            const printHtml = `<html><head><title>成绩清单</title><style>body{font-family:sans-serif;padding:20px}.student-row{display:flex;align-items:center;justify-content:space-between;padding:5px 0}.student-info{width:180px;display:flex;align-items:center;gap:8px}.rank-badge{background:#6f42c1;color:white;padding:2px 6px;border-radius:4px;min-width:25px;text-align:center}.name{font-weight:bold}.class{color:#666;font-size:0.9em}.scores-grid{display:flex;flex-wrap:wrap;gap:8px;flex:1;padding:0 10px}.score-item{border:1px solid #eee;padding:2px 6px;font-size:0.9em;background:#f9f9f9;border-radius:3px}.subject-name{color:#888;margin-right:3px}.score-val{font-weight:bold}.total-info{width:120px;text-align:right;color:#6f42c1}.dashed-line{border-bottom:1px dashed #999;width:100%}.spacer{height:10px}@media print{.rank-badge{-webkit-print-color-adjust:exact}}</style></head><body><h2>📄 动态成绩清单</h2><p style="text-align:center;color:#666;font-size:0.9em;">包含科目：${currentSelectedSubjects.join('、')}</p>${rowsHtml}</body></html>`;
+            const printHtml = `
+                <html>
+                <head>
+                    <title>成绩清单</title>
+                    <style>
+                        body { font-family: sans-serif; padding: 20px; color: #333; }
+                        h2 { text-align: center; margin-bottom: 10px; }
+                        
+                        .student-row { display: flex; align-items: center; justify-content: space-between; padding: 5px 0; }
+                        
+                        /* [修改] 宽度加宽到 280px，容纳双排名 */
+                        .student-info { width: 180px; display: flex; align-items: center; gap: 8px; border-right: 1px solid #eee; padding-right: 10px; }
+                        
+                        .rank-badge { 
+                            color: white; padding: 1px 4px; border-radius: 3px; 
+                            min-width: 35px; text-align: center; font-size: 0.8em; font-weight: bold; 
+                        }
+                        .name { font-weight: bold; font-size: 1.1em; } 
+                        .class { color: #666; font-size: 0.85em; }
+                        
+                        .scores-grid { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; padding: 0 15px; }
+                        .score-item { border: 1px solid #eee; padding: 2px 6px; font-size: 0.9em; background: #f9f9f9; border-radius: 3px; }
+                        .subject-name { color: #888; margin-right: 3px; }
+                        .score-val { font-weight: bold; }
+                        
+                        .total-info { width: 120px; text-align: right; color: #6f42c1; font-size: 1.1em; }
+                        
+                        .dashed-line { border-bottom: 1px dashed #ccc; width: 100%; }
+                        .spacer { height: 8px; }
+                        
+                        @media print { 
+                            .rank-badge { -webkit-print-color-adjust: exact; } 
+                            .score-item { -webkit-print-color-adjust: exact; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h2>📄 动态成绩清单</h2>
+                    <p style="text-align:center;color:#666;font-size:0.9em; margin-bottom:20px;">
+                        包含科目：${currentSelectedSubjects.join('、')}
+                    </p>
+                    ${rowsHtml}
+                </body>
+                </html>
+            `;
+            
             const win = window.open('', '_blank');
             win.document.write(printHtml);
             win.document.close();
