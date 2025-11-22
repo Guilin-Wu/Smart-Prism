@@ -11819,65 +11819,73 @@ function initAIHistoryUI() {
  * @param {number|null} existingId - 如果是更  现有记录，传入 ID；否则传 null
  */
 /**
- * [核心修复] 保存/更新 AI 对话历史
- * - 修复：支持批量生成模式下的内容直接传入
- * - 优化：防止因屏幕内容为空导致保存失败
+ * [核心修复版] 保存/更新 AI 对话历史
+ * - 修复：更新记录时(如追问)，若未传入新标题，自动保留旧标题，防止变成 "null"
  */
 function saveToAIHistory(title, subTitle, existingId = null, customMainContent = null) {
     const contentDiv = document.getElementById('ai-content');
     const historyDiv = document.getElementById('ai-chat-history');
 
-    // [关键判断] 
-    // 1. 如果传入了 customMainContent (批量模式)，直接使用它。
-    // 2. 否则尝试从 DOM 获取 (单人对话模式)。
+    // 1. 获取内容 (兼容批量模式和单人模式)
     let mainHtml = "";
     let chatHtml = "";
 
     if (customMainContent !== null && customMainContent !== undefined) {
-        // 批量模式
         mainHtml = customMainContent;
-        chatHtml = ""; // 批量模式没有追问记录
+        chatHtml = ""; 
     } else {
-        // 单人模式
         mainHtml = contentDiv ? contentDiv.innerHTML : "";
         chatHtml = historyDiv ? historyDiv.innerHTML : "";
     }
 
-    // 内容太少不保存 (过滤空数据)
+    // 内容太少不保存
     if (!mainHtml || mainHtml.trim().length < 5) {
-        console.warn("saveToAIHistory: 内容为空，跳过保存");
-        return;
+        return null;
     }
 
+    const AI_HISTORY_KEY = 'G_AI_History_Archive';
     let history = JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]");
     let recordId = existingId;
 
+    // 2. [关键修复] 查找旧记录，准备继承标题
+    let oldRecord = null;
+    let index = -1;
+    
+    if (existingId) {
+        index = history.findIndex(r => r.id === existingId);
+        if (index !== -1) {
+            oldRecord = history[index];
+        }
+    }
+
+    // 3. 构建记录对象
     const record = {
-        id: existingId || Date.now() + Math.random(), // 随机数防止批量生成时ID冲突
+        id: existingId || Date.now() + Math.random(),
         timestamp: new Date().toLocaleString(),
-        title: title,
-        subTitle: subTitle,
+        
+        // [修复核心]：优先使用传入的标题；如果传入为 null 且存在旧记录，则继承旧标题；否则显示默认值
+        title: title || (oldRecord ? oldRecord.title : "AI分析报告"),
+        subTitle: subTitle || (oldRecord ? oldRecord.subTitle : "综合分析"),
+        
         mainContent: mainHtml,
         chatContent: chatHtml
     };
 
-    if (existingId) {
-        const index = history.findIndex(r => r.id === existingId);
-        if (index !== -1) history[index] = record;
-        else { history.unshift(record); recordId = record.id; }
+    // 4. 写入数组
+    if (index !== -1) {
+        history[index] = record; // 更新现有
+        recordId = record.id;
     } else {
-        history.unshift(record);
+        history.unshift(record); // 插入头部
         recordId = record.id;
     }
 
-    // 限制历史记录数量 (防止 localStorage 爆满)
+    // 限制数量
     if (history.length > 200) history = history.slice(0, 200);
     
     localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history));
 
-    // 实时刷新侧边栏 UI
-    const drawer = document.getElementById('ai-history-drawer');
-    // 即使侧边栏没打开，如果列表容器存在，也刷新一下，确保数据是最新的
+    // 5. 刷新 UI
     if (document.getElementById('ai-history-list')) {
         renderAIHistoryList();
     }
