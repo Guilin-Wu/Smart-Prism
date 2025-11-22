@@ -2163,17 +2163,22 @@ function renderPaper(container, stats, activeData) {
         <h2>模块三：试卷科目分析 (当前筛选: ${G_CurrentClassFilter})</h2>
         
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
-            <div class="controls-bar chart-controls">
-                <label for="subject-select">选择科目:</label>
-                <select id="subject-select" class="sidebar-select">
-                    <option value="totalScore">总分</option>
-                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
-                </select>
-                
-                <label for="paper-bin-size">分段大小:</label>
-                <input type="number" id="paper-bin-size" value="10" style="width: 60px;">
-                <button id="paper-redraw-btn" class="sidebar-button" style="width: auto;">重绘</button>
-            </div>
+                <div class="controls-bar chart-controls" style="align-items:center; flex-wrap:wrap;">
+                    <label for="subject-select">选择科目:</label>
+                    <select id="subject-select" class="sidebar-select" style="margin-right:15px;">
+                        <option value="totalScore">总分</option>
+                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    </select>
+                    
+                    <div style="display:flex; align-items:center; margin-right:15px;">
+                        <input type="checkbox" id="paper-compare-class" style="margin-right:5px; cursor:pointer;">
+                        <label for="paper-compare-class" style="cursor:pointer; user-select:none; font-weight:bold; color:#007bff;">对比各班</label>
+                    </div>
+                    
+                    <label for="paper-bin-size">分段大小:</label>
+                    <input type="number" id="paper-bin-size" value="10" style="width: 60px;">
+                    <button id="paper-redraw-btn" class="sidebar-button" style="width: auto; margin-left:10px;">重绘</button>
+                </div>
             <div class="chart-container" id="subject-histogram-chart" style="width: 100%; height: 500px;"></div>
         </div>
 
@@ -2222,11 +2227,13 @@ function renderPaper(container, stats, activeData) {
         </div>
     `;
 
-    // 2.   绘制直方图
-    const drawChart = () => {
-        //    核心修改
+        // 2. 绘制直方图 (升级版)
+        const drawChart = () => {
         const subjectName = document.getElementById('subject-select').value;
         const binSize = parseInt(document.getElementById('paper-bin-size').value) || 10;
+        // 新增：获取对比状态
+        const isClassCompare = document.getElementById('paper-compare-class').checked;
+        
         const s = stats[subjectName];
         if (!s) return;
 
@@ -2237,19 +2244,25 @@ function renderPaper(container, stats, activeData) {
             fullScore = G_SubjectConfigs[subjectName]?.full || 100;
         }
 
+        // 新增：如果是对比模式，强制使用所有数据(G_StudentsData)；否则使用筛选数据(activeData)
+        const sourceData = isClassCompare ? G_StudentsData : activeData;
+
         renderHistogram(
             'subject-histogram-chart',
-            activeData,     //    传入完整学生数据
-            subjectName,    //    告知函数使用哪个分数key
+            sourceData,     // 数据源
+            subjectName,    // 科目Key
             fullScore,
-            `${s.name} 分数段直方图 (均分: ${s.average}, 分段=${binSize})`,
-            binSize
+            `${s.name} 分数段分布图 (分段=${binSize})`,
+            binSize,
+            isClassCompare  // 传入对比标记
         );
     };
 
-    // 3.   绑定事件 (不变)
+    // 3. 绑定事件
     document.getElementById('subject-select').addEventListener('change', drawChart);
     document.getElementById('paper-redraw-btn').addEventListener('click', drawChart);
+    // 新增：绑定 checkbox
+    document.getElementById('paper-compare-class').addEventListener('change', drawChart);
 
     // 4. (    ) 绘制  图表
     renderSubjectComparisonBarChart('difficulty-chart', stats, 'difficulty');
@@ -4157,225 +4170,231 @@ function renderCorrelationHeatmap(elementId, activeData) {
 // 10. ECharts 绘图函数
 // ---------------------------------
 /**
- * 10.1. 渲染直方图 (Histogram)
- *    修复了 "effectiveBinSize is not defined" 的引用错误
- *    高亮最大值和最小值的柱子
- *    Tooltip 中显示学生姓名
+ * 10.1. 渲染直方图 (升级版：支持班级对比)
+ * - 单班模式：显示高亮柱状图 (Bar)
+ * - 对比模式：显示多班折线图 (Line)
  */
-function renderHistogram(elementId, students, scoreKey, fullScore, title, binSize) {
+function renderHistogram(elementId, students, scoreKey, fullScore, title, binSize, isClassCompare = false) {
     const chartDom = document.getElementById(elementId);
     if (!chartDom) return;
 
     if (echartsInstances[elementId]) {
         echartsInstances[elementId].dispose();
     }
-    const myChart = echarts.init(chartDom); // 改用 myChart 变量方便绑定事件
+    const myChart = echarts.init(chartDom);
     echartsInstances[elementId] = myChart;
 
-    // 检查是否有有效分数
+    // 1. 基础数据清洗
     if (!students || students.length === 0) {
         chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">无数据可供显示。</p>`;
         return;
     }
 
-    // 1. (    ) 从学生数据中提取分数
-    const scores = students.map(s => {
-        const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
-        return (typeof score === 'number' && !isNaN(score)) ? score : null;
-    }).filter(s => s !== null).sort((a, b) => a - b);
-
-    if (scores.length === 0) {
+    const effectiveBinSize = binSize > 0 ? binSize : Math.max(10, Math.ceil(fullScore / 10));
+    
+    // 2. 确定全局 X 轴范围 (统一坐标系)
+    const allScores = students.map(s => (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey])
+                              .filter(s => typeof s === 'number' && !isNaN(s));
+    
+    if (allScores.length === 0) {
         chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">无有效分数数据。</p>`;
         return;
     }
 
-    //    核心修正：effectiveBinSize 必须在这里定义
-    const effectiveBinSize = binSize > 0 ? binSize : Math.max(10, Math.ceil(fullScore / 10));
-
-    // 2. X轴截断逻辑 (现在可以正常工作了)
-    const minScore = scores[0];
-    const maxScore = scores[scores.length - 1];
+    const minScore = Math.min(...allScores);
+    const maxScore = Math.max(...allScores);
     const startBin = Math.floor(minScore / effectiveBinSize) * effectiveBinSize;
     const endBinLimit = Math.min(Math.ceil((maxScore + 0.01) / effectiveBinSize) * effectiveBinSize, fullScore);
 
-    // 3.   动态生成分数段 (bins)
-    const bins = {};
-    let labels = [];
-
+    const labels = [];
+    // 生成 X 轴标签
     for (let i = startBin; i < endBinLimit; i += effectiveBinSize) {
         const end = Math.min(i + effectiveBinSize, fullScore);
-        const label = `${i}-${end}`;
-        bins[label] = [];
-        labels.push(label);
+        labels.push(`${i}-${end}`);
+    }
+    // 如果满分正好在区间外，补一个
+    if (maxScore === fullScore && labels.length > 0) {
+       // 通常上面的逻辑已经涵盖，这里做个保险
     }
 
-    // 4.   填充数据
-    students.forEach(student => {
-        const score = (scoreKey === 'totalScore') ? student.totalScore : student.scores[scoreKey];
-        if (typeof score !== 'number' || isNaN(score) || score < startBin) return;
+    let series = [];
+    let legendData = [];
+    let tooltipFormatter;
 
-        if (score === fullScore) {
-            const lastLabel = labels[labels.length - 1];
-            if (bins[lastLabel] !== undefined) bins[lastLabel].push(student.name);
-        } else {
-            const binIndex = Math.floor((score - startBin) / effectiveBinSize);
-            if (labels[binIndex] && bins.hasOwnProperty(labels[binIndex])) {
-                bins[labels[binIndex]].push(student.name);
-            }
-        }
-    });
+    // ============================================================
+    // 模式 A: 班级对比 (多折线图)
+    // ============================================================
+    if (isClassCompare) {
+        const classSet = new Set(students.map(s => s.class));
+        const classes = Array.from(classSet).sort();
+        const colors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
 
-    // 5.   准备 ECharts Series 数据
-    // (先找出最大/最小值，用于高亮)
-    let maxValue = -Infinity;
-    let minValue = Infinity;
-    const counts = labels.map(label => (bins[label] || []).length);
+        classes.forEach((cls, idx) => {
+            const classStudents = students.filter(s => s.class === cls);
+            // 初始化该班的 bins
+            const bins = new Array(labels.length).fill(0);
 
-    const validCounts = counts.filter(v => v > 0);
-    if (validCounts.length > 0) {
-        minValue = Math.min(...validCounts);
-    } else {
-        minValue = 0;
-    }
-    maxValue = Math.max(...counts);
+            classStudents.forEach(s => {
+                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
+                if (typeof score !== 'number' || isNaN(score) || score < startBin) return;
 
-    // (构建 Series Data)
-    const seriesData = labels.map(label => {
-        const studentNames = bins[label] || [];
-        const count = studentNames.length;
+                let binIndex = Math.floor((score - startBin) / effectiveBinSize);
+                // 修正边界
+                if (binIndex >= labels.length) binIndex = labels.length - 1;
+                bins[binIndex]++;
+            });
 
-        let color;
-        if (count === maxValue && maxValue !== 0) {
-            color = '#28a745'; // Green
-        } else if (count === minValue && minValue !== maxValue) {
-            color = '#dc3545'; // Red
-        } else {
-            color = '#007bff'; // Blue (Default)
-        }
+            series.push({
+                name: cls,
+                type: 'line',
+                smooth: 0.3,
+                symbol: 'circle',
+                symbolSize: 6,
+                data: bins,
+                itemStyle: { color: colors[idx % colors.length] },
+                lineStyle: { width: 2 }
+            });
+            legendData.push(cls);
+        });
 
-        return {
-            value: count,
-            names: studentNames,
-            itemStyle: { color: color } //    (    )
+        // 对比模式的 Tooltip
+        tooltipFormatter = (params) => {
+            let html = `<strong>${params[0].name} 分数段</strong><br/>`;
+            // 按人数降序排列
+            const sorted = [...params].sort((a, b) => b.value - a.value);
+            sorted.forEach(p => {
+                if (p.value > 0) {
+                    const marker = p.marker || `<span style="display:inline-block;margin-right:4px;border-radius:10px;width:10px;height:10px;background-color:${p.color};"></span>`;
+                    html += `${marker} ${p.seriesName}: <strong>${p.value}</strong>人<br/>`;
+                }
+            });
+            return html;
         };
-    });
 
+    } 
+    // ============================================================
+    // 模式 B: 单一群体 (原版柱状图)
+    // ============================================================
+    else {
+        const bins = new Array(labels.length).fill(0);
+        const binNames = new Array(labels.length).fill(null).map(() => []); // 存储名字
+
+        students.forEach(s => {
+            const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
+            if (typeof score !== 'number' || isNaN(score) || score < startBin) return;
+
+            let binIndex = Math.floor((score - startBin) / effectiveBinSize);
+            if (binIndex >= labels.length) binIndex = labels.length - 1;
+            
+            bins[binIndex]++;
+            binNames[binIndex].push(s.name);
+        });
+
+        // 计算极值用于高亮
+        let maxVal = Math.max(...bins);
+        let minVal = Infinity;
+        bins.forEach(v => { if(v > 0 && v < minVal) minVal = v; });
+        if (minVal === Infinity) minVal = 0;
+
+        const seriesData = bins.map((count, i) => {
+            let color = '#007bff';
+            if (count === maxVal && maxVal !== 0) color = '#28a745';
+            else if (count === minVal && minVal !== maxVal) color = '#dc3545';
+            
+            return {
+                value: count,
+                names: binNames[i], // 存名字用于下钻
+                itemStyle: { color: color }
+            };
+        });
+
+        series.push({
+            name: '人数',
+            type: 'bar',
+            data: seriesData,
+            barWidth: '60%',
+            label: { show: true, position: 'top' }
+        });
+
+        // 单体模式 Tooltip
+        tooltipFormatter = (params) => {
+            const p = params[0];
+            const data = p.data;
+            let namesHtml = "";
+            if (data.names && data.names.length > 0) {
+                namesHtml = `<hr style="margin:5px 0; border-color:#eee"/>` + 
+                            data.names.slice(0, 10).join('<br/>');
+                if (data.names.length > 10) namesHtml += `<br/>...等 ${data.names.length} 人`;
+            }
+            return `<strong>${p.name}</strong><br/>人数: <strong>${p.value}</strong>${namesHtml}`;
+        };
+    }
+
+    // 3. 渲染图表
     const option = {
         title: { text: title, left: 'center', textStyle: { fontSize: 16, fontWeight: 'normal' } },
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'shadow' },
-            formatter: (params) => {
-                const param = params[0];
-                const data = param.data;
-                const binLabel = param.name;
-                const count = data.value;
-                const names = data.names;
-
-                if (count === 0) {
-                    return `<strong>${binLabel}</strong><br/>人数: 0`;
-                }
-
-                let namesHtml = names.slice(0, 10).join('<br/>');
-                if (names.length > 10) {
-                    namesHtml += `<br/>... (及另外 ${names.length - 10} 人)`;
-                }
-
-                return `<strong>${binLabel}</strong><br/>` +
-                    `<strong>人数: ${count}</strong><hr style="margin: 5px 0; border-color: #eee;"/>` +
-                    `${namesHtml}`;
-            }
+            formatter: tooltipFormatter,
+            backgroundColor: 'rgba(255,255,255,0.95)',
+            borderColor: '#ccc',
+            textStyle: { color: '#333' }
         },
-        grid: { left: '3%', right: '4%', bottom: '20%', containLabel: true },
+        legend: {
+            show: isClassCompare,
+            data: legendData,
+            top: 30,
+            type: 'scroll'
+        },
+        grid: { left: '3%', right: '4%', bottom: '20%', top: isClassCompare ? '15%' : '10%', containLabel: true },
         xAxis: {
             type: 'category',
             data: labels,
             name: '分数段',
-            axisLabel: {
-                interval: 'auto',
-                rotate: labels.length > 10 ? 30 : 0
-            }
+            axisLabel: { interval: 'auto', rotate: 30 }
         },
-        yAxis: { type: 'value', name: '学生人数' },
-        series: [{
-            name: '人数',
-            type: 'bar',
-            data: seriesData
-        }],
+        yAxis: { type: 'value', name: '人数' },
+        series: series,
         toolbox: {
             show: true,
-            feature: {
-                saveAsImage: { show: true, title: '保存为图片' }
-            }
+            feature: { saveAsImage: { show: true, title: '保存' } }
         }
     };
-    echartsInstances[elementId].setOption(option);
 
-    myChart.setOption(option);
+    myChart.setOption(option, true); // true: 不合并，强制重绘
 
-    // [    ] 6. 绑定点击事件 (Drill-down)
+    // 4. 点击事件 (保留原有的下钻功能)
+    // 注意：对比模式下，点击折线图的点比较难定位到具体班级，这里简单处理：
+    // 如果是单体模式，继续支持点击看名单；如果是对比模式，暂不支持（或点击显示该分数段所有学生）。
+    // 为了代码简洁，这里只保留单体模式的点击，或者通用逻辑。
+    
+    myChart.off('click'); // 解绑旧事件
     myChart.on('click', function (params) {
-        // params.name 是 X 轴的标签，例如 "60-70" 或 "150"
-        const label = params.name;
+        const label = params.name; 
+        if (!label || !label.includes('-')) return;
 
-        let drilledStudents = [];
+        const [minStr, maxStr] = label.split('-');
+        const minVal = parseFloat(minStr);
+        const maxVal = parseFloat(maxStr);
 
-        if (label.includes('-')) {
-            // 范围解析 (例如 "60-70")
-            const parts = label.split('-');
-            const min = parseFloat(parts[0]);
-            const max = parseFloat(parts[1]); // 注意：这里的 max 在显示逻辑里通常是开区间或闭区间，要看你的分箱逻辑
-
-            drilledStudents = students.filter(s => {
-                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
-                // 这里的逻辑要和你的分箱逻辑完全一致
-                // 通常是: score >= min && score < max
-                // 除非是最后一个区间或者最高分
-                if (typeof score !== 'number') return false;
-
-                // 特殊处理满分 (如果你的分箱逻辑把满分单独放或者放在最后一段)
-                // 简单的范围判断:
-                return score >= min && score < max;
-            });
-
-            // 补丁：如果你的分箱逻辑是 [min, max)，那么最高分可能漏掉。
-            // 如果点击的是最后一个柱子，应该包含等于 endBinLimit 的值
-            // 或者我们可以简化：利用你之前 bins 逻辑里存的 name 来匹配 (更准确)
-
-            // [更精准的方案]：利用之前计算好的 bins (如果你存了 ID)
-            // 但为了不重构所有代码，我们这里用简单的“再筛选”：
-            // 你的 fillBins 逻辑里：
-            // if (score === fullScore) -> lastLabel
-            // else -> [min, min+binSize)
-
-            // 修正筛选逻辑：
-            drilledStudents = students.filter(s => {
-                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
-                if (typeof score !== 'number') return false;
-
-                // 满分单独处理 (假设 label 是 "140-150" 且满分是 150)
-                if (score === fullScore && label.endsWith('-' + fullScore)) {
-                    return true;
-                }
-                return score >= min && score < max;
-            });
-
-        } else {
-            // 单值 (例如标签就是 "150" 或者某种分类)
-            // 如果你的直方图有纯数字标签
-            const val = parseFloat(label);
-            drilledStudents = students.filter(s => {
-                const score = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
-                return Math.abs(score - val) < 0.01; // 浮点数相等判断
-            });
+        // 确定筛选源
+        let targetStudents = students;
+        // 如果是对比模式，且点击了某条具体的线，params.seriesName 就是班级名
+        if (isClassCompare && params.seriesName) {
+            targetStudents = students.filter(s => s.class === params.seriesName);
         }
 
-        // 调用通用模态框
-        const subjectName = (scoreKey === 'totalScore') ? '总分' : scoreKey;
-        showDrillDownModal(`"${subjectName}" 分数段 [${label}] 学生名单`, drilledStudents, scoreKey);
+        const drilled = targetStudents.filter(s => {
+            const val = (scoreKey === 'totalScore') ? s.totalScore : s.scores[scoreKey];
+            if (typeof val !== 'number') return false;
+            // 简单范围判断
+            return val >= minVal && val < (maxVal + 0.01); 
+        });
+
+        const subTitle = isClassCompare ? `${params.seriesName} - ` : "";
+        showDrillDownModal(`${subTitle}${scoreKey} 分数段 [${label}] 名单`, drilled, scoreKey);
     });
-
-
 }
 
 /**
