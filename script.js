@@ -17959,9 +17959,6 @@ async function printWorkbook(dataList, subjectName) {
     win.document.close();
 }
 
-// =====================================================================
-//    NEW    模块二十四：荣誉榜 & 喜报生成器 (Honor Wall)
-// =====================================================================
 
 /**
  * [旗舰完整版] 24.1 渲染主界面
@@ -17980,7 +17977,7 @@ function renderHonorWall(container) {
 
     // --- [渲染 HTML 结构] ---
     container.innerHTML = `
-        <h2>🏆 模块二十四：荣誉中心</h2>
+        <h2>🏆 模块十九：荣誉中心</h2>
         
         <div class="tab-header" style="display:flex; border-bottom:2px solid #ddd; margin-bottom:20px;">
             <div class="tab-item active" data-tab="quick-poster" style="padding:10px 20px; cursor:pointer; font-weight:bold; color:#d35400; border-bottom:3px solid #d35400;">🚀 快捷喜报生成</div>
@@ -18802,7 +18799,7 @@ function renderCertificateCreator(container) {
 
 
 /**
- * [旗舰版+V4] 核心：更新预览区视图 (支持动态纸张比例)
+ * [旗舰版+V4] 核心：更新预览区视图 (修复背景图删除无效 Bug)
  */
 function updateCertPreview() {
     const container = document.getElementById('cert-canvas-container');
@@ -18810,7 +18807,6 @@ function updateCertPreview() {
     const s = G_CertState;
 
     // 1. 纸张尺寸计算
-    // 基础比例 (A4: 297/210 ≈ 1.414)
     let ratio = 1.414; 
     if (s.paper.size === 'A3') ratio = 1.414;
     if (s.paper.size === 'B5') ratio = 1.414;
@@ -18818,15 +18814,12 @@ function updateCertPreview() {
 
     // 横竖屏切换
     let width, height;
-    // 为了在屏幕上显示合适，我们定一个基准像素，比如长边 800px
     const BASE_LONG = 800;
     
     if (s.paper.orientation === 'L') {
-        // 横向
         width = BASE_LONG;
         height = BASE_LONG / ratio;
     } else {
-        // 竖向
         height = BASE_LONG;
         width = BASE_LONG / ratio;
     }
@@ -18834,9 +18827,13 @@ function updateCertPreview() {
     container.style.width = width + 'px';
     container.style.height = height + 'px';
 
-    // 2. 背景与样式
-    if (s.bgImage) container.style.backgroundImage = `url('${s.bgImage}')`;
-    else container.style.backgroundColor = '#fffdf5';
+    // 2. 🔥 核心修复：背景图处理 🔥
+    if (s.bgImage) {
+        container.style.backgroundImage = `url('${s.bgImage}')`;
+    } else {
+        container.style.backgroundImage = 'none'; // 必须显式清除，否则旧图还在
+        container.style.backgroundColor = '#fffdf5';
+    }
 
     container.style.fontFamily = s.style.fontFamily;
     container.style.color = s.style.color;
@@ -18881,7 +18878,7 @@ function updateCertPreview() {
         sealEl.style.display = 'block';
         sealEl.style.left = s.seal.x + '%';
         sealEl.style.top = s.seal.y + '%';
-        sealEl.style.width = s.seal.size + 'px'; // 记得应用大小
+        sealEl.style.width = s.seal.size + 'px';
         sealEl.style.transform = 'translate(-50%, -50%)';
     } else {
         sealEl.style.display = 'none';
@@ -18949,65 +18946,74 @@ async function generateHighResCertificate(isBatch = false) {
 }
 
 /**
- * [旗舰版+V5] 绑定事件 (支持多选列表 + 针对性批量生成)
+ * [旗舰终极合并版] 绑定事件
+ * - 包含：多选列表、批量ZIP打包、图片持久化保存
+ * - 修复：去除了重复的上传逻辑，修复了空指针报错
  */
 function bindCertCreatorEvents() {
     
-    // 1. 渲染多选列表 (替代原下拉框)
+    // ============================
+    // 1. 多选列表与数据填充
+    // ============================
     window.updateCertChecklist = () => {
         const container = document.getElementById('cert-checklist-container');
         const btnBatch = document.getElementById('btn-batch-generate-certs');
+        
+        // 安全检查：如果DOM还没渲染出来，就不要执行
         if (!container) return;
 
         if (!window.G_Honor_List || window.G_Honor_List.length === 0) {
             container.innerHTML = `<div style="text-align:center; color:#999; padding:20px;">-- 暂无数据 --</div>`;
-            btnBatch.innerText = `📦 生成 ZIP 压缩包 (0)`;
+            if(btnBatch) btnBatch.innerText = `📦 生成 ZIP 压缩包 (0)`;
             return;
         }
 
-        // 生成列表 HTML
+        // 生成复选框列表
         container.innerHTML = window.G_Honor_List.map((h, i) => `
             <div style="display:flex; align-items:center; padding:4px 0; border-bottom:1px dashed #eee;">
                 <input type="checkbox" class="cert-batch-cb" value="${i}" id="cert-cb-${i}" checked style="margin-right:8px;">
                 <label for="cert-cb-${i}" style="flex:1; cursor:pointer; font-size:0.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     <span style="color:#d35400; font-weight:bold;">[${h.title}]</span> ${h.name}
                 </label>
-                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;" title="点击填充到预览区">
-                    👁️ 预览
+                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;" title="填充预览">
+                    👁️
                 </button>
             </div>
         `).join('');
 
-        // 更新按钮数量显示
         updateBatchBtnText();
 
-        // 绑定 checkbox 变化事件
-        const cbs = container.querySelectorAll('.cert-batch-cb');
-        cbs.forEach(cb => cb.addEventListener('change', updateBatchBtnText));
+        // 绑定勾选事件
+        container.querySelectorAll('.cert-batch-cb').forEach(cb => {
+            cb.addEventListener('change', updateBatchBtnText);
+        });
 
-        // 绑定“预览”小按钮事件
-        const prevBtns = container.querySelectorAll('.btn-preview-single');
-        prevBtns.forEach(btn => {
+        // 绑定单个预览按钮
+        container.querySelectorAll('.btn-preview-single').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const idx = e.target.dataset.idx;
-                fillCertData(idx);
+                // 阻止冒泡防止触发其他点击
+                e.stopPropagation();
+                fillCertData(e.target.dataset.idx);
             });
         });
     };
 
-    // 辅助：更新按钮文字
+    // 辅助：更新批量按钮文字
     const updateBatchBtnText = () => {
         const count = document.querySelectorAll('.cert-batch-cb:checked').length;
         const btn = document.getElementById('btn-batch-generate-certs');
         if(btn) btn.innerText = `📦 生成 ZIP 压缩包 (${count})`;
     };
 
-    // 辅助：填充单条数据 (提取出来的逻辑)
+    // 辅助：填充单条数据
     const fillCertData = (idx) => {
+        if (idx === undefined || idx === null) return;
         const data = window.G_Honor_List[idx];
+        
         G_CertState.texts.winner = data.name + " 同学";
         G_CertState.texts.desc = data.desc;
         
+        // 安全更新 DOM
         const elWinner = document.getElementById('cert-text-winner');
         const elDesc = document.getElementById('cert-text-desc');
         if(elWinner) elWinner.value = G_CertState.texts.winner;
@@ -19016,10 +19022,12 @@ function bindCertCreatorEvents() {
         updateCertPreview();
     };
 
-    // 初始化加载
+    // 初始化列表
     updateCertChecklist();
 
-    // 2. 全选 / 清空
+    // ============================
+    // 2. 全选 / 清空 控制
+    // ============================
     const btnAll = document.getElementById('cert-sel-all');
     const btnNone = document.getElementById('cert-sel-none');
     
@@ -19033,10 +19041,11 @@ function bindCertCreatorEvents() {
         updateBatchBtnText();
     });
 
-    // 3. 🔥 批量生成 (只生成勾选项) 🔥
+    // ============================
+    // 3. 批量生成 (ZIP打包)
+    // ============================
     const btnBatch = document.getElementById('btn-batch-generate-certs');
     if (btnBatch) btnBatch.addEventListener('click', async () => {
-        // 获取所有被勾选的索引
         const checkedBoxes = document.querySelectorAll('.cert-batch-cb:checked');
         const selectedIndices = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
 
@@ -19048,69 +19057,107 @@ function bindCertCreatorEvents() {
         const progressText = document.getElementById('cert-batch-status-text');
         const progressPercent = document.getElementById('cert-batch-percent');
         
-        progressBox.style.display = 'block';
+        if(progressBox) progressBox.style.display = 'block';
         btnBatch.disabled = true;
         
         const backup = { ...G_CertState.texts };
         const zip = new JSZip();
         const imgFolder = zip.folder("奖状打包");
 
-        // 循环处理选中的索引
         for (let i = 0; i < selectedIndices.length; i++) {
             const dataIdx = selectedIndices[i];
             const data = window.G_Honor_List[dataIdx];
-            
-            // 进度计算 (i+1 / 总数)
             const percent = Math.round(((i + 1) / selectedIndices.length) * 100);
             
-            progressText.innerText = `处理中: ${data.name}`;
-            progressBar.style.width = `${percent}%`;
-            progressPercent.innerText = `${percent}%`;
+            if(progressText) progressText.innerText = `处理中: ${data.name}`;
+            if(progressBar) progressBar.style.width = `${percent}%`;
+            if(progressPercent) progressPercent.innerText = `${percent}%`;
 
             // 填入数据并渲染
             G_CertState.texts.winner = data.name + " 同学";
             G_CertState.texts.desc = data.desc;
             updateCertPreview();
             
-            await new Promise(r => setTimeout(r, 150)); // 等待渲染
+            // 等待渲染
+            await new Promise(r => setTimeout(r, 150)); 
             
+            // 截图
             const base64 = await generateHighResCertificate(true); 
             if (base64) {
                 const imgData = base64.split(',')[1];
-                // 文件名防止重复
                 imgFolder.file(`${data.title}_${data.name}_${dataIdx}.jpg`, imgData, {base64: true});
             }
         }
         
-        progressText.innerText = "正在压缩...";
+        if(progressText) progressText.innerText = "正在压缩...";
         const content = await zip.generateAsync({type:"blob"});
         saveAs(content, "精选奖状打包.zip");
 
-        progressText.innerText = "✅ 完成！";
+        if(progressText) progressText.innerText = "✅ 完成！";
         btnBatch.disabled = false;
-        G_CertState.texts = backup;
+        G_CertState.texts = backup; // 恢复原始文本
         updateCertPreview();
     });
 
-    // 4. 素材上传 (保持不变)
-    const handleUpload = (inputId, stateKey, clearBtnId) => {
+    // ============================
+    // 4. 素材上传 (持久化)
+    // ============================
+    const handleUploadPersistent = async (inputId, stateKey, clearBtnId, storageKey) => {
         const input = document.getElementById(inputId);
         const clearBtn = document.getElementById(clearBtnId);
-        if(input) input.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if(f) {
-                const r = new FileReader();
-                r.onload = (evt) => { G_CertState[stateKey] = evt.target.result; if(clearBtn) clearBtn.style.display='inline-block'; updateCertPreview(); };
-                r.readAsDataURL(file);
-            }
-        });
-        if(clearBtn) clearBtn.addEventListener('click', () => { G_CertState[stateKey] = null; input.value=''; clearBtn.style.display='none'; updateCertPreview(); });
-    };
-    handleUpload('cert-bg-upload', 'bgImage', 'btn-clear-bg');
-    handleUpload('cert-seal-upload', 'sealImage', 'btn-clear-seal');
 
-    // 5. 文本输入 / 字号 / 坐标 (保持不变)
-    const bindInput = (id, callback) => { const el = document.getElementById(id); if(el) el.addEventListener('input', callback); };
+        // A. 尝试加载缓存
+        try {
+            const savedImage = await localforage.getItem(storageKey);
+            if (savedImage) {
+                G_CertState[stateKey] = savedImage;
+                if (clearBtn) clearBtn.style.display = 'inline-block';
+                updateCertPreview();
+            }
+        } catch (err) { console.warn("读取图片缓存失败", err); }
+
+        // B. 绑定上传
+        if (input) {
+            input.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = async (evt) => {
+                        const base64 = evt.target.result;
+                        G_CertState[stateKey] = base64;
+                        await localforage.setItem(storageKey, base64); // 保存
+                        if (clearBtn) clearBtn.style.display = 'inline-block';
+                        updateCertPreview();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+        }
+
+        // C. 绑定删除
+        if (clearBtn) {
+            clearBtn.addEventListener('click', async () => {
+                G_CertState[stateKey] = null;
+                if(input) input.value = ''; 
+                clearBtn.style.display = 'none';
+                await localforage.removeItem(storageKey); // 清除
+                updateCertPreview();
+            });
+        }
+    };
+
+    // 分别绑定
+    handleUploadPersistent('cert-bg-upload', 'bgImage', 'btn-clear-bg', 'G_Cert_Custom_BG');
+    handleUploadPersistent('cert-seal-upload', 'sealImage', 'btn-clear-seal', 'G_Cert_Custom_Seal');
+
+
+    // ============================
+    // 5. 文本/字号/坐标 输入监听
+    // ============================
+    const bindInput = (id, callback) => { 
+        const el = document.getElementById(id); 
+        if(el) el.addEventListener('input', callback); 
+    };
     
     ['title', 'winner', 'desc', 'footer', 'date'].forEach(key => {
         bindInput(`cert-text-${key}`, (e) => { G_CertState.texts[key] = e.target.value; updateCertPreview(); });
@@ -19119,14 +19166,19 @@ function bindCertCreatorEvents() {
         bindInput(`pos-y-${key}`, (e) => { G_CertState.manualPos[key].y = e.target.value; updateCertPreview(); });
     });
 
-    // 6. 样式与模式 (保持不变)
+    // ============================
+    // 6. 样式与布局
+    // ============================
     const fontSel = document.getElementById('cert-style-font');
-    const colorInp = document.getElementById('cert-style-color');
-    const alignSel = document.getElementById('cert-style-align');
-    const layoutCb = document.getElementById('cert-layout-mode');
     if(fontSel) fontSel.addEventListener('change', (e) => { G_CertState.style.fontFamily = e.target.value; updateCertPreview(); });
+    
+    const colorInp = document.getElementById('cert-style-color');
     if(colorInp) colorInp.addEventListener('input', (e) => { G_CertState.style.color = e.target.value; updateCertPreview(); });
+    
+    const alignSel = document.getElementById('cert-style-align');
     if(alignSel) alignSel.addEventListener('change', (e) => { G_CertState.style.textAlign = e.target.value; updateCertPreview(); });
+    
+    const layoutCb = document.getElementById('cert-layout-mode');
     if(layoutCb) layoutCb.addEventListener('change', (e) => {
         G_CertState.layoutMode = e.target.checked ? 'manual' : 'auto';
         const mc = document.getElementById('cert-manual-controls');
@@ -19134,14 +19186,19 @@ function bindCertCreatorEvents() {
         updateCertPreview();
     });
 
-    // 7. 印章控制 (保持不变)
+    // ============================
+    // 7. 印章控制
+    // ============================
     bindInput('seal-x', (e) => { G_CertState.seal.x = e.target.value; updateCertPreview(); });
     bindInput('seal-y', (e) => { G_CertState.seal.y = e.target.value; updateCertPreview(); });
     bindInput('seal-size', (e) => { G_CertState.seal.size = e.target.value; updateCertPreview(); });
 
-    // 8. 纸张设置 (保持不变)
+    // ============================
+    // 8. 纸张设置
+    // ============================
     const paperSelect = document.getElementById('cert-paper-size');
     if(paperSelect) paperSelect.addEventListener('change', (e) => { G_CertState.paper.size = e.target.value; updateCertPreview(); });
+    
     document.querySelectorAll('.paper-orient-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.paper-orient-btn').forEach(b => b.classList.remove('active'));
@@ -19151,7 +19208,9 @@ function bindCertCreatorEvents() {
         });
     });
 
+    // ============================
     // 9. 生成单张
+    // ============================
     const genBtn = document.getElementById('btn-generate-cert');
     if (genBtn) genBtn.addEventListener('click', () => generateHighResCertificate(false));
 }
