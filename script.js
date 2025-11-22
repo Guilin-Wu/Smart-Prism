@@ -1185,6 +1185,10 @@ function renderModule(moduleName, activeData, activeCompareData) {
             renderWeaknessWorkbook(container);
             break;
 
+        case 'honor':
+            renderHonorWall(container);
+            break;
+
         default:
             container.innerHTML = `<h2>模块 ${moduleName} (待开发)</h2>`;
     }
@@ -2295,8 +2299,7 @@ function renderSingleSubject(container, activeData, stats) {
             </div>
         </div>
 
-        <div id="ss-kpi-grid" class="kpi-grid" style="margin-bottom: 20px;">
-            </div>
+        <div id="ss-kpi-grid" class="kpi-grid" style="margin-bottom: 20px;"></div>
 
         <div class="dashboard-chart-grid-2x2">
             <div class="main-card-wrapper">
@@ -2317,19 +2320,35 @@ function renderSingleSubject(container, activeData, stats) {
                 </div>
                 <div class="chart-container" id="ss-class-compare-chart" style="height: 350px;"></div>
             </div>
+        </div>
 
+        <div class="dashboard-chart-grid-2x2" style="margin-top: 20px;">
+            <div class="main-card-wrapper">
+                <h4 style="margin:0;">📦 各班分化程度对比 (箱形图)</h4>
+                <p style="font-size:0.8em; color:#999; margin:5px 0;">* 箱体越长表示班级内部分化越严重；圆点为异常高/低分。</p>
+                <div class="chart-container" id="ss-class-boxplot" style="height: 400px;"></div>
+            </div>
+            <div class="main-card-wrapper">
+                <h4 style="margin:0;">🎯 班级教学质量诊断 (四象限)</h4>
+                <p style="font-size:0.8em; color:#999; margin:5px 0;">* X轴:及格率, Y轴:平均分。十字线为年级平均水平。</p>
+                <div class="chart-container" id="ss-class-quadrant" style="height: 400px;"></div>
+            </div>
+        </div>
+
+        <div class="dashboard-chart-grid-2x2" style="margin-top: 20px;">
             <div class="main-card-wrapper">
                 <h4 style="margin:0;">A/B/C/D 等级构成</h4>
                 <div class="chart-container" id="ss-abcd-pie-chart" style="height: 400px;"></div>
             </div>
-
-            <div class="main-card-wrapper">
-                <h4 style="margin:0;">本科目 Top 10</h4>
-                <div class="table-container" id="ss-top10-table" style="max-height: 400px;"></div>
-            </div>
-            <div class="main-card-wrapper">
-                <h4 style="margin:0;">本科目 Bottom 10</h4>
-                <div class="table-container" id="ss-bottom10-table" style="max-height: 400px;"></div>
+            <div class="main-card-wrapper" style="display:flex; flex-direction:column; gap:10px;">
+                <div style="flex:1; display:flex; flex-direction:column;">
+                    <h4 style="margin:0;">本科目 Top 10</h4>
+                    <div class="table-container" id="ss-top10-table" style="flex:1; overflow-y:auto;"></div>
+                </div>
+                <div style="flex:1; display:flex; flex-direction:column; border-top:1px dashed #eee; padding-top:10px;">
+                    <h4 style="margin:0;">本科目 Bottom 10</h4>
+                    <div class="table-container" id="ss-bottom10-table" style="flex:1; overflow-y:auto;"></div>
+                </div>
             </div>
         </div>
     `;
@@ -2402,20 +2421,28 @@ function renderSingleSubject(container, activeData, stats) {
         const top10 = sortedStudents.slice(0, 10);
         const bottom10 = sortedStudents.slice(-10).reverse();
 
+
         const createTable = (data, rankType) => {
             let rankHeader = rankType === 'top' ? '排名' : '倒数';
             if (data.length === 0) return '<p style="text-align: center; color: var(--text-muted); padding-top: 20px;">无数据</p>';
 
             return `
                 <table>
-                    <thead><tr><th>${rankHeader}</th><th>姓名</th><th>分数</th><th>班排</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th>${rankHeader}</th>
+                            <th>姓名</th>
+                            <th>分数</th>
+                            <th>班排(总分)</th> <th>年排(单科)</th> </tr>
+                    </thead>
                     <tbody>
                         ${data.map((s, index) => `
                             <tr>
                                 <td>${index + 1}</td>
                                 <td>${s.name}</td>
                                 <td><strong>${s.scores[subjectName]}</strong></td>
-                                <td>${s.rank}</td>
+                                <td>${s.rank || '-'}</td>
+                                <td>${(s.gradeRanks && s.gradeRanks[subjectName]) ? s.gradeRanks[subjectName] : '-'}</td>
                             </tr>
                         `).join('')}
                     </tbody>
@@ -2425,6 +2452,18 @@ function renderSingleSubject(container, activeData, stats) {
 
         document.getElementById('ss-top10-table').innerHTML = createTable(top10, 'top');
         document.getElementById('ss-bottom10-table').innerHTML = createTable(bottom10, 'bottom');
+
+
+        // 只有在"全体"模式下才显示班级对比，否则显示提示
+        const boxplotDiv = document.getElementById('ss-class-boxplot');
+        const quadrantDiv = document.getElementById('ss-class-quadrant');
+
+        if (G_CurrentClassFilter === 'ALL') {
+            renderSingleSubjectClassBoxplot('ss-class-boxplot', activeData, subjectName);
+            renderSingleSubjectQuadrant('ss-class-quadrant', activeData, subjectName, subjectStats);
+        } else {
+            boxplotDiv.innerHTML = quadrantDiv.innerHTML = `<p style="text-align:center; color:#ccc; padding-top:100px;">请选择“全体年段”以查看班级对比分析</p>`;
+        }
     };
 
     // 3. 绑定主事件
@@ -2432,6 +2471,250 @@ function renderSingleSubject(container, activeData, stats) {
 
     // 4. 初始绘制 (默认使用列表中的第一个科目)
     drawAnalysis();
+}
+
+/**
+ * [新增] 单科分析 - 各班级分数箱形图
+ */
+function renderSingleSubjectClassBoxplot(elementId, students, subject) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 1. 数据分组
+    const classMap = {};
+    students.forEach(s => {
+        if (!classMap[s.class]) classMap[s.class] = [];
+        const val = s.scores[subject];
+        if (typeof val === 'number' && !isNaN(val)) {
+            classMap[s.class].push(val);
+        }
+    });
+
+    // 2. 排序班级名
+    const classes = Object.keys(classMap).sort();
+    
+    // 3. 计算箱线数据
+    const boxData = [];
+    const outliers = [];
+
+    classes.forEach((cls, idx) => {
+        const scores = classMap[cls].sort((a, b) => a - b);
+        if (scores.length === 0) {
+            boxData.push([0,0,0,0,0]); return;
+        }
+        
+        // 计算四分位
+        const q1Val = quantile(scores, 0.25);
+        const q2Val = quantile(scores, 0.5);
+        const q3Val = quantile(scores, 0.75);
+        const iqr = q3Val - q1Val;
+        
+        const minLimit = q1Val - 1.5 * iqr;
+        const maxLimit = q3Val + 1.5 * iqr;
+
+        // 过滤异常值
+        const normalScores = scores.filter(s => s >= minLimit && s <= maxLimit);
+        const minVal = normalScores.length > 0 ? Math.min(...normalScores) : q1Val;
+        const maxVal = normalScores.length > 0 ? Math.max(...normalScores) : q3Val;
+
+        boxData.push([minVal, q1Val, q2Val, q3Val, maxVal]);
+
+        // 收集异常点
+        scores.forEach(s => {
+            if (s < minLimit || s > maxLimit) {
+                outliers.push([idx, s]);
+            }
+        });
+    });
+
+    // 辅助：计算分位数
+    function quantile(arr, q) {
+        const pos = (arr.length - 1) * q;
+        const base = Math.floor(pos);
+        const rest = pos - base;
+        if (arr[base + 1] !== undefined) {
+            return arr[base] + rest * (arr[base + 1] - arr[base]);
+        } else {
+            return arr[base];
+        }
+    }
+
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            axisPointer: { type: 'shadow' },
+            confine: true
+        },
+        grid: { left: '10%', right: '5%', bottom: '15%' },
+        xAxis: {
+            type: 'category',
+            data: classes,
+            axisLabel: { rotate: 30, interval: 0 }
+        },
+        yAxis: {
+            type: 'value',
+            name: '分数',
+            splitArea: { show: true }
+        },
+        series: [
+            {
+                name: '分数分布',
+                type: 'boxplot',
+                data: boxData,
+                itemStyle: {
+                    color: '#e3f2fd',
+                    borderColor: '#007bff'
+                },
+                tooltip: {
+                    formatter: function (param) {
+                        return [
+                            '<strong>' + param.name + '</strong>',
+                            '最高分 (上须): ' + param.data[5].toFixed(1),
+                            'Q3 (前25%线): ' + param.data[4].toFixed(1),
+                            '中位数: ' + param.data[3].toFixed(1),
+                            'Q1 (后25%线): ' + param.data[2].toFixed(1),
+                            '最低分 (下须): ' + param.data[1].toFixed(1)
+                        ].join('<br/>');
+                    }
+                }
+            },
+            {
+                name: '异常值',
+                type: 'scatter',
+                data: outliers,
+                itemStyle: { color: '#dc3545' },
+                tooltip: {
+                    formatter: (p) => `<strong>${classes[p.data[0]]}</strong><br/>异常分: ${p.data[1]}`
+                }
+            }
+        ]
+    };
+    myChart.setOption(option);
+}
+
+/**
+ * [新增] 单科分析 - 班级四象限诊断图
+ * X轴：及格率，Y轴：平均分
+ */
+function renderSingleSubjectQuadrant(elementId, students, subject, gradeStats) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 1. 准备数据
+    const classMap = {};
+    const classes = [...new Set(students.map(s => s.class))].sort();
+    const config = G_SubjectConfigs[subject] || { pass: 60 };
+
+    const data = classes.map(cls => {
+        const group = students.filter(s => s.class === cls);
+        const scores = group.map(s => s.scores[subject]).filter(v => typeof v === 'number');
+        
+        if (scores.length === 0) return null;
+
+        const avg = scores.reduce((a,b)=>a+b, 0) / scores.length;
+        const passCount = scores.filter(v => v >= config.pass).length;
+        const passRate = (passCount / scores.length) * 100;
+
+        return {
+            name: cls,
+            value: [passRate.toFixed(1), avg.toFixed(1)], // [X, Y]
+            count: scores.length
+        };
+    }).filter(d => d !== null);
+
+    // 2. 基准线 (年级平均)
+    const gradeAvg = gradeStats.average || 0;
+    const gradePassRate = gradeStats.passRate || 0;
+
+    // 3. 计算坐标轴范围 (为了美观，不从0开始)
+    const minX = Math.min(...data.map(d => parseFloat(d.value[0])), gradePassRate) * 0.9;
+    const maxX = Math.min(100, Math.max(...data.map(d => parseFloat(d.value[0])), gradePassRate) * 1.05);
+    const minY = Math.min(...data.map(d => parseFloat(d.value[1])), gradeAvg) * 0.9;
+    const maxY = Math.max(...data.map(d => parseFloat(d.value[1])), gradeAvg) * 1.05;
+
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            formatter: (p) => {
+                return `<strong>${p.name}</strong><br/>` +
+                       `平均分: ${p.value[1]}<br/>` +
+                       `及格率: ${p.value[0]}%<br/>` +
+                       `人数: ${p.data.count}`;
+            }
+        },
+        grid: { left: '10%', right: '10%', top: '10%', bottom: '10%' },
+        xAxis: {
+            type: 'value',
+            name: '及格率 (%)',
+            nameLocation: 'middle',
+            nameGap: 25,
+            min: Math.floor(minX),
+            max: Math.ceil(maxX),
+            splitLine: { show: false }
+        },
+        yAxis: {
+            type: 'value',
+            name: '平均分',
+            nameLocation: 'middle',
+            nameGap: 30,
+            min: Math.floor(minY),
+            max: Math.ceil(maxY),
+            splitLine: { show: false }
+        },
+        series: [
+            {
+                type: 'scatter',
+                data: data,
+                symbolSize: 15,
+                itemStyle: {
+                    color: (p) => {
+                        // 简单着色逻辑
+                        const x = parseFloat(p.value[0]);
+                        const y = parseFloat(p.value[1]);
+                        if (x >= gradePassRate && y >= gradeAvg) return '#28a745'; // 右上: 优
+                        if (x < gradePassRate && y < gradeAvg) return '#dc3545'; // 左下: 差
+                        return '#ffc107'; // 中
+                    },
+                    shadowBlur: 5,
+                    shadowColor: 'rgba(0,0,0,0.3)'
+                },
+                label: {
+                    show: true,
+                    formatter: '{b}',
+                    position: 'top',
+                    color: '#333',
+                    fontSize: 10
+                },
+                markLine: {
+                    silent: true,
+                    symbol: 'none',
+                    lineStyle: { type: 'dashed', color: '#666' },
+                    label: { position: 'end' },
+                    data: [
+                        { xAxis: gradePassRate, name: '年级及格率' },
+                        { yAxis: gradeAvg, name: '年级平均分' }
+                    ]
+                },
+                markArea: {
+                    silent: true,
+                    itemStyle: { opacity: 0.03 },
+                    data: [
+                        // 右上象限 (双高)
+                        [{ xAxis: gradePassRate, yAxis: gradeAvg }, { xAxis: 100, yAxis: maxY }],
+                        // 左下象限 (双低) - 红色警示
+                        [{ xAxis: minX, yAxis: minY }, { xAxis: gradePassRate, yAxis: gradeAvg, itemStyle: { color: '#ff0000', opacity: 0.05 } }]
+                    ]
+                }
+            }
+        ]
+    };
+    myChart.setOption(option);
 }
 
 /**
@@ -2672,9 +2955,14 @@ function renderGroups(container, students) {
             <div id="group-results-table"></div>
 
             <div class="dashboard-chart-grid-2x2" style="margin-top: 20px;">
-                <div class="main-card-wrapper" style="padding: 10px;"> <div class="chart-container" id="group-class-pie-chart" style="height: 350px;"></div>
+                <div class="main-card-wrapper" style="padding: 10px;">
+                    <h4 style="margin:0 0 10px 0; text-align:center;">🥧 筛选群体的班级构成</h4>
+                    <div class="chart-container" id="group-class-pie-chart" style="height: 350px;"></div>
                 </div>
-                <div class="main-card-wrapper" style="padding: 10px;"> <div class="chart-container" id="group-radar-chart" style="height: 350px;"></div>
+                <div class="main-card-wrapper" style="padding: 10px;">
+                    <h4 style="margin:0 0 10px 0; text-align:center;">🕸️ 群体能力 vs 全体平均</h4>
+                    <p style="font-size:0.8em; color:#999; text-align:center; margin:0;">(基于各科得分率/难度系数对比)</p>
+                    <div class="chart-container" id="group-radar-chart" style="height: 350px;"></div>
                 </div>
             </div>
 
@@ -2723,7 +3011,7 @@ function renderGroups(container, students) {
         });
     });
 
-    // 4.   筛选按钮事件 (核心)
+// 4.   筛选按钮事件 (核心)
     filterBtn.addEventListener('click', () => {
         const subject = subjectSelect.value;
         const min = parseFloat(minInput.value);
@@ -2736,9 +3024,10 @@ function renderGroups(container, students) {
 
         resultsWrapper.style.display = 'block';
 
-        // 4.1 渲染表格
+        // 4.1 渲染表格 (保留原代码，这里简写)
         if (filteredStudents.length === 0) {
             tableEl.innerHTML = `<p>在 ${min} - ${max} 分数段内没有找到学生。</p>`;
+            // 清空图表
             document.getElementById('group-class-pie-chart').innerHTML = '';
             document.getElementById('group-radar-chart').innerHTML = '';
             return;
@@ -2772,29 +3061,434 @@ function renderGroups(container, students) {
             </div>
         `;
 
-        // 4.2 (    ) 渲染图表
+       // 🔥 新增：渲染两个分析图表
         renderGroupClassPie('group-class-pie-chart', filteredStudents);
-        renderGroupRadarChart('group-radar-chart', filteredStudents, G_Statistics);
+
+        // [修复] 确保传入有效的全体统计数据
+        // 如果 G_Statistics 为空（还没计算过），则现场用所有学生数据算一次
+        let globalStats = G_Statistics;
+        if (!globalStats || Object.keys(globalStats).length === 0) {
+            // 假设你已经定义了 G_StudentsData 和 calculateAllStatistics
+            if (typeof G_StudentsData !== 'undefined' && typeof calculateAllStatistics === 'function') {
+                globalStats = calculateAllStatistics(G_StudentsData);
+            } else {
+                globalStats = {}; // 最后的保底，防止报错
+            }
+        }
+        
+        renderGroupRadarChart('group-radar-chart', filteredStudents, globalStats);
     });
 }
+
+
 /**
- * (    ) 9.6. 模块六：学科关联矩阵
+ * [新增] 模块八：筛选结果 - 班级构成饼图
+ * 展示筛选出来的这批人，主要分布在哪些班级
+ */
+function renderGroupClassPie(elementId, filteredStudents) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+
+    if (echartsInstances[elementId]) {
+        echartsInstances[elementId].dispose();
+    }
+    echartsInstances[elementId] = echarts.init(chartDom);
+
+    // 1. 统计班级
+    const classCounts = {};
+    filteredStudents.forEach(student => {
+        classCounts[student.class] = (classCounts[student.class] || 0) + 1;
+    });
+
+    // 2. 转换为 ECharts 数据
+    const pieData = Object.keys(classCounts).map(className => {
+        return {
+            value: classCounts[className],
+            name: className
+        };
+    }).sort((a, b) => b.value - a.value); // (按人数降序)
+
+    const option = {
+        title: {
+            text: '筛选群体的班级构成',
+            left: 'center',
+            textStyle: { fontSize: 16, fontWeight: 'normal' }
+        },
+        tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c}人 ({d}%)'
+        },
+        legend: {
+            orient: 'vertical',
+            left: 'left',
+            top: 'middle',
+            type: 'scroll',
+            data: pieData.map(d => d.name)
+        },
+        series: [{
+            name: '班级',
+            type: 'pie',
+            radius: ['40%', '70%'], // (空心圆，更现代)
+            center: ['65%', '55%'], // (饼图靠右, 为图例腾空间)
+            data: pieData,
+            emphasis: {
+                itemStyle: {
+                    shadowBlur: 10,
+                    shadowOffsetX: 0,
+                    shadowColor: 'rgba(0, 0, 0, 0.5)'
+                }
+            },
+            label: {
+                show: true,
+                formatter: '{c}人', // 饼图上直接显示人数
+                position: 'outside'
+            }
+        }]
+    };
+    echartsInstances[elementId].setOption(option);
+}
+
+/**
+ * [新增] 模块八：筛选结果 - 群体能力雷达图
+ * (对比 "筛选群体" vs "全体平均" 的得分率)
+ */
+function renderGroupRadarChart(elementId, filteredStudents, totalStats) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+
+    if (echartsInstances[elementId]) {
+        echartsInstances[elementId].dispose();
+    }
+    echartsInstances[elementId] = echarts.init(chartDom);
+
+    // 1. (关键) 重新计算这个 "筛选群体" 的统计数据
+    // 我们复用 calculateAllStatistics 函数来获得该群体的平均分
+    const groupStats = calculateAllStatistics(filteredStudents);
+
+    // 2. 准备雷达图指示器
+    // 为了消除各科满分不同的影响，我们统一使用“得分率/难度系数” (Score / FullScore)
+    // 如果没有配置难度系数，可以用 Average / Full 计算
+    const indicators = G_DynamicSubjectList.map(subject => {
+        return { name: subject, max: 1.0 }; // 满分率均为 1.0
+    });
+
+    // 3. 获取 "筛选群体" 的得分率
+    const groupData = G_DynamicSubjectList.map(subject => {
+        const stats = groupStats[subject];
+        // 难度 = 平均分 / 满分。如果 groupStats 里没有 difficulty 属性，我们手动算
+        if (stats && stats.difficulty !== undefined) return stats.difficulty;
+        if (stats && G_SubjectConfigs[subject]) return stats.average / G_SubjectConfigs[subject].full;
+        return 0;
+    });
+
+    // 4. 获取 "全体平均" 的得分率
+    const totalData = G_DynamicSubjectList.map(subject => {
+        const stats = totalStats[subject];
+        if (stats && stats.difficulty !== undefined) return stats.difficulty;
+        if (stats && G_SubjectConfigs[subject]) return stats.average / G_SubjectConfigs[subject].full;
+        return 0;
+    });
+
+    const option = {
+        title: {
+            text: '群体能力 vs 全体平均',
+            subtext: '(指标: 得分率/难度)',
+            left: 'center',
+            textStyle: { fontSize: 16, fontWeight: 'normal' }
+        },
+        tooltip: { trigger: 'item' },
+        legend: {
+            data: ['筛选群体', '全体平均'],
+            bottom: 10
+        },
+        radar: {
+            indicator: indicators,
+            radius: '65%',
+            splitArea: {
+                areaStyle: {
+                    color: ['rgba(250,250,250,0.3)', 'rgba(200,200,200,0.3)']
+                }
+            }
+        },
+        series: [{
+            name: '群体 vs 全体',
+            type: 'radar',
+            data: [
+                {
+                    value: groupData,
+                    name: '筛选群体',
+                    areaStyle: { opacity: 0.4, color: '#28a745' }, // 绿色代表选出来的（通常是优秀的）
+                    itemStyle: { color: '#28a745' },
+                    lineStyle: { color: '#28a745' }
+                },
+                {
+                    value: totalData,
+                    name: '全体平均',
+                    areaStyle: { opacity: 0.2, color: '#007bff' }, // 蓝色代表基准
+                    itemStyle: { color: '#007bff' },
+                    lineStyle: { color: '#007bff' }
+                }
+            ]
+        }]
+    };
+    echartsInstances[elementId].setOption(option);
+}
+/**
+ * [重构版] 9.6. 模块九：学科关联矩阵 (主入口)
+ * - 统一计算相关系数矩阵
+ * - 渲染热力图、网络图、影响力排行
  */
 function renderCorrelation(container, activeData) {
     // 1. 渲染基础 HTML
     container.innerHTML = `
         <h2>模块九：学科关联矩阵 (当前筛选: ${G_CurrentClassFilter})</h2>
-        <div class="main-card-wrapper">
-            <div class="controls-bar chart-controls">
-                <h4 style="margin:0;">全科相关系数热力图</h4>
-                <span style="font-size: 0.8em; color: var(--text-muted);">(1: 强正相关, -1: 强负相关)</span>
-            </div>
+        <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
+            探索学科间的隐性关联。相关系数越接近 1，说明两科成绩“同进退”的趋势越强。
+        </p>
+
+        <div class="main-card-wrapper" style="margin-bottom: 20px;">
+            <h4 style="margin:0;">🔥 全科相关系数热力图</h4>
             <div class="chart-container" id="correlation-heatmap-chart" style="width: 100%; height: 600px;"></div>
+        </div>
+
+        <div class="dashboard-chart-grid-2x2" style="margin-bottom: 20px;">
+            <div class="main-card-wrapper">
+                <h4 style="margin:0;">🕸️ 学科“引力”网络拓扑图</h4>
+                <p style="font-size:0.8em; color:#999; margin:5px 0;">* 线条越粗代表关联越强。抱团的科目通常需要相似的思维能力。</p>
+                <div class="chart-container" id="correlation-network-chart" style="height: 450px;"></div>
+            </div>
+            <div class="main-card-wrapper">
+                <h4 style="margin:0;">👑 学科“核心影响力”排行</h4>
+                <p style="font-size:0.8em; color:#999; margin:5px 0;">* 核心度 = 该科与其他所有科目相关性的均值。分值越高，代表该科越能反映综合实力。</p>
+                <div class="chart-container" id="correlation-centrality-chart" style="height: 450px;"></div>
+            </div>
         </div>
     `;
 
-    // 2. 调用绘图函数
-    renderCorrelationHeatmap('correlation-heatmap-chart', activeData);
+    // 2. [核心] 统一计算矩阵数据
+    const subjects = G_DynamicSubjectList;
+    const n = subjects.length;
+    
+    // 准备数据结构
+    // matrix: 二维数组，存储相关系数
+    // nodes: 学科节点
+    // links: 强相关连线
+    // centrality: 核心度数组
+    const matrix = Array(n).fill(0).map(() => Array(n).fill(0));
+    const links = [];
+    const centrality = subjects.map(sub => ({ name: sub, totalR: 0, count: 0 }));
+
+    // 预处理：提取所有分数，减少循环内的 map 操作
+    const scoresCache = {};
+    subjects.forEach(sub => {
+        scoresCache[sub] = [];
+    });
+    activeData.forEach(s => {
+        subjects.forEach(sub => {
+            // 只有当两个科目都有分时，才计入成对数据
+            if (s.scores[sub] !== undefined && s.scores[sub] !== null) {
+                scoresCache[sub].push(s.scores[sub]); // 这里暂存，后续成对处理时需要对齐索引
+            }
+        });
+    });
+
+    // 双重循环计算矩阵
+    for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+            if (i === j) {
+                matrix[i][j] = 1.0;
+            } else if (i < j) {
+                const subA = subjects[i];
+                const subB = subjects[j];
+
+                // 提取成对有效数据 (Pairwise Deletion)
+                const pairsA = [];
+                const pairsB = [];
+                
+                activeData.forEach(s => {
+                    const valA = s.scores[subA];
+                    const valB = s.scores[subB];
+                    if (typeof valA === 'number' && typeof valB === 'number') {
+                        pairsA.push(valA);
+                        pairsB.push(valB);
+                    }
+                });
+
+                const r = calculateCorrelation(pairsA, pairsB); // 使用现有的辅助函数
+                const rVal = parseFloat(r.toFixed(2));
+
+                matrix[i][j] = rVal;
+                matrix[j][i] = rVal; // 对称
+
+                // 收集网络图连线 (只保留正相关且有一定强度的，例如 > 0.3)
+                if (rVal > 0.35) {
+                    links.push({
+                        source: subA,
+                        target: subB,
+                        value: rVal,
+                        lineStyle: {
+                            width: (rVal - 0.3) * 5, // 动态线宽
+                            opacity: 0.6 + (rVal * 0.4)
+                        }
+                    });
+                }
+
+                // 累加核心度
+                centrality[i].totalR += rVal;
+                centrality[i].count++;
+                centrality[j].totalR += rVal;
+                centrality[j].count++;
+            }
+        }
+    }
+
+    // 3. 调用各子图表渲染函数
+    // (1) 热力图 (复用逻辑，但直接传矩阵数据，避免重复算)
+    renderCorrelationHeatmapV2('correlation-heatmap-chart', subjects, matrix);
+    
+    // (2) 网络图
+    renderCorrelationNetwork('correlation-network-chart', subjects, links);
+
+    // (3) 影响力排行
+    renderSubjectCentrality('correlation-centrality-chart', centrality);
+}
+
+/**
+ * [优化版] 渲染热力图 (直接接收矩阵数据)
+ */
+function renderCorrelationHeatmapV2(elementId, subjects, matrix) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 转换为 ECharts 格式 [x, y, value]
+    const data = [];
+    for (let i = 0; i < subjects.length; i++) {
+        for (let j = 0; j < subjects.length; j++) {
+            data.push([i, j, matrix[i][j]]);
+        }
+    }
+
+    const option = {
+        tooltip: {
+            position: 'top',
+            formatter: (p) => `${subjects[p.data[0]]} vs ${subjects[p.data[1]]}<br/>相关系数: <strong>${p.data[2]}</strong>`
+        },
+        grid: { height: '80%', top: '5%' },
+        xAxis: { type: 'category', data: subjects, splitArea: { show: true }, axisLabel: { rotate: 30 } },
+        yAxis: { type: 'category', data: subjects, splitArea: { show: true } },
+        visualMap: {
+            min: -0.2, max: 1,
+            calculable: true,
+            orient: 'horizontal',
+            left: 'center', bottom: 0,
+            inRange: { color: ['#f5f5f5', '#e0f3f8', '#4575b4'] } // 浅灰 -> 蓝
+        },
+        series: [{
+            name: '相关系数',
+            type: 'heatmap',
+            data: data,
+            label: { show: true, color: '#333' },
+            itemStyle: {
+                borderColor: '#fff',
+                borderWidth: 1
+            }
+        }]
+    };
+    myChart.setOption(option);
+}
+
+/**
+ * [新增] 模块九：学科引力网络图
+ */
+function renderCorrelationNetwork(elementId, subjects, links) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 构建节点
+    const nodes = subjects.map((sub, idx) => ({
+        name: sub,
+        symbolSize: 30,
+        itemStyle: {
+            color: ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'][idx % 8]
+        },
+        label: { show: true, fontSize: 11 }
+    }));
+
+    const option = {
+        tooltip: { formatter: '{b}' }, // 简化提示
+        series: [{
+            type: 'graph',
+            layout: 'force',
+            data: nodes,
+            links: links,
+            roam: true,
+            label: { position: 'right', formatter: '{b}' },
+            force: {
+                repulsion: 400, // 斥力
+                edgeLength: [50, 200] // 边的长度范围，相关性强的会被拉近
+            },
+            lineStyle: {
+                color: 'source',
+                curveness: 0.1
+            },
+            emphasis: {
+                focus: 'adjacency',
+                lineStyle: { width: 5 }
+            }
+        }]
+    };
+    myChart.setOption(option);
+}
+
+/**
+ * [新增] 模块九：学科核心影响力排行
+ */
+function renderSubjectCentrality(elementId, centralityData) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 计算平均值并排序
+    const data = centralityData.map(item => ({
+        name: item.name,
+        value: item.count > 0 ? parseFloat((item.totalR / item.count).toFixed(3)) : 0
+    })).sort((a, b) => a.value - b.value); // 升序，因为条形图从下往上画
+
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            formatter: '{b}<br/>平均相关系数: {c}'
+        },
+        grid: { left: '3%', right: '4%', bottom: '3%', top: '5%', containLabel: true },
+        xAxis: { type: 'value', name: '平均相关系数' },
+        yAxis: { type: 'category', data: data.map(d => d.name) },
+        series: [{
+            type: 'bar',
+            data: data.map(d => d.value),
+            label: { show: true, position: 'right' },
+            itemStyle: {
+                color: (p) => {
+                    // 颜色渐变：越核心颜色越深
+                    // 简单处理：前3名用深色
+                    const rank = data.length - 1 - p.dataIndex; // 0是第一名
+                    if (rank < 3) return '#d35400'; // 核心科目 (橙红)
+                    return '#87cefa'; // 普通科目 (淡蓝)
+                },
+                borderRadius: [0, 4, 4, 0]
+            },
+            barWidth: '60%'
+        }]
+    };
+    myChart.setOption(option);
 }
 
 /**
@@ -2918,6 +3612,21 @@ function renderBoundary(container, activeData, stats) {
             </div>
         </div>
 
+        <div id="boundary-charts-area" style="display: none;">
+            <div class="dashboard-chart-grid-2x2" style="margin-bottom: 20px;">
+                <div class="main-card-wrapper">
+                    <h4 style="margin:0;">📉 临界生“短板科目”频次统计</h4>
+                    <p style="font-size:0.8em; color:#999; margin:5px 0;">* 统计这批学生在各科未达标（如不及格）的人次，柱子越高代表该科目是群体的共同短板。</p>
+                    <div class="chart-container" id="boundary-bottleneck-chart" style="height: 350px;"></div>
+                </div>
+                <div class="main-card-wrapper">
+                    <h4 style="margin:0;">🎯 临界分差散点图 (距离目标线)</h4>
+                    <p style="font-size:0.8em; color:#999; margin:5px 0;">* Y轴=0为目标线。点在红区表示未达标，绿区表示已达标。越靠近0轴提升性价比越高。</p>
+                    <div class="chart-container" id="boundary-gap-chart" style="height: 350px;"></div>
+                </div>
+            </div>
+        </div>
+
         <div class="main-card-wrapper" id="boundary-results-wrapper" style="display: none;">
                 <h4 id="boundary-results-title">筛选结果</h4>
                 <div class="table-container" id="boundary-results-table"></div>
@@ -2926,6 +3635,8 @@ function renderBoundary(container, activeData, stats) {
                     </div>
             </div>
         `;
+
+
 
     // 2. 绑定事件
     const subjectSelect = document.getElementById('boundary-subject');
@@ -2939,13 +3650,28 @@ function renderBoundary(container, activeData, stats) {
     const resultsTable = document.getElementById('boundary-results-table');
 
     // (辅助函数) 渲染表格
-    // (辅助函数) 渲染表格
-    const renderResultTable = (title, students, targetSubject) => {
+    const renderResultTable = (title, students, targetSubject, lineTypeLabel) => { // 👈 注意：这里多传一个 lineTypeLabel 参数，方便图表标题使用
         resultsTitle.innerText = title;
         resultsWrapper.style.display = 'block';
+        
+        // 🔥 新增：显示并渲染图表区域
+        document.getElementById('boundary-charts-area').style.display = 'block';
+        
+        // 稍作延时确保容器可见
+        setTimeout(() => {
+            // 1. 渲染短板归因图
+            renderBoundaryBottleneckChart('boundary-bottleneck-chart', students);
+            // 2. 渲染分差散点图 (需要知道当前对比的是什么线，例如"及格线")
+            renderBoundaryGapChart('boundary-gap-chart', students, lineTypeLabel || '及格线'); 
+        }, 100);
 
         if (!students || students.length === 0) {
             resultsTable.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding: 20px;">未找到符合条件的学生。</p>`;
+            // 如果没人，清空图表
+            const chart1 = echarts.getInstanceByDom(document.getElementById('boundary-bottleneck-chart'));
+            if(chart1) chart1.clear();
+            const chart2 = echarts.getInstanceByDom(document.getElementById('boundary-gap-chart'));
+            if(chart2) chart2.clear();
             return;
         }
 
@@ -3015,7 +3741,15 @@ function renderBoundary(container, activeData, stats) {
             return score >= min && score <= max;
         });
 
-        renderResultTable(`“${subject}” 在 “${lineTypeSelect.options[lineTypeSelect.selectedIndex].text}” ( ${threshold.toFixed(0)}分 ) ± ${range}分 的学生 (${filteredStudents.length}人)`, filteredStudents, subject);
+        const lineLabel = lineTypeSelect.options[lineTypeSelect.selectedIndex].text; 
+
+        renderResultTable(
+            `“${subject}” 在 “${lineLabel}” ( ${threshold.toFixed(0)}分 ) ± ${range}分 的学生 (${filteredStudents.length}人)`, 
+            filteredStudents, 
+            subject,
+            lineLabel // 👈 传入新参数
+        );
+        //renderResultTable(`“${subject}” 在 “${lineTypeSelect.options[lineTypeSelect.selectedIndex].text}” ( ${threshold.toFixed(0)}分 ) ± ${range}分 的学生 (${filteredStudents.length}人)`, filteredStudents, subject);
     });
 
     // (辅助函数) 获取总分线
@@ -3080,7 +3814,15 @@ function renderBoundary(container, activeData, stats) {
                     return failCount >= 3;
                 });
             }
-            renderResultTable(`${title} (${filteredStudents.length}人)`, filteredStudents, null);
+            let lineLabel = '及格线'; 
+            if (preset.includes('high') || preset.includes('excel')) {
+                lineLabel = '优秀线'; // 高分相关的预设，对比的是优秀线
+            }
+
+            // ✅ [修改] 传入 lineLabel
+            renderResultTable(`${title} (${filteredStudents.length}人)`, filteredStudents, null, lineLabel);
+            
+            //renderResultTable(`${title} (${filteredStudents.length}人)`, filteredStudents, null);
         });
     });
     //    (    ) 为结果表添加点击事件
@@ -3106,6 +3848,188 @@ function renderBoundary(container, activeData, stats) {
 }
 
 
+/**
+ * [升级版] 模块五：临界生 - 短板科目频次图
+ */
+function renderBoundaryBottleneckChart(elementId, students) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 1. 准备数据容器：{ '语文': {count: 0, students: []}, ... }
+    const bottleneckMap = {};
+    G_DynamicSubjectList.forEach(sub => {
+        bottleneckMap[sub] = { count: 0, students: [] };
+    });
+
+    // 2. 遍历统计
+    students.forEach(s => {
+        G_DynamicSubjectList.forEach(sub => {
+            const score = s.scores[sub];
+            const config = G_SubjectConfigs[sub] || { pass: 60 };
+            
+            // 如果分数 < 及格线 (pass) 或者缺考，视为该科是短板
+            if (typeof score !== 'number' || score < config.pass) {
+                bottleneckMap[sub].count++;
+                bottleneckMap[sub].students.push(s);
+            }
+        });
+    });
+
+    const xData = Object.keys(bottleneckMap);
+    // 构建 ECharts 需要的数据对象数组
+    const seriesData = xData.map(sub => ({
+        name: sub,
+        value: bottleneckMap[sub].count,
+        studentList: bottleneckMap[sub].students // 藏入名单
+    }));
+
+    const option = {
+        tooltip: { 
+            trigger: 'item', 
+            formatter: (params) => {
+                return `${params.marker} <strong>${params.name}</strong><br/>` +
+                       `未达标人数：${params.value} 人<br/>` +
+                       `<span style="font-size:0.8em;color:#aaa;">(点击查看名单)</span>`;
+            }
+        },
+        grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
+        xAxis: { 
+            type: 'category', 
+            data: xData, 
+            axisLabel: { rotate: 30, interval: 0 } 
+        },
+        yAxis: { type: 'value', name: '未达标人数' },
+        series: [{
+            name: '未达标人数',
+            type: 'bar',
+            data: seriesData, // 传入包含 studentList 的对象
+            itemStyle: {
+                // 渐变红色，强调“短板”
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: '#ff7675' },
+                    { offset: 1, color: '#d63031' }
+                ])
+            },
+            label: { show: true, position: 'top' },
+            cursor: 'pointer' // 鼠标变手型
+        }]
+    };
+    myChart.setOption(option);
+
+    // 3. 绑定点击事件
+    myChart.off('click');
+    myChart.on('click', function(params) {
+        const targetStudents = params.data.studentList;
+        const subjectName = params.name;
+
+        if (targetStudents && targetStudents.length > 0) {
+            // 调用通用弹窗
+            // 这里的 title 动态获取当前筛选的范围可能比较麻烦，我们用通用的描述
+            showDrillDownModal(
+                `【${subjectName}】未达标临界生名单`, 
+                targetStudents, 
+                subjectName // 传入科目，表格里会显示该科具体分数
+            );
+        }
+    });
+}
+
+
+/**
+ * [新增] 模块五：临界生 - 分差散点图
+ * 展示每个学生各科距离目标线（如及格线）的分差
+ */
+function renderBoundaryGapChart(elementId, students, lineTypeLabel) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 准备数据：[科目索引, 分差, 学生姓名, 科目名, 实际分]
+    const scatterData = [];
+    // 确定对比哪条线（简单起见，这里统一对比“及格线”或者根据传入的 label 模糊匹配配置）
+    // 如果 lineTypeLabel 是 "优秀线"，则对比 excel，否则对比 pass
+    const configKey = lineTypeLabel.includes('优秀') ? 'excel' : 'pass';
+
+    G_DynamicSubjectList.forEach((sub, idx) => {
+        const config = G_SubjectConfigs[sub] || {};
+        const targetLine = config[configKey] || 60;
+
+        students.forEach(s => {
+            const score = s.scores[sub];
+            if (typeof score === 'number') {
+                const diff = parseFloat((score - targetLine).toFixed(1));
+                // 为了图表美观，只展示在目标线附近 +/- 20分的数据，
+                // 或者展示全部但重点看 0 附近的。这里展示全部。
+                scatterData.push([idx, diff, s.name, sub, score, targetLine]);
+            }
+        });
+    });
+
+    // X轴标签
+    const categories = G_DynamicSubjectList;
+
+    const option = {
+        tooltip: {
+            formatter: (p) => {
+                const data = p.data; // [idx, diff, name, sub, score, target]
+                const diffStr = data[1] >= 0 ? `+${data[1]}` : `${data[1]}`;
+                const color = data[1] >= 0 ? 'green' : 'red';
+                return `<strong>${data[2]}</strong> - ${data[3]}<br/>` +
+                       `实际分: ${data[4]} (线: ${data[5]})<br/>` +
+                       `分差: <span style="color:${color}; font-weight:bold;">${diffStr}</span>`;
+            }
+        },
+        grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
+        xAxis: {
+            type: 'category',
+            data: categories,
+            axisLabel: { rotate: 30, interval: 0 },
+            splitLine: { show: true, lineStyle: { type: 'dashed' } }
+        },
+        yAxis: {
+            type: 'value',
+            name: `距离${lineTypeLabel}分差`,
+            axisLabel: { formatter: '{value} 分' }
+        },
+        series: [{
+            type: 'scatter',
+            data: scatterData,
+            symbolSize: 10,
+            itemStyle: {
+                color: (p) => {
+                    // 大于等于0 绿色，小于0 红色
+                    return p.data[1] >= 0 ? '#28a745' : '#dc3545';
+                },
+                opacity: 0.6
+            },
+            markLine: {
+                silent: true,
+                symbol: 'none',
+                data: [{ yAxis: 0 }],
+                lineStyle: { color: '#333', width: 2 },
+                label: { formatter: '目标线', position: 'end' }
+            },
+            markArea: {
+                silent: true,
+                itemStyle: { opacity: 0.1 },
+                data: [
+                    // 0轴以下标红背景
+                    [{ yAxis: -999, itemStyle: { color: '#ffebee' } }, { yAxis: 0 }],
+                    // 0轴以上标绿背景
+                    [{ yAxis: 0, itemStyle: { color: '#e8f5e9' } }, { yAxis: 999 }]
+                ]
+            }
+        }]
+    };
+    myChart.setOption(option);
+}
+
+
 
 /**
  * (    ) 9.9. 模块九：全科均衡分析
@@ -3115,16 +4039,30 @@ function renderBoundary(container, activeData, stats) {
  */
 function renderHolisticBalance(container, activeData, stats) {
 
-    // 1. 渲染HTML
+// 1. 渲染HTML
     container.innerHTML = `
         <h2>模块六：全科均衡分析 (当前筛选: ${G_CurrentClassFilter})</h2>
         <p style="margin-top: -20px; margin-bottom: 20px; color: var(--text-muted);">
-            分析学生群体的“短板”数量分布。点击下方柱状图可查看学生列表。
+            分析学生群体的“短板”数量及学科均衡度。
         </p>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
-            <h4 style="margin:0;">不及格科目数量分布</h4>
-            <div class="chart-container" id="holistic-failure-count-chart" style="height: 500px;"></div>
+            <h4 style="margin:0;">📉 不及格科目数量分布</h4>
+            <p style="font-size:0.8em; color:#999; margin:5px 0;">* 点击柱子可查看具体学生名单。</p>
+            <div class="chart-container" id="holistic-failure-count-chart" style="height: 400px;"></div>
+        </div>
+
+        <div class="dashboard-chart-grid-2x2" style="margin-bottom: 20px;">
+            <div class="main-card-wrapper">
+                <h4 style="margin:0;">🪵 “最短板”科目归因分布</h4>
+                <p style="font-size:0.8em; color:#999; margin:5px 0;">* 统计有多少学生的“全科最差一门”是该科目 (基于得分率)。</p>
+                <div class="chart-container" id="holistic-shortest-plank-chart" style="height: 350px;"></div>
+            </div>
+            <div class="main-card-wrapper">
+                <h4 style="margin:0;">⚖️ 综合实力 vs 均衡度 矩阵</h4>
+                <p style="font-size:0.8em; color:#999; margin:5px 0;">* Y轴越低越均衡。右下角为“六边形战士”，右上角为“跛脚学霸”。</p>
+                <div class="chart-container" id="holistic-scatter-chart" style="height: 350px;"></div>
+            </div>
         </div>
 
         <div class="main-card-wrapper" id="holistic-results-wrapper" style="display: none;">
@@ -3197,6 +4135,233 @@ function renderHolisticBalance(container, activeData, stats) {
             `;
         });
     }
+    setTimeout(() => {
+        renderHolisticShortestPlankChart('holistic-shortest-plank-chart', activeData);
+        renderHolisticScatterChart('holistic-scatter-chart', activeData, stats);
+    }, 100);
+}
+
+
+/**
+ * [新增] 模块六：最短板科目归因图 (交互升级版)
+ */
+function renderHolisticShortestPlankChart(elementId, students) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 1. 准备数据容器：{ '语文': {count:0, students:[]}, ... }
+    const plankMap = {};
+    G_DynamicSubjectList.forEach(sub => {
+        plankMap[sub] = { count: 0, students: [] };
+    });
+
+    // 2. 遍历学生，找出每个人的“最短板”
+    students.forEach(s => {
+        let minRate = 2.0; // 得分率不可能超过 1.0
+        let worstSub = null;
+
+        G_DynamicSubjectList.forEach(sub => {
+            const score = s.scores[sub];
+            const config = G_SubjectConfigs[sub];
+            const full = config ? config.full : 100;
+            
+            if (typeof score === 'number' && full > 0) {
+                const rate = score / full;
+                if (rate < minRate) {
+                    minRate = rate;
+                    worstSub = sub;
+                }
+            }
+        });
+
+        // 归类
+        if (worstSub && plankMap[worstSub]) {
+            plankMap[worstSub].count++;
+            plankMap[worstSub].students.push(s);
+        }
+    });
+
+    // 3. 转换为图表数据并排序 (降序)
+    const data = Object.keys(plankMap)
+        .map(sub => ({ 
+            name: sub, 
+            value: plankMap[sub].count,
+            studentList: plankMap[sub].students // 将名单藏在数据项里
+        }))
+        .sort((a, b) => b.value - a.value);
+
+    // 4. 配置项
+    const option = {
+        tooltip: { 
+            trigger: 'item', 
+            formatter: (params) => {
+                return `${params.marker} <strong>${params.name}</strong><br/>` +
+                       `人数：${params.value} 人<br/>` +
+                       `<span style="font-size:0.8em;color:#aaa;">(点击查看名单)</span>`;
+            }
+        },
+        grid: { left: '3%', right: '4%', bottom: '10%', top: '10%', containLabel: true },
+        xAxis: { 
+            type: 'category', 
+            data: data.map(d => d.name),
+            axisLabel: { rotate: 30, interval: 0 }
+        },
+        yAxis: { type: 'value', name: '人数' },
+        series: [{
+            name: '短板人数',
+            type: 'bar',
+            data: data, // 这里传入包含 studentList 的对象数组，ECharts 会自动取 value 绘图
+            itemStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    { offset: 0, color: '#ff9f43' },
+                    { offset: 1, color: '#ee5253' }
+                ]),
+                borderRadius: [4, 4, 0, 0]
+            },
+            label: { show: true, position: 'top' },
+            cursor: 'pointer' // 鼠标变手型
+        }]
+    };
+    myChart.setOption(option);
+
+    // 5. 绑定点击事件 (调用通用弹窗)
+    myChart.off('click'); // 防止重复绑定
+    myChart.on('click', function(params) {
+        // 从 data 中取出藏好的 studentList
+        const targetStudents = params.data.studentList;
+        const subjectName = params.name;
+
+        if (targetStudents && targetStudents.length > 0) {
+            // 调用系统现有的下钻弹窗函数
+            // 标题：以“语文”为短板的学生名单
+            showDrillDownModal(
+                `以“${subjectName}”为最短板的学生名单`, 
+                targetStudents, 
+                subjectName // 传入科目，以便弹窗表格显示该科分数
+            );
+        }
+    });
+}
+
+/**
+ * [新增] 模块六：综合实力 vs 均衡度 散点图
+ * X轴: 总分, Y轴: 偏科系数 (各科得分率的标准差)
+ */
+function renderHolisticScatterChart(elementId, students, totalStats) {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    // 辅助：计算标准差
+    const calcStdDev = (arr) => {
+        if (arr.length === 0) return 0;
+        const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+        const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
+        return Math.sqrt(variance);
+    };
+
+    // 1. 准备散点数据
+    const scatterData = [];
+    let maxStdDev = 0;
+
+    students.forEach(s => {
+        if (typeof s.totalScore !== 'number') return;
+
+        // 收集该生所有科目的“得分率”
+        const rates = [];
+        G_DynamicSubjectList.forEach(sub => {
+            const score = s.scores[sub];
+            const config = G_SubjectConfigs[sub];
+            if (typeof score === 'number' && config && config.full > 0) {
+                rates.push(score / config.full); // 0.0 - 1.0
+            }
+        });
+
+        if (rates.length > 0) {
+            const dev = calcStdDev(rates); // 偏科系数
+            if (dev > maxStdDev) maxStdDev = dev;
+            
+            // 数据格式: [总分, 偏科系数, 姓名, 班级]
+            scatterData.push([s.totalScore, parseFloat(dev.toFixed(3)), s.name, s.class]);
+        }
+    });
+
+    // 2. 计算辅助线 (年级平均)
+    const avgTotal = totalStats.totalScore ? totalStats.totalScore.average : 0;
+    const avgDev = maxStdDev * 0.4; // 估算一个合理的偏科警戒线，或者取平均值
+
+    const option = {
+        tooltip: {
+            formatter: (p) => {
+                const d = p.data;
+                return `<strong>${d[2]}</strong> (${d[3]})<br/>` +
+                       `总分: ${d[0]}<br/>` +
+                       `偏科度: ${d[1]} (越低越好)`;
+            }
+        },
+        grid: { left: '10%', right: '10%', top: '10%', bottom: '10%' },
+        xAxis: {
+            type: 'value',
+            name: '总分 (实力)',
+            nameLocation: 'middle',
+            nameGap: 20,
+            scale: true, // 不从0开始
+            splitLine: { show: false }
+        },
+        yAxis: {
+            type: 'value',
+            name: '偏科度 (不均衡)',
+            nameLocation: 'middle',
+            nameGap: 30,
+            splitLine: { show: false }
+        },
+        series: [
+            {
+                type: 'scatter',
+                data: scatterData,
+                symbolSize: 8,
+                itemStyle: {
+                    color: (p) => {
+                        const score = p.data[0];
+                        const dev = p.data[1];
+                        // 简单着色逻辑
+                        if (score >= avgTotal && dev <= avgDev) return '#28a745'; // 右下 (优+稳) - 绿
+                        if (score >= avgTotal && dev > avgDev) return '#ff9f43';  // 右上 (优+偏) - 橙
+                        if (score < avgTotal && dev > avgDev) return '#ee5253';   // 左上 (差+偏) - 红
+                        return '#54a0ff'; // 左下 (差+稳) - 蓝
+                    },
+                    opacity: 0.7
+                },
+                markLine: {
+                    silent: true,
+                    symbol: 'none',
+                    lineStyle: { type: 'dashed', color: '#999' },
+                    data: [
+                        { xAxis: avgTotal, name: '平均总分' },
+                        { yAxis: avgDev, name: '平均均衡度' }
+                    ],
+                    label: { formatter: '{b}' }
+                },
+                markArea: {
+                    silent: true,
+                    itemStyle: { opacity: 0.05 },
+                    data: [
+                        // 右下角 (六边形战士区域) - 绿色高亮
+                        [
+                            { xAxis: avgTotal, yAxis: 0 },
+                            { xAxis: 10000, yAxis: avgDev, itemStyle: { color: '#28a745' } } // 10000是足够大的数
+                        ]
+                    ]
+                }
+            }
+        ]
+    };
+    myChart.setOption(option);
 }
 
 /**
@@ -7369,8 +8534,6 @@ function initializeStudentSearch(multiExamData) {
 
 /**
  *   11.6. (核心) 绘制多次考试的图表和表格
- *      强版        ：批量打印同班同学功能 (每人一页)
- * 修复：删除了未定义的 validClassRank 报错代码
  */
 function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCheckboxes = false) {
 
@@ -7750,8 +8913,9 @@ function renderItemAnalysis(container) {
             
             
             <h3 style="margin-top: 30px;">📊 各大题 (文字/字母) 分析</h3>
-            <div class="main-card-wrapper" style="gap: 20px; margin-bottom: 20px;">
-                <div class="controls-bar chart-controls" style="padding: 0; border: none;">
+            
+            <div class="main-card-wrapper" style="margin-bottom: 20px;">
+                <div class="controls-bar chart-controls" style="padding: 0; border: none; margin-bottom: 10px;">
                     <label for="item-major-metric-select">选择指标:</label>
                     <select id="item-major-metric-select" class="sidebar-select" style="width: auto;">
                         <option value="difficulty">难度 (得分率)</option>
@@ -7759,6 +8923,13 @@ function renderItemAnalysis(container) {
                     </select>
                 </div>
                 <div class="chart-container" id="item-chart-major" style="height: 400px;"></div>
+            </div>
+            <h3 style="margin-top: 30px;">📉 各大题得分率分层对比 (趋势图)</h3>
+            <div class="main-card-wrapper" style="margin-bottom: 20px;">
+                <p style="color: var(--text-muted); font-size: 0.9em; text-align:center; margin-top: 0;">
+                    柱状图为全体得分率，折线图为各分层学生得分率 (G1为最高分层)。
+                </p>
+                <div class="chart-container" id="item-chart-layered-major" style="height: 450px;"></div>
             </div>
 
             <h3 style="margin-top: 30px;">🔬 各小题 (数字) 分析</h3>
@@ -8003,6 +9174,7 @@ function renderItemAnalysis(container) {
     layerGroupSelect.addEventListener('change', () => {
         // 只重绘依赖分层的图表
         drawItemAnalysisLayeredChart();
+        drawItemAnalysisLayeredMajorChart();
         drawItemAnalysisKnowledgeChart();
         drawItemAnalysisOutlierTable();
     });
@@ -8236,6 +9408,125 @@ function renderItemAnalysis(container) {
 
     // 4. 初始化时渲染列表
     renderLibraryList();
+}
+
+
+/**
+ * [新增] 13.22. 绘制“各大题”得分率分层对比图
+ * 逻辑与小题分层图类似，但针对 Major Questions
+ */
+function drawItemAnalysisLayeredMajorChart() {
+    const chartDom = document.getElementById('item-chart-layered-major');
+    if (!chartDom) return;
+
+    if (echartsInstances['item-chart-layered-major']) {
+        echartsInstances['item-chart-layered-major'].dispose();
+    }
+    echartsInstances['item-chart-layered-major'] = echarts.init(chartDom);
+
+    // 1. 获取参数
+    const subjectName = document.getElementById('item-subject-select').value;
+    const selectedClass = document.getElementById('item-class-filter').value;
+    const numGroups = parseInt(document.getElementById('item-layer-groups').value);
+
+    // 2. 获取数据源
+    const rawData = G_ItemAnalysisData[subjectName];
+    if (!rawData || !rawData.majorQuestions || rawData.majorQuestions.length === 0) {
+        chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">本科目无“大题”数据。</p>`;
+        return;
+    }
+
+    const allStudents = rawData.students || [];
+    const filteredStudents = (selectedClass === 'ALL')
+        ? allStudents
+        : allStudents.filter(s => s.class === selectedClass);
+
+    // 3. 获取大题列表 (X轴)
+    const qNames = rawData.majorQuestions; // 例如 ["作文", "听力", "翻译"]
+
+    // 4. 计算分层数据
+    // 复用 calculateLayeredItemStats 函数，它已经计算了 groupStats (包含了大题数据)
+    const { groupStats } = calculateLayeredItemStats(subjectName, numGroups, filteredStudents);
+
+    // 5. 获取全体平均得分率 (用于柱状图背景)
+    const recalculatedStats = getRecalculatedItemStats(subjectName);
+    const overallDifficulty = qNames.map(qName => {
+        return recalculatedStats.majorStats[qName]?.difficulty || 0;
+    });
+
+    // 6. 准备 Series
+    const series = [];
+    const legendData = [];
+
+    // (背景柱状图：全体平均)
+    series.push({
+        name: '全体得分率',
+        type: 'bar',
+        data: overallDifficulty,
+        barWidth: '50%',
+        itemStyle: { opacity: 0.3, color: '#909399' },
+        barGap: '-100%', // 让柱子作为背景
+        z: 1,
+        animation: false
+    });
+    legendData.push('全体得分率');
+
+    // (折线图：各层级)
+    const lineColors = [
+        '#007bff', '#28a745', '#17a2b8', '#ffc107', '#fd7e14',
+        '#6f42c1', '#dc3545', '#e83e8c', '#6c757d', '#343a40'
+    ];
+
+    Object.keys(groupStats).sort().forEach((groupName, index) => {
+        legendData.push(groupName);
+        series.push({
+            name: groupName,
+            type: 'line',
+            smooth: 0.3, // 平滑曲线
+            symbol: 'circle',
+            symbolSize: 6,
+            // 从 groupStats 中提取对应大题的数据
+            data: qNames.map(qName => groupStats[groupName][qName] || 0),
+            color: lineColors[index % lineColors.length],
+            z: 10
+        });
+    });
+
+    // 7. ECharts 配置
+    const option = {
+        tooltip: { 
+            trigger: 'axis', 
+            axisPointer: { type: 'shadow' },
+            formatter: (params) => {
+                let html = `<strong>${params[0].name}</strong><br/>`;
+                params.forEach(p => {
+                    const val = (p.value * 100).toFixed(1) + '%';
+                    html += `${p.marker} ${p.seriesName}: <strong>${val}</strong><br/>`;
+                });
+                return html;
+            }
+        },
+        legend: { data: legendData, top: 0, type: 'scroll' },
+        grid: { left: '3%', right: '4%', bottom: '10%', top: 40, containLabel: true },
+        xAxis: {
+            type: 'category',
+            data: qNames,
+            axisLabel: { 
+                interval: 0, 
+                rotate: qNames.length > 5 ? 30 : 0 // 如果题目多则倾斜
+            }
+        },
+        yAxis: { 
+            type: 'value', 
+            name: '得分率', 
+            min: 0, 
+            max: 1,
+            axisLabel: { formatter: (value) => (value * 100).toFixed(0) + '%' }
+        },
+        series: series
+    };
+
+    echartsInstances['item-chart-layered-major'].setOption(option, { notMerge: true });
 }
 
 // ==========================================
@@ -8660,6 +9951,7 @@ function renderItemAnalysisCharts() {
         drawItemAnalysisChart('major');
         drawItemAnalysisChart('minor');
         drawItemAnalysisLayeredChart();
+        drawItemAnalysisLayeredMajorChart();
         drawItemAnalysisKnowledgeChart();
         drawItemAnalysisOutlierTable();
         drawItemScatterQuadrantChart(); //    NEW   
@@ -16665,6 +17957,1252 @@ async function printWorkbook(dataList, subjectName) {
     const win = window.open('', '_blank');
     win.document.write(html);
     win.document.close();
+}
+
+// =====================================================================
+//    NEW    模块二十四：荣誉榜 & 喜报生成器 (Honor Wall)
+// =====================================================================
+
+/**
+ * [旗舰完整版] 24.1 渲染主界面
+ * 集成双模式：
+ * Tab 1: 快捷喜报 (自动挖掘 + 长图生成)
+ * Tab 2: 专业奖状 (自定义排版 + 高清打印)
+ */
+function renderHonorWall(container) {
+    // --- [Tab 1 数据准备] ---
+    const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
+    const classOptions = classes.map(c => `<option value="${c}">${c}</option>`).join('');
+    
+    // 获取默认文件名用于标题占位
+    let defaultName = localStorage.getItem('G_MainFileName') || "本次考试";
+    defaultName = defaultName.replace(/\.(xlsx|xls|csv)/i, '');
+
+    // --- [渲染 HTML 结构] ---
+    container.innerHTML = `
+        <h2>🏆 模块二十四：荣誉中心</h2>
+        
+        <div class="tab-header" style="display:flex; border-bottom:2px solid #ddd; margin-bottom:20px;">
+            <div class="tab-item active" data-tab="quick-poster" style="padding:10px 20px; cursor:pointer; font-weight:bold; color:#d35400; border-bottom:3px solid #d35400;">🚀 快捷喜报生成</div>
+            <div class="tab-item" data-tab="custom-cert" style="padding:10px 20px; cursor:pointer; color:#666;">🎨 专业奖状定制</div>
+        </div>
+
+        <div id="tab-content-quick-poster" class="tab-content">
+            
+            <div class="main-card-wrapper" style="border-left: 5px solid #6f42c1; background: #f8f9fa; margin-bottom: 20px;">
+                <h4 style="margin:0 0 15px 0; color:#6f42c1;">⚙️ 喜报外观配置</h4>
+                <div style="display:flex; gap:30px; align-items:flex-start; flex-wrap:wrap;">
+                    
+                    <div style="flex:1; min-width:250px;">
+                        <label style="font-weight:bold; display:block; margin-bottom:8px; color:#555;">1. 顶部小标题 (自定义考试名):</label>
+                        <input type="text" id="honor-custom-title" class="sidebar-select" style="width:100%;" placeholder="默认显示：${defaultName}" value="${localStorage.getItem('G_Honor_CustomTitle') || ''}">
+                        <p style="font-size:0.8em; color:#999; margin-top:5px;">* 修改后将永久保存，直到下次修改。</p>
+                    </div>
+                    
+                    <div style="flex:1; min-width:250px;">
+                        <label style="font-weight:bold; display:block; margin-bottom:8px; color:#555;">2. 学校/班级 Logo:</label>
+                        <div style="display:flex; align-items:center; gap:15px;">
+                            <div id="honor-logo-preview-box" style="width:60px; height:60px; border:2px dashed #ccc; border-radius:8px; display:flex; justify-content:center; align-items:center; background:white; overflow:hidden;">
+                                <span style="font-size:0.8em; color:#ccc;">无</span>
+                            </div>
+                            
+                            <div style="display:flex; flex-direction:column; gap:5px;">
+                                <label for="honor-logo-upload" class="sidebar-button" style="background-color:#fff; color:#333; border:1px solid #ccc; cursor:pointer; font-size:0.9em; text-align:center;">
+                                    📤 上传图片
+                                </label>
+                                <input type="file" id="honor-logo-upload" accept="image/*" style="display:none;">
+                                
+                                <button id="btn-clear-logo" class="sidebar-button" style="background-color:#dc3545; font-size:0.8em; padding:4px 10px; display:none;">🗑️ 删除</button>
+                            </div>
+                        </div>
+                        <p style="font-size:0.8em; color:#999; margin-top:5px;">* 图片将保存在浏览器中，下次无需重新上传。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-card-wrapper" style="border-left: 5px solid #ffc107; background: #fffdf5;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap: 15px;">
+                    <div>
+                        <h4 style="margin:0; color:#d35400;">🌟 荣誉挖掘机</h4>
+                        <p style="font-size:0.8em; color:#888; margin:5px 0 0 0;">基于【本次成绩】与【对比成绩】自动计算。</p>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <label style="font-weight:bold; color:#555;">统计范围:</label>
+                        <select id="honor-class-filter" class="sidebar-select" style="width:auto; min-width:120px; font-weight:bold; border-color:#ffc107;">
+                            <option value="ALL">🏫 全体年段</option>
+                            ${classOptions}
+                        </select>
+                        <button id="btn-honor-refresh" class="sidebar-button" style="background-color:#ffc107; color:#333;">🔄 刷新数据</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="honor-display-area" style="margin-top:20px;"></div>
+
+            <div id="poster-modal" class="modal-overlay" style="display: none;">
+                <div class="modal-content" style="max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; background: #f5f5f5; padding: 0;">
+                    <div class="modal-header" style="padding: 15px; flex-shrink: 0;">
+                        <h3>🖼️ 喜报预览</h3>
+                        <span onclick="document.getElementById('poster-modal').style.display='none'" class="modal-close-btn">&times;</span>
+                    </div>
+                    <div class="modal-body" style="padding: 0; flex-grow: 1; overflow-y: auto; display: flex; justify-content: center; background: #333;">
+                        <div id="poster-canvas-container" style="margin: 20px 0;"></div>
+                    </div>
+                    <div class="modal-footer" style="justify-content: center; gap: 15px; flex-shrink: 0; padding: 15px;">
+                        <p style="font-size:0.85em; color:#666; width:100%; margin-bottom:10px; text-align:center;">(长按上方图片或点击下载按钮保存)</p>
+                        <button id="btn-download-poster" class="sidebar-button" style="background-color: #d35400;">📥 下载图片</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-content-custom-cert" class="tab-content" style="display:none;">
+            <div id="cert-creator-container"></div>
+        </div>
+    `;
+
+    // ==============================================
+    // 1. Tab 切换逻辑
+    // ==============================================
+    const tabs = container.querySelectorAll('.tab-item');
+    const contents = container.querySelectorAll('.tab-content');
+    tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            tabs.forEach(t => { t.classList.remove('active'); t.style.color='#666'; t.style.borderBottom='none'; });
+            contents.forEach(c => c.style.display = 'none');
+            
+            tab.classList.add('active');
+            tab.style.color='#d35400';
+            tab.style.borderBottom='3px solid #d35400';
+            container.querySelector(`#tab-content-${tab.dataset.tab}`).style.display = 'block';
+        });
+    });
+
+    // ==============================================
+    // 2. Tab 1 (快捷喜报) 事件绑定
+    // ==============================================
+    
+    // A. 标题输入保存
+    const titleInput = document.getElementById('honor-custom-title');
+    if (titleInput) {
+        titleInput.addEventListener('input', (e) => {
+            localStorage.setItem('G_Honor_CustomTitle', e.target.value);
+        });
+    }
+
+    // B. Logo 处理逻辑
+    const logoInput = document.getElementById('honor-logo-upload');
+    const logoPreviewBox = document.getElementById('honor-logo-preview-box');
+    const clearLogoBtn = document.getElementById('btn-clear-logo');
+
+    const updateLogoPreview = async () => {
+        const base64 = await localforage.getItem('G_School_Logo');
+        if (base64 && logoPreviewBox) {
+            logoPreviewBox.innerHTML = `<img src="${base64}" style="width:100%; height:100%; object-fit:contain;">`;
+            if(clearLogoBtn) clearLogoBtn.style.display = 'inline-block';
+        } else if (logoPreviewBox) {
+            logoPreviewBox.innerHTML = `<span style="font-size:0.8em; color:#ccc;">无</span>`;
+            if(clearLogoBtn) clearLogoBtn.style.display = 'none';
+        }
+    };
+    updateLogoPreview(); // 初始加载
+
+    if (logoInput) {
+        logoInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                await localforage.setItem('G_School_Logo', event.target.result);
+                updateLogoPreview();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    if (clearLogoBtn) {
+        clearLogoBtn.addEventListener('click', async () => {
+            await localforage.removeItem('G_School_Logo');
+            if(logoInput) logoInput.value = '';
+            updateLogoPreview();
+        });
+    }
+
+    // C. 刷新与筛选
+    const refreshBtn = document.getElementById('btn-honor-refresh');
+    const filterSelect = document.getElementById('honor-class-filter');
+    
+    if (refreshBtn) refreshBtn.onclick = () => calculateAndRenderHonors();
+    if (filterSelect) filterSelect.addEventListener('change', () => calculateAndRenderHonors());
+
+    // 初始加载 Tab 1 数据
+    calculateAndRenderHonors();
+
+    // ==============================================
+    // 3. Tab 2 (专业奖状) 初始化
+    // ==============================================
+    const certContainer = document.getElementById('cert-creator-container');
+    if (certContainer) {
+        renderCertificateCreator(certContainer);
+    }
+}
+
+/**
+ * [旗舰版] 24.2 计算荣誉名单 (支持班级/年级双维度进步榜)
+ */
+function calculateAndRenderHonors() {
+    const container = document.getElementById('honor-display-area');
+    const filterVal = document.getElementById('honor-class-filter').value;
+
+    // 1. 获取数据上下文
+    let activeData = G_StudentsData;
+    let compareData = G_CompareData;
+
+    if (filterVal !== 'ALL') {
+        activeData = G_StudentsData.filter(s => s.class === filterVal);
+        if (G_CompareData) {
+            compareData = G_CompareData.filter(s => s.class === filterVal);
+        }
+    }
+
+    if (!activeData || activeData.length === 0) {
+        container.innerHTML = `<p style="text-align:center; padding:20px; color:#999;">该范围内暂无数据。</p>`;
+        return;
+    }
+
+    // 获取动态考试名称
+    let examName = localStorage.getItem('G_Honor_CustomTitle');
+    if (!examName) {
+        examName = localStorage.getItem('G_MainFileName') || "本次考试";
+        examName = examName.replace(/\.(xlsx|xls|csv)/i, '');
+    }
+
+    // --- 计算逻辑 ---
+    
+    // 1. 🏆 巅峰领跑者 (总分 Top 5)
+    const topTotal = [...activeData].sort((a, b) => b.totalScore - a.totalScore).slice(0, 5);
+
+    // 2. 🥇 单科状元 (各科 Top 1)
+    const subjectKings = [];
+    G_DynamicSubjectList.forEach(sub => {
+        let maxScore = -Infinity;
+        activeData.forEach(s => { if (s.scores[sub] > maxScore) maxScore = s.scores[sub]; });
+        if (maxScore > 0) {
+            const kings = activeData.filter(s => s.scores[sub] === maxScore);
+            subjectKings.push({ subject: sub, score: maxScore, students: kings });
+        }
+    });
+
+    // 3. 🔥🔥 [拆分] 进步之星 🔥🔥
+    let gradeProgressStars = [];
+    let classProgressStars = [];
+    
+    if (compareData && compareData.length > 0) {
+        // A. 年级进步榜 (对比 gradeRank)
+        gradeProgressStars = activeData.map(s => {
+            const old = compareData.find(o => String(o.id) === String(s.id));
+            if (!old || !old.gradeRank || !s.gradeRank) return null;
+            return { ...s, diff: old.gradeRank - s.gradeRank };
+        }).filter(s => s && s.diff > 0).sort((a, b) => b.diff - a.diff).slice(0, 5);
+
+        // B. 班级进步榜 (对比 rank)
+        classProgressStars = activeData.map(s => {
+            const old = compareData.find(o => String(o.id) === String(s.id));
+            if (!old || !old.rank || !s.rank) return null;
+            return { ...s, diff: old.rank - s.rank };
+        }).filter(s => s && s.diff > 0).sort((a, b) => b.diff - a.diff).slice(0, 5);
+    }
+
+    // 4. ⚖️ 全能战士 (均衡度 Top 5)
+    const top30PercentCount = Math.ceil(activeData.length * 0.3);
+    const highScorers = [...activeData].sort((a, b) => b.totalScore - a.totalScore).slice(0, top30PercentCount);
+    const balancedStars = highScorers.map(s => {
+        const rates = [];
+        G_DynamicSubjectList.forEach(sub => {
+            const config = G_SubjectConfigs[sub];
+            if (config && config.full > 0 && typeof s.scores[sub] === 'number') {
+                rates.push(s.scores[sub] / config.full);
+            }
+        });
+        if (rates.length < 3) return null;
+        const mean = rates.reduce((a, b) => a + b) / rates.length;
+        const variance = rates.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / rates.length;
+        return { ...s, balanceScore: variance };
+    }).filter(s => s !== null).sort((a, b) => a.balanceScore - b.balanceScore).slice(0, 5);
+
+
+    // --- 渲染 HTML ---
+    let html = ``;
+    const createCard = (title, icon, color, contentHtml, type) => `
+        <div class="main-card-wrapper" style="border-top: 4px solid ${color}; padding-top:15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h4 style="margin:0; color:${color}; font-size:1.1em;">${icon} ${title}</h4>
+                <button class="sidebar-button" style="background-color:${color}; font-size:0.85em; padding:4px 10px;" 
+                    onclick="generatePoster('${type}', '${title.split(' ')[0]}')">
+                    🖼️ 生成喜报
+                </button>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:10px;">
+                ${contentHtml || '<span style="color:#999; font-size:0.9em;">(暂无数据)</span>'}
+            </div>
+        </div>
+    `;
+
+    // 1. 总分榜
+    const topContent = topTotal.map((s, i) => 
+        `<div class="honor-badge" style="background:#fff8e1; border:1px solid #ffe082; color:#bf360c;">
+            <span style="font-weight:bold;">Top${i+1} ${s.name}</span> <span style="font-size:0.8em;">(${s.totalScore})</span>
+        </div>`
+    ).join('');
+    html += createCard('巅峰领跑榜 (Top5)', '🏆', '#f39c12', topContent, 'total');
+
+    // 2. 单科状元
+    const kingContent = subjectKings.map(k => 
+        `<div class="honor-badge" style="background:#e3f2fd; border:1px solid #90caf9; color:#0d47a1;">
+            <span style="font-weight:bold;">${k.subject}：${k.students[0].name}${k.students.length>1?'等':''}</span> <span style="font-size:0.8em;">(${k.score})</span>
+        </div>`
+    ).join('');
+    html += createCard('单科状元榜', '🥇', '#3498db', kingContent, 'subject');
+
+    // 3. 🔥 [拆分] 渲染两个进步榜 🔥
+    
+    // A. 年级进步 (绿色)
+    if (gradeProgressStars.length > 0) {
+        const gradeContent = gradeProgressStars.map(s => 
+            `<div class="honor-badge" style="background:#e8f5e9; border:1px solid #a5d6a7; color:#1b5e20;">
+                <span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(年排 ⬆️${s.diff})</span>
+            </div>`
+        ).join('');
+        // type 传入 'progress_grade'
+        html += createCard('年级进步之星', '🚀', '#2ecc71', gradeContent, 'progress_grade');
+    }
+
+    // B. 班级进步 (青色/蓝色)
+    if (classProgressStars.length > 0) {
+        const classContent = classProgressStars.map(s => 
+            `<div class="honor-badge" style="background:#e0f7fa; border:1px solid #80deea; color:#006064;">
+                <span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(班排 ⬆️${s.diff})</span>
+            </div>`
+        ).join('');
+        // type 传入 'progress_class'
+        html += createCard('班级进步之星', '📈', '#17a2b8', classContent, 'progress_class');
+    }
+
+    // 4. 均衡榜
+    const balContent = balancedStars.map(s => 
+        `<div class="honor-badge" style="background:#f3e5f5; border:1px solid #ce93d8; color:#4a148c;">
+            <span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(${s.totalScore})</span>
+        </div>`
+    ).join('');
+    html += createCard('全能战士榜 (均衡)', '⚖️', '#9b59b6', balContent, 'balance');
+
+    container.innerHTML = html + `<style>.honor-badge { padding: 6px 10px; border-radius: 4px; display:flex; align-items:center; gap:5px; font-size:0.9em; }</style>`;
+
+    // --- 更新数据联动 (全暴露给奖状生成器) ---
+    window.G_Honor_List = [];
+    
+    // ... (原有 push 逻辑) ...
+    topTotal.forEach((s, i) => window.G_Honor_List.push({ name: s.name, title: "巅峰领跑奖", desc: `在${examName}中以总分 ${s.totalScore} 分荣获年级第 ${i+1} 名。<br>特被评为：<span class="cert-highlight">巅峰领跑者</span>` }));
+    subjectKings.forEach(k => k.students.forEach(s => window.G_Honor_List.push({ name: s.name, title: `${k.subject}单科状元`, desc: `在${examName}中${k.subject}学科取得 ${k.score} 分的优异成绩。<br>特被评为：<span class="cert-highlight">${k.subject}单科状元</span>` })));
+    
+    // 🔥 拆分注入数据
+    gradeProgressStars.forEach(s => {
+        window.G_Honor_List.push({ 
+            name: s.name, 
+            title: "年级进步之星", 
+            desc: `在${examName}中年级排名显著提升 ${s.diff} 名，勤奋刻苦。<br>特被评为：<span class="cert-highlight">年级进步之星</span>` 
+        });
+    });
+    classProgressStars.forEach(s => {
+        window.G_Honor_List.push({ 
+            name: s.name, 
+            title: "班级进步之星", 
+            desc: `在${examName}中班级排名显著提升 ${s.diff} 名，超越自我。<br>特被评为：<span class="cert-highlight">班级进步之星</span>` 
+        });
+    });
+
+    balancedStars.forEach(s => window.G_Honor_List.push({ name: s.name, title: "全能战士奖", desc: `在${examName}中各科发展均衡，基础扎实。<br>特被评为：<span class="cert-highlight">全能战士</span>` }));
+
+    if (typeof updateCertImportSelect === 'function') updateCertImportSelect();
+}
+
+/**
+ * [旗舰版] 24.3 生成喜报图片 (支持 Logo + 自定义标题 + 长图)
+ */
+window.generatePoster = async function(type, titleStr) {
+    const modal = document.getElementById('poster-modal');
+    const container = document.getElementById('poster-canvas-container');
+    const downloadBtn = document.getElementById('btn-download-poster');
+    
+    // 1. 获取数据上下文
+    const filterVal = document.getElementById('honor-class-filter').value;
+    let scopeText = filterVal === 'ALL' ? "全体年段" : filterVal;
+    
+    let activeData = G_StudentsData;
+    let compareData = G_CompareData;
+    if (filterVal !== 'ALL') {
+        activeData = G_StudentsData.filter(s => s.class === filterVal);
+        if (G_CompareData) compareData = G_CompareData.filter(s => s.class === filterVal);
+    }
+
+    if (activeData.length === 0) { alert("当前范围内无数据，无法生成。"); return; }
+
+    container.innerHTML = '<div style="padding:40px; color:white;">⏳ 正在绘制高清喜报...</div>';
+    modal.style.display = 'flex';
+    downloadBtn.style.display = 'none';
+
+    // 2. 获取配置 (标题 & Logo)
+    let customTitle = document.getElementById('honor-custom-title').value.trim();
+    let examName = customTitle;
+    
+    if (!examName) {
+        // 回退到默认文件名
+        examName = localStorage.getItem('G_MainFileName') || "本次考试";
+        examName = examName.replace(/\.(xlsx|xls|csv)/i, '');
+    }
+
+    // 异步获取 Logo
+    const logoBase64 = await localforage.getItem('G_School_Logo');
+    let logoHtml = '';
+    if (logoBase64) {
+        logoHtml = `<img src="${logoBase64}" style="height:60px; max-width:80%; object-fit:contain; margin-bottom:10px; border-radius:4px; background:rgba(255,255,255,0.9); padding:4px; box-shadow:0 2px 5px rgba(0,0,0,0.1);">`;
+    }
+
+    // 3. 准备列表内容
+    let listHtml = "";
+    let mainColor = "#d35400";
+    let subTitle = `范围：${scopeText}`;
+
+    // --- 数据逻辑 (保持不变) ---
+    if (type === 'total') {
+        mainColor = "#c0392b"; titleStr = "巅峰领跑榜";
+        const data = [...activeData].sort((a, b) => b.totalScore - a.totalScore).slice(0, 15);
+        listHtml = data.map((s, i) => 
+            `<div class="poster-row">
+                <span class="poster-rank" style="background:${i<3?'#f1c40f':'#eee'}; color:${i<3?'#fff':'#666'}">${i+1}</span>
+                <span class="poster-name">${s.name}</span>
+                <span class="poster-score">${s.totalScore}分</span>
+            </div>`
+        ).join('');
+    } 
+else if (type === 'progress_grade') { // 年级进步
+        mainColor = "#27ae60"; 
+        titleStr = "年级进步之星";
+        
+        const data = activeData.filter(s => s.gradeRank!==undefined).map(s => {
+             const old = (compareData||[]).find(o => String(o.id) === String(s.id));
+             // 强制只算年排
+             const diff = (old && old.gradeRank) ? (old.gradeRank - s.gradeRank) : 0;
+             return { ...s, diff };
+        }).filter(s => s.diff > 0).sort((a, b) => b.diff - a.diff).slice(0, 15);
+        
+        listHtml = data.map((s, i) => 
+            `<div class="poster-row">
+                <span class="poster-rank" style="background:#e8f5e9; color:#2e7d32;">${i+1}</span>
+                <span class="poster-name">${s.name}</span>
+                <span class="poster-detail" style="color:#e74c3c;">年排 ⬆️ ${s.diff}</span>
+            </div>`
+        ).join('');
+    }
+    else if (type === 'progress_class') { // 班级进步
+        mainColor = "#17a2b8"; 
+        titleStr = "班级进步之星";
+        
+        const data = activeData.filter(s => s.rank!==undefined).map(s => {
+             const old = (compareData||[]).find(o => String(o.id) === String(s.id));
+             // 强制只算班排
+             const diff = (old && old.rank) ? (old.rank - s.rank) : 0;
+             return { ...s, diff };
+        }).filter(s => s.diff > 0).sort((a, b) => b.diff - a.diff).slice(0, 15);
+        
+        listHtml = data.map((s, i) => 
+            `<div class="poster-row">
+                <span class="poster-rank" style="background:#e0f7fa; color:#006064;">${i+1}</span>
+                <span class="poster-name">${s.name}</span>
+                <span class="poster-detail" style="color:#0097a7;">班排 ⬆️ ${s.diff}</span>
+            </div>`
+        ).join('');
+    }
+    else if (type === 'balance') {
+        mainColor = "#8e44ad"; titleStr = "全能战士榜";
+        const top30 = Math.ceil(activeData.length * 0.3);
+        const pool = [...activeData].sort((a,b)=>b.totalScore-a.totalScore).slice(0, top30);
+        const data = pool.map(s => {
+             let arr = [];
+             G_DynamicSubjectList.forEach(sub=> { 
+                 const cfg = G_SubjectConfigs[sub];
+                 if(typeof s.scores[sub]=='number' && cfg && cfg.full) arr.push(s.scores[sub]/cfg.full); 
+             });
+             if(arr.length===0) return {...s, v:999};
+             const mean = arr.reduce((a,b)=>a+b,0)/arr.length;
+             const v = arr.reduce((a,b)=>a+Math.pow(b-mean,2),0)/arr.length;
+             return {...s, v};
+        }).sort((a,b)=>a.v - b.v).slice(0, 10);
+        listHtml = data.map(s => 
+            `<div class="poster-row">
+                <span class="poster-icon">⚖️</span>
+                <span class="poster-name">${s.name}</span>
+                <span class="poster-detail">总分 ${s.totalScore}</span>
+            </div>`
+        ).join('');
+    }
+    else if (type === 'subject') {
+        mainColor = "#2980b9"; titleStr = "单科状元榜";
+        let rows = [];
+        G_DynamicSubjectList.forEach(sub => {
+            let max = -Infinity;
+            activeData.forEach(s => { if(s.scores[sub] > max) max = s.scores[sub]; });
+            if(max > 0) {
+                const kings = activeData.filter(s => s.scores[sub] === max);
+                const names = kings.map(k => k.name).join('、');
+                rows.push({ sub, names: names, score: max });
+            }
+        });
+        listHtml = rows.map(r => 
+            `<div class="poster-row">
+                <span class="poster-rank" style="background:${mainColor}; width:auto; padding:2px 8px; font-size:11px;">${r.sub}</span>
+                <div style="flex-grow:1; margin-left:10px; text-align:left;">
+                    <span class="poster-name" style="font-size:14px;">${r.names}</span>
+                </div>
+                <span class="poster-score" style="color:${mainColor}">${r.score}分</span>
+            </div>`
+        ).join('');
+    }
+
+    // 4. 构建 DOM
+    const posterDom = document.createElement('div');
+    posterDom.style.cssText = `
+        width: 375px; min-height: 600px;
+        background: linear-gradient(180deg, #fff5e6 0%, #ffffff 100%);
+        padding: 0 0 30px 0;
+        font-family: "Microsoft YaHei", sans-serif;
+        box-sizing: border-box;
+        position: absolute; top: -9999px; left: -9999px;
+        box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    `;
+
+    // 顶部背景色
+    const headerBg = `background: ${mainColor};`; 
+    
+    posterDom.innerHTML = `
+        <div style="${headerBg} padding: 25px 20px 20px 20px; text-align: center; color: white; border-radius: 0 0 20px 20px;">
+            
+            ${logoHtml}
+            
+            <div style="font-size:16px; opacity:0.95; margin-bottom:5px; font-weight:bold; line-height:1.4;">${examName}</div>
+            
+            <div style="font-size:32px; font-weight:bold; letter-spacing:2px; margin-top:5px;">${titleStr}</div>
+            <div style="margin-top:10px; font-size:14px; background:rgba(255,255,255,0.2); display:inline-block; padding:4px 12px; border-radius:15px;">
+                ${subTitle}
+            </div>
+        </div>
+        
+        <div style="padding: 20px;">
+            <div style="background:white; border-radius:12px; padding:10px; box-shadow:0 5px 15px rgba(0,0,0,0.05);">
+                ${listHtml}
+            </div>
+        </div>
+
+        <div style="text-align:center; color:#bbb; font-size:12px;">
+            - 智慧棱镜系统生成 -
+        </div>
+
+        <style>
+            .poster-row { display:flex; justify-content:space-between; align-items:center; padding:12px 10px; border-bottom:1px dashed #eee; }
+            .poster-row:last-child { border-bottom:none; }
+            .poster-rank { width:24px; height:24px; line-height:24px; text-align:center; border-radius:50%; font-size:12px; font-weight:bold; flex-shrink:0; }
+            .poster-name { font-weight:bold; font-size:15px; color:#333; margin-left:10px; flex-grow:1; text-align:left; line-height:1.4; }
+            .poster-score { font-weight:bold; color:#333; font-size:16px; }
+            .poster-detail { color:#666; font-size:13px; }
+            .poster-icon { font-size:18px; }
+        </style>
+    `;
+
+    document.body.appendChild(posterDom);
+
+    // 5. 截图
+    try {
+        await new Promise(r => setTimeout(r, 200)); // 等待图片加载
+        const canvas = await html2canvas(posterDom, {
+            scale: 2, useCORS: true, backgroundColor: null
+        });
+        
+        container.innerHTML = '';
+        canvas.style.maxWidth = '100%';
+        canvas.style.height = 'auto';
+        canvas.style.borderRadius = '8px';
+        canvas.style.display = 'block';
+        container.appendChild(canvas);
+        
+        downloadBtn.style.display = 'inline-block';
+        downloadBtn.onclick = () => {
+            const link = document.createElement('a');
+            link.download = `${titleStr}_${scopeText}_喜报.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = `<p style="color:red;">生成失败：${err.message}</p>`;
+    } finally {
+        document.body.removeChild(posterDom);
+    }
+};
+
+
+// =====================================================================
+//    NEW    专业奖状定制器核心逻辑 (Certificate Creator)
+// =====================================================================
+
+// 全局状态对象 (旗舰版+V4：支持纸张 & 压缩包)
+let G_CertState = {
+    bgImage: null,
+    sealImage: null,
+    texts: {
+        title: '荣誉证书',
+        winner: '张三 同学',
+        desc: '在本次期末考试中成绩优异，荣获“学习标兵”称号。',
+        footer: '特发此状，以资鼓励', 
+        date: '二〇二三年十一月'
+    },
+    style: {
+        fontFamily: '"KaiTi", "STKaiti", "楷体", serif', 
+        color: '#333333',
+        textAlign: 'center',
+        sizes: { title: 48, winner: 32, desc: 18, footer: 18, date: 16 }
+    },
+    // 🔥 新增：纸张设置
+    paper: {
+        size: 'A4',        // A4, A3, B5, Custom
+        orientation: 'L',  // L(Landscape横向), P(Portrait竖向)
+        width: 297,        // mm (用于计算比例)
+        height: 210        // mm
+    },
+    seal: { size: 120, x: 75, y: 75 },
+    layoutMode: 'auto', 
+    manualPos: { 
+        title: { x: 50, y: 15 }, 
+        winner: { x: 50, y: 35 }, 
+        desc: { x: 50, y: 48 }, 
+        footer: { x: 80, y: 70 }, 
+        date: { x: 80, y: 75 } 
+    }
+};
+
+/**
+ * [旗舰版+V4] 渲染奖状定制器 (含纸张设置 + ZIP打包)
+ */
+function renderCertificateCreator(container) {
+    // 1. 动态引入字体
+    if (!document.getElementById('font-cn-mirror')) {
+        const fontLink = document.createElement('link');
+        fontLink.id = 'font-cn-mirror';
+        fontLink.href = 'https://fonts.loli.net/css2?family=Ma+Shan+Zheng&family=Zhi+Mang+Xing&display=swap';
+        fontLink.rel = 'stylesheet';
+        document.head.appendChild(fontLink);
+    }
+
+    container.innerHTML = `
+        <style>
+            .cert-highlight { font-family: 'Ma Shan Zheng', cursive; font-size: 2em; color: #c0392b; margin: 0 5px; vertical-align: middle; }
+            .cert-element { position: absolute; line-height: 1.6; white-space: pre-wrap; transition: top 0.1s, left 0.1s; }
+            .font-option { font-size: 14px; }
+        </style>
+
+        <div style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
+            <div class="main-card-wrapper" style="flex: 1; min-width: 340px; background: #f8f9fa; border-left: 4px solid #2980b9;">
+                <h4 style="margin-top:0; color:#2980b9;">🛠️ 定制面板</h4>
+                
+                <div class="cert-control-group" style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+                    <label class="cert-label">0. 纸张与布局</label>
+                    <div style="display:flex; gap:10px;">
+                        <select id="cert-paper-size" class="sidebar-select" style="flex:1;">
+                            <option value="A4">A4 (210x297mm)</option>
+                            <option value="A3">A3 (297x420mm)</option>
+                            <option value="B5">B5 (176x250mm)</option>
+                            <option value="16:9">16:9 (屏幕壁纸)</option>
+                        </select>
+                        <div style="display:flex; background:#eee; border-radius:4px; padding:2px;">
+                            <button class="paper-orient-btn active" data-o="L" style="border:none; padding:5px 10px; border-radius:3px; cursor:pointer; font-size:1.2em;" title="横向">▭</button>
+                            <button class="paper-orient-btn" data-o="P" style="border:none; padding:5px 10px; border-radius:3px; cursor:pointer; font-size:1.2em;" title="竖向">▯</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cert-control-group" style="background: #e8f4f8; padding: 10px; border-radius: 4px; border: 1px solid #bce8f1;">
+                    <label class="cert-label" style="color:#0056b3;">🚀 获奖名单选择</label>
+                    
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85em;">
+                        <span style="color:#666;">请勾选要生成的学生：</span>
+                        <div>
+                            <a id="cert-sel-all" style="cursor:pointer; color:#007bff; margin-right:10px; text-decoration:underline;">全选</a>
+                            <a id="cert-sel-none" style="cursor:pointer; color:#666; text-decoration:underline;">清空</a>
+                        </div>
+                    </div>
+
+                    <div id="cert-checklist-container" style="height: 160px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;">
+                        <div style="text-align:center; color:#999; padding:20px;">-- 请先到“荣誉榜”刷新数据 --</div>
+                    </div>
+
+                    <button id="btn-batch-generate-certs" class="sidebar-button" style="width:100%; background-color:#6f42c1; font-size:0.9em;">
+                        📦 生成 ZIP 压缩包 (0)
+                    </button>
+                    
+                    <div id="cert-batch-progress-box" style="display:none; margin-top:10px;">
+                        <div style="display:flex; justify-content:space-between; font-size:0.8em; color:#555; margin-bottom:2px;">
+                            <span id="cert-batch-status-text">准备中...</span>
+                            <span id="cert-batch-percent">0%</span>
+                        </div>
+                        <div style="width:100%; height:8px; background:#ccc; border-radius:4px; overflow:hidden;">
+                            <div id="cert-batch-bar" style="width:0%; height:100%; background:#28a745; transition:width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="cert-control-group">
+                    <label class="cert-label">1. 素材上传</label>
+                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:5px;">
+                        <label class="sidebar-button upload-btn">🖼️ 背景图 <input type="file" id="cert-bg-upload" accept="image/*"></label>
+                        <button id="btn-clear-bg" class="sidebar-button" style="background:#999; padding:6px 10px; font-size:0.8em; display:none;">🗑️</button>
+                    </div>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <label class="sidebar-button upload-btn" style="background:#e74c3c;">💮 印章图 <input type="file" id="cert-seal-upload" accept="image/*"></label>
+                        <button id="btn-clear-seal" class="sidebar-button" style="background:#999; padding:6px 10px; font-size:0.8em; display:none;">🗑️</button>
+                    </div>
+                </div>
+
+                <div class="cert-control-group">
+                    <label class="cert-label">2. 文本内容</label>
+                    <input type="text" id="cert-text-title" class="cert-input" placeholder="标题" value="${G_CertState.texts.title}">
+                    <input type="text" id="cert-text-winner" class="cert-input cert-input-lg" placeholder="姓名" value="${G_CertState.texts.winner}">
+                    <textarea id="cert-text-desc" class="cert-input" rows="3" placeholder="正文描述">${G_CertState.texts.desc}</textarea>
+                    <div style="display:flex; gap:5px;">
+                        <input type="text" id="cert-text-footer" class="cert-input" placeholder="结语" value="${G_CertState.texts.footer}" style="flex:2;">
+                        <input type="text" id="cert-text-date" class="cert-input" placeholder="日期" value="${G_CertState.texts.date}" style="flex:1; text-align:right;">
+                    </div>
+                </div>
+
+                <div class="cert-control-group">
+                    <label class="cert-label">3. 字体与颜色</label>
+                    <div style="display:flex; gap:5px;">
+                        <select id="cert-style-font" class="cert-input" style="margin:0; flex:2;">
+                            <option value='"KaiTi", "STKaiti", "楷体", serif'>楷体 (系统)</option>
+                            <option value='"SimSun", "宋体", serif'>宋体 (系统)</option>
+                            <option value='"Microsoft YaHei", sans-serif'>黑体 (现代)</option>
+                            <option value="'Ma Shan Zheng', cursive">✨ 马善政毛笔</option>
+                            <option value="'Zhi Mang Xing', cursive">✨ 志莽行书</option>
+                        </select>
+                        <input type="color" id="cert-style-color" value="${G_CertState.style.color}" style="height:36px; padding:0; flex:1;">
+                        <select id="cert-style-align" class="cert-input" style="margin:0; flex:1;">
+                            <option value="center">居中</option>
+                            <option value="left">左对齐</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="cert-control-group">
+                    <label class="cert-label">4. 字号微调 (px)</label>
+                    <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:5px;">
+                        <label style="font-size:0.75em; text-align:center;">标题<input type="number" id="size-title" class="pos-input" value="${G_CertState.style.sizes.title}"></label>
+                        <label style="font-size:0.75em; text-align:center;">姓名<input type="number" id="size-winner" class="pos-input" value="${G_CertState.style.sizes.winner}"></label>
+                        <label style="font-size:0.75em; text-align:center;">正文<input type="number" id="size-desc" class="pos-input" value="${G_CertState.style.sizes.desc}"></label>
+                        <label style="font-size:0.75em; text-align:center;">结语<input type="number" id="size-footer" class="pos-input" value="${G_CertState.style.sizes.footer}"></label>
+                        <label style="font-size:0.75em; text-align:center;">日期<input type="number" id="size-date" class="pos-input" value="${G_CertState.style.sizes.date}"></label>
+                    </div>
+                </div>
+
+                <div class="cert-control-group">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                         <label class="cert-label">5. 排版与印章</label>
+                         <label style="font-size:0.85em;"><input type="checkbox" id="cert-layout-mode"> 启用手动排版(X/Y)</label>
+                    </div>
+                    <div id="cert-manual-controls" style="display:none; background:#eee; padding:10px; border-radius:4px; margin-bottom:10px;">
+                        ${['title', 'winner', 'desc', 'footer', 'date'].map(k => `
+                            <div style="display:flex; gap:5px; margin-bottom:5px; align-items:center;">
+                                <span style="width:30px; font-size:0.8em;">${k.substr(0,2)}</span>
+                                <input type="number" id="pos-x-${k}" class="pos-input" value="${G_CertState.manualPos[k].x}">
+                                <input type="number" id="pos-y-${k}" class="pos-input" value="${G_CertState.manualPos[k].y}">
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div style="margin-top:10px; background:#fff5e6; padding:8px; border-radius:4px; border:1px solid #ffe082;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <label style="font-size:0.9em; font-weight:bold; color:#d35400;">💮 印章控制</label>
+                            <span style="font-size:0.8em; color:#999;">(支持拖拽)</span>
+                        </div>
+                        <div style="display:flex; gap:10px; margin-top:5px;">
+                            <label style="font-size:0.8em;">X:<input type="number" id="seal-x" class="pos-input" value="${G_CertState.seal.x}" style="width:40px;"></label>
+                            <label style="font-size:0.8em;">Y:<input type="number" id="seal-y" class="pos-input" value="${G_CertState.seal.y}" style="width:40px;"></label>
+                            <label style="font-size:0.8em;">大:<input type="number" id="seal-size" class="pos-input" value="${G_CertState.seal.size}" style="width:40px;"></label>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="btn-generate-cert" class="sidebar-button" style="width:100%; background:#2980b9; font-size:1.1em; padding: 12px;">
+                    🖨️ 生成当前预览图 (JPG)
+                </button>
+            </div>
+
+            <div class="main-card-wrapper" style="
+                flex: 2; 
+                min-width: 400px; 
+                background: #e0e0e0; 
+                padding: 20px; 
+                display: flex; 
+                justify-content: center; 
+                align-items: center;
+                /* 🔥 核心修改：让它粘在屏幕顶部 🔥 */
+                position: sticky; 
+                top: 20px; 
+                align-self: flex-start; 
+                max-height: 95vh; /* 防止过高溢出 */
+            ">
+                <div id="cert-canvas-container" style="
+                    width: 800px; height: 565px; 
+                    background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                    position: relative; overflow: hidden;
+                    background-size: cover; background-position: center;
+                    transition: all 0.3s;
+                ">
+                    <div id="preview-text-title" class="cert-element cert-title"></div>
+                    <div id="preview-text-winner" class="cert-element cert-winner"></div>
+                    <div id="preview-text-desc" class="cert-element cert-desc"></div>
+                    <div id="preview-text-footer" class="cert-element cert-footer"></div>
+                    <div id="preview-text-date" class="cert-element cert-date"></div>
+                    <img id="preview-seal-img" src="" class="cert-element cert-seal" draggable="false" style="display:none;">
+                </div>
+            </div>
+        </div>
+
+        <div id="cert-result-modal" class="modal-overlay" style="display: none;">
+             <div class="modal-content" style="max-width: 900px; text-align: center; background: #f5f5f5;">
+                <div class="modal-header"><h3>🖨️ 生成结果</h3><span onclick="document.getElementById('cert-result-modal').style.display='none'" class="modal-close-btn">&times;</span></div>
+                <div class="modal-body" style="padding:20px; max-height: 70vh; overflow-y: auto;"><img id="final-cert-img" style="max-width:100%; border: 1px solid #ddd;"></div>
+                <div class="modal-footer" style="justify-content: center;"><a id="btn-download-cert" class="sidebar-button" style="background-color: #27ae60; text-decoration:none;">📥 下载图片</a></div>
+            </div>
+        </div>
+        
+        <style>
+            .cert-control-group { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 15px; }
+            .cert-label { font-weight: bold; display: block; margin-bottom: 5px; color: #555; font-size: 0.9em; }
+            .cert-input { width: 100%; padding: 6px; margin-bottom: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing:border-box; }
+            .cert-input-lg { font-size: 1.1em; font-weight: bold; }
+            .upload-btn { cursor: pointer; font-size: 0.85em; padding: 4px 8px; display: inline-block; margin-right:5px; }
+            .pos-input { width: 100%; padding: 2px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
+            .paper-orient-btn.active { background-color: #2980b9; color: white; }
+            .paper-orient-btn { background-color: #ddd; color: #666; }
+        </style>
+    `;
+
+    bindCertCreatorEvents();
+    updateCertPreview();
+    setupSealDraggable();
+    updateCertImportSelect();
+}
+
+
+/**
+ * [旗舰版+V4] 核心：更新预览区视图 (支持动态纸张比例)
+ */
+function updateCertPreview() {
+    const container = document.getElementById('cert-canvas-container');
+    if (!container) return;
+    const s = G_CertState;
+
+    // 1. 纸张尺寸计算
+    // 基础比例 (A4: 297/210 ≈ 1.414)
+    let ratio = 1.414; 
+    if (s.paper.size === 'A3') ratio = 1.414;
+    if (s.paper.size === 'B5') ratio = 1.414;
+    if (s.paper.size === '16:9') ratio = 1.777;
+
+    // 横竖屏切换
+    let width, height;
+    // 为了在屏幕上显示合适，我们定一个基准像素，比如长边 800px
+    const BASE_LONG = 800;
+    
+    if (s.paper.orientation === 'L') {
+        // 横向
+        width = BASE_LONG;
+        height = BASE_LONG / ratio;
+    } else {
+        // 竖向
+        height = BASE_LONG;
+        width = BASE_LONG / ratio;
+    }
+
+    container.style.width = width + 'px';
+    container.style.height = height + 'px';
+
+    // 2. 背景与样式
+    if (s.bgImage) container.style.backgroundImage = `url('${s.bgImage}')`;
+    else container.style.backgroundColor = '#fffdf5';
+
+    container.style.fontFamily = s.style.fontFamily;
+    container.style.color = s.style.color;
+    
+    // 3. 更新文本元素
+    const updateEl = (id, text, key, defaultTop) => {
+        const el = document.getElementById(id);
+        if(!el) return;
+        el.innerHTML = text; 
+        el.style.fontSize = s.style.sizes[key] + 'px'; 
+        
+        if (s.layoutMode === 'auto') {
+            el.style.top = defaultTop;
+            el.style.transform = 'none';
+            if (key === 'footer' || key === 'date') {
+                el.style.left = 'auto'; el.style.right = '10%'; el.style.width = 'auto'; el.style.textAlign = 'right';
+            } else {
+                el.style.left = '0'; el.style.right = 'auto'; el.style.width = '100%'; el.style.textAlign = s.style.textAlign;
+            }
+        } else {
+            const pos = s.manualPos[key];
+            el.style.left = pos.x + '%';
+            el.style.top = pos.y + '%';
+            el.style.width = 'auto';
+            el.style.right = 'auto';
+            el.style.transform = 'translate(-50%, 0)';
+            el.style.textAlign = s.style.textAlign;
+            if (key === 'desc') el.style.width = '80%'; 
+        }
+    };
+
+    updateEl('preview-text-title', s.texts.title, 'title', '15%');
+    updateEl('preview-text-winner', s.texts.winner, 'winner', '35%');
+    updateEl('preview-text-desc', s.texts.desc, 'desc', '48%');
+    updateEl('preview-text-footer', s.texts.footer, 'footer', '70%');
+    updateEl('preview-text-date', s.texts.date, 'date', '80%');
+
+    // 4. 印章
+    const sealEl = document.getElementById('preview-seal-img');
+    if (s.sealImage) {
+        sealEl.src = s.sealImage;
+        sealEl.style.display = 'block';
+        sealEl.style.left = s.seal.x + '%';
+        sealEl.style.top = s.seal.y + '%';
+        sealEl.style.width = s.seal.size + 'px'; // 记得应用大小
+        sealEl.style.transform = 'translate(-50%, -50%)';
+    } else {
+        sealEl.style.display = 'none';
+    }
+}
+
+
+/**
+ * [旗舰修复版+V4] 生成高分辨率打印稿 (支持返回数据供打包)
+ */
+async function generateHighResCertificate(isBatch = false) {
+    const originalDom = document.getElementById('cert-canvas-container');
+    const modal = document.getElementById('cert-result-modal');
+    
+    if (!isBatch) {
+        modal.style.display = 'flex';
+        const finalImg = document.getElementById('final-cert-img');
+        finalImg.src = '';
+        finalImg.alt = '⏳ 正在渲染高清图...';
+    }
+
+    const clone = originalDom.cloneNode(true);
+    clone.id = "cert-clone-temp";
+    clone.style.position = 'absolute';
+    clone.style.top = '-9999px';
+    clone.style.left = '-9999px';
+    clone.style.margin = '0';
+    clone.style.transform = 'none'; 
+    clone.style.zIndex = '-1';
+    document.body.appendChild(clone);
+
+    try {
+        await new Promise(r => setTimeout(r, 100));
+
+        const canvas = await html2canvas(clone, {
+            scale: 4, 
+            useCORS: true,
+            backgroundColor: null,
+            logging: false
+        });
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        
+        if (isBatch) {
+            // 🔥 批量模式：返回数据，不由这里下载 🔥
+            return imgData;
+        } else {
+            // 单张模式：显示并提供下载
+            const fileName = `奖状_${G_CertState.texts.winner.replace(/\s+/g, '')}.jpg`;
+            const finalImg = document.getElementById('final-cert-img');
+            const downloadBtn = document.getElementById('btn-download-cert');
+            finalImg.src = imgData;
+            finalImg.alt = '生成成功';
+            downloadBtn.href = imgData;
+            downloadBtn.download = fileName;
+        }
+
+    } catch (err) {
+        console.error(err);
+        if(!isBatch) alert('生成失败，请检查控制台。');
+        return null;
+    } finally {
+        document.body.removeChild(clone);
+    }
+}
+
+/**
+ * [旗舰版+V5] 绑定事件 (支持多选列表 + 针对性批量生成)
+ */
+function bindCertCreatorEvents() {
+    
+    // 1. 渲染多选列表 (替代原下拉框)
+    window.updateCertChecklist = () => {
+        const container = document.getElementById('cert-checklist-container');
+        const btnBatch = document.getElementById('btn-batch-generate-certs');
+        if (!container) return;
+
+        if (!window.G_Honor_List || window.G_Honor_List.length === 0) {
+            container.innerHTML = `<div style="text-align:center; color:#999; padding:20px;">-- 暂无数据 --</div>`;
+            btnBatch.innerText = `📦 生成 ZIP 压缩包 (0)`;
+            return;
+        }
+
+        // 生成列表 HTML
+        container.innerHTML = window.G_Honor_List.map((h, i) => `
+            <div style="display:flex; align-items:center; padding:4px 0; border-bottom:1px dashed #eee;">
+                <input type="checkbox" class="cert-batch-cb" value="${i}" id="cert-cb-${i}" checked style="margin-right:8px;">
+                <label for="cert-cb-${i}" style="flex:1; cursor:pointer; font-size:0.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    <span style="color:#d35400; font-weight:bold;">[${h.title}]</span> ${h.name}
+                </label>
+                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;" title="点击填充到预览区">
+                    👁️ 预览
+                </button>
+            </div>
+        `).join('');
+
+        // 更新按钮数量显示
+        updateBatchBtnText();
+
+        // 绑定 checkbox 变化事件
+        const cbs = container.querySelectorAll('.cert-batch-cb');
+        cbs.forEach(cb => cb.addEventListener('change', updateBatchBtnText));
+
+        // 绑定“预览”小按钮事件
+        const prevBtns = container.querySelectorAll('.btn-preview-single');
+        prevBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = e.target.dataset.idx;
+                fillCertData(idx);
+            });
+        });
+    };
+
+    // 辅助：更新按钮文字
+    const updateBatchBtnText = () => {
+        const count = document.querySelectorAll('.cert-batch-cb:checked').length;
+        const btn = document.getElementById('btn-batch-generate-certs');
+        if(btn) btn.innerText = `📦 生成 ZIP 压缩包 (${count})`;
+    };
+
+    // 辅助：填充单条数据 (提取出来的逻辑)
+    const fillCertData = (idx) => {
+        const data = window.G_Honor_List[idx];
+        G_CertState.texts.winner = data.name + " 同学";
+        G_CertState.texts.desc = data.desc;
+        
+        const elWinner = document.getElementById('cert-text-winner');
+        const elDesc = document.getElementById('cert-text-desc');
+        if(elWinner) elWinner.value = G_CertState.texts.winner;
+        if(elDesc) elDesc.value = G_CertState.texts.desc;
+        
+        updateCertPreview();
+    };
+
+    // 初始化加载
+    updateCertChecklist();
+
+    // 2. 全选 / 清空
+    const btnAll = document.getElementById('cert-sel-all');
+    const btnNone = document.getElementById('cert-sel-none');
+    
+    if(btnAll) btnAll.addEventListener('click', () => {
+        document.querySelectorAll('.cert-batch-cb').forEach(cb => cb.checked = true);
+        updateBatchBtnText();
+    });
+    
+    if(btnNone) btnNone.addEventListener('click', () => {
+        document.querySelectorAll('.cert-batch-cb').forEach(cb => cb.checked = false);
+        updateBatchBtnText();
+    });
+
+    // 3. 🔥 批量生成 (只生成勾选项) 🔥
+    const btnBatch = document.getElementById('btn-batch-generate-certs');
+    if (btnBatch) btnBatch.addEventListener('click', async () => {
+        // 获取所有被勾选的索引
+        const checkedBoxes = document.querySelectorAll('.cert-batch-cb:checked');
+        const selectedIndices = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+
+        if (selectedIndices.length === 0) { alert("请至少勾选一名学生！"); return; }
+        if (!confirm(`确定为选中的 ${selectedIndices.length} 名学生生成奖状并打包吗？`)) return;
+        
+        const progressBox = document.getElementById('cert-batch-progress-box');
+        const progressBar = document.getElementById('cert-batch-bar');
+        const progressText = document.getElementById('cert-batch-status-text');
+        const progressPercent = document.getElementById('cert-batch-percent');
+        
+        progressBox.style.display = 'block';
+        btnBatch.disabled = true;
+        
+        const backup = { ...G_CertState.texts };
+        const zip = new JSZip();
+        const imgFolder = zip.folder("奖状打包");
+
+        // 循环处理选中的索引
+        for (let i = 0; i < selectedIndices.length; i++) {
+            const dataIdx = selectedIndices[i];
+            const data = window.G_Honor_List[dataIdx];
+            
+            // 进度计算 (i+1 / 总数)
+            const percent = Math.round(((i + 1) / selectedIndices.length) * 100);
+            
+            progressText.innerText = `处理中: ${data.name}`;
+            progressBar.style.width = `${percent}%`;
+            progressPercent.innerText = `${percent}%`;
+
+            // 填入数据并渲染
+            G_CertState.texts.winner = data.name + " 同学";
+            G_CertState.texts.desc = data.desc;
+            updateCertPreview();
+            
+            await new Promise(r => setTimeout(r, 150)); // 等待渲染
+            
+            const base64 = await generateHighResCertificate(true); 
+            if (base64) {
+                const imgData = base64.split(',')[1];
+                // 文件名防止重复
+                imgFolder.file(`${data.title}_${data.name}_${dataIdx}.jpg`, imgData, {base64: true});
+            }
+        }
+        
+        progressText.innerText = "正在压缩...";
+        const content = await zip.generateAsync({type:"blob"});
+        saveAs(content, "精选奖状打包.zip");
+
+        progressText.innerText = "✅ 完成！";
+        btnBatch.disabled = false;
+        G_CertState.texts = backup;
+        updateCertPreview();
+    });
+
+    // 4. 素材上传 (保持不变)
+    const handleUpload = (inputId, stateKey, clearBtnId) => {
+        const input = document.getElementById(inputId);
+        const clearBtn = document.getElementById(clearBtnId);
+        if(input) input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(f) {
+                const r = new FileReader();
+                r.onload = (evt) => { G_CertState[stateKey] = evt.target.result; if(clearBtn) clearBtn.style.display='inline-block'; updateCertPreview(); };
+                r.readAsDataURL(file);
+            }
+        });
+        if(clearBtn) clearBtn.addEventListener('click', () => { G_CertState[stateKey] = null; input.value=''; clearBtn.style.display='none'; updateCertPreview(); });
+    };
+    handleUpload('cert-bg-upload', 'bgImage', 'btn-clear-bg');
+    handleUpload('cert-seal-upload', 'sealImage', 'btn-clear-seal');
+
+    // 5. 文本输入 / 字号 / 坐标 (保持不变)
+    const bindInput = (id, callback) => { const el = document.getElementById(id); if(el) el.addEventListener('input', callback); };
+    
+    ['title', 'winner', 'desc', 'footer', 'date'].forEach(key => {
+        bindInput(`cert-text-${key}`, (e) => { G_CertState.texts[key] = e.target.value; updateCertPreview(); });
+        bindInput(`size-${key}`, (e) => { G_CertState.style.sizes[key] = e.target.value; updateCertPreview(); });
+        bindInput(`pos-x-${key}`, (e) => { G_CertState.manualPos[key].x = e.target.value; updateCertPreview(); });
+        bindInput(`pos-y-${key}`, (e) => { G_CertState.manualPos[key].y = e.target.value; updateCertPreview(); });
+    });
+
+    // 6. 样式与模式 (保持不变)
+    const fontSel = document.getElementById('cert-style-font');
+    const colorInp = document.getElementById('cert-style-color');
+    const alignSel = document.getElementById('cert-style-align');
+    const layoutCb = document.getElementById('cert-layout-mode');
+    if(fontSel) fontSel.addEventListener('change', (e) => { G_CertState.style.fontFamily = e.target.value; updateCertPreview(); });
+    if(colorInp) colorInp.addEventListener('input', (e) => { G_CertState.style.color = e.target.value; updateCertPreview(); });
+    if(alignSel) alignSel.addEventListener('change', (e) => { G_CertState.style.textAlign = e.target.value; updateCertPreview(); });
+    if(layoutCb) layoutCb.addEventListener('change', (e) => {
+        G_CertState.layoutMode = e.target.checked ? 'manual' : 'auto';
+        const mc = document.getElementById('cert-manual-controls');
+        if(mc) mc.style.display = e.target.checked ? 'block' : 'none';
+        updateCertPreview();
+    });
+
+    // 7. 印章控制 (保持不变)
+    bindInput('seal-x', (e) => { G_CertState.seal.x = e.target.value; updateCertPreview(); });
+    bindInput('seal-y', (e) => { G_CertState.seal.y = e.target.value; updateCertPreview(); });
+    bindInput('seal-size', (e) => { G_CertState.seal.size = e.target.value; updateCertPreview(); });
+
+    // 8. 纸张设置 (保持不变)
+    const paperSelect = document.getElementById('cert-paper-size');
+    if(paperSelect) paperSelect.addEventListener('change', (e) => { G_CertState.paper.size = e.target.value; updateCertPreview(); });
+    document.querySelectorAll('.paper-orient-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.paper-orient-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            G_CertState.paper.orientation = btn.dataset.o;
+            updateCertPreview();
+        });
+    });
+
+    // 9. 生成单张
+    const genBtn = document.getElementById('btn-generate-cert');
+    if (genBtn) genBtn.addEventListener('click', () => generateHighResCertificate(false));
+}
+
+function setupSealDraggable() {
+    const seal = document.getElementById('preview-seal-img');
+    const container = document.getElementById('cert-canvas-container');
+    let isDragging = false;
+
+    if (!container || !seal) return;
+
+    container.addEventListener('mousedown', (e) => {
+        if (e.target === seal) {
+            isDragging = true;
+            seal.style.cursor = 'grabbing';
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        const rect = container.getBoundingClientRect();
+        let left = e.clientX - rect.left;
+        let top = e.clientY - rect.top;
+
+        // 限制范围
+        if (left < 0) left = 0; if (left > rect.width) left = rect.width;
+        if (top < 0) top = 0; if (top > rect.height) top = rect.height;
+
+        let px = (left / rect.width) * 100;
+        let py = (top / rect.height) * 100;
+
+        G_CertState.seal.x = px.toFixed(1);
+        G_CertState.seal.y = py.toFixed(1);
+        
+        // 实时更新输入框
+        const elX = document.getElementById('seal-x');
+        const elY = document.getElementById('seal-y');
+        if(elX) elX.value = G_CertState.seal.x;
+        if(elY) elY.value = G_CertState.seal.y;
+
+        updateCertPreview();
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            isDragging = false;
+            seal.style.cursor = 'move';
+        }
+    });
 }
 
 
