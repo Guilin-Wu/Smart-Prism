@@ -18417,7 +18417,16 @@ function calculateAndRenderHonors() {
 
     balancedStars.forEach(s => window.G_Honor_List.push({ name: s.name, title: "全能战士奖", desc: `在${examName}中各科发展均衡，基础扎实。<br>特被评为：<span class="cert-highlight">全能战士</span>` }));
 
-    if (typeof updateCertImportSelect === 'function') updateCertImportSelect();
+
+    // 🔥🔥🔥 核心修复：强制刷新奖状定制面板的列表 🔥🔥🔥
+    if (typeof window.updateCertChecklist === 'function') {
+        // 立即调用列表更新函数
+        window.updateCertChecklist();
+        
+        // 并且更新“批量生成”按钮上的数字
+        const btn = document.getElementById('btn-batch-generate-certs');
+        if(btn) btn.innerText = `📦 生成 ZIP 压缩包 (${window.G_Honor_List.length})`;
+    }
 }
 
 /**
@@ -18645,13 +18654,18 @@ else if (type === 'progress_grade') { // 年级进步
 
 
 // =====================================================================
-//    NEW    专业奖状定制器核心逻辑 (Certificate Creator)
+//    🏆 模块二十四：专业奖状定制核心代码 (旗舰独立版)
 // =====================================================================
 
-// 全局状态对象 (旗舰版+V4：支持纸张 & 压缩包)
+// 1. 全局状态对象 (支持自由变换)
 let G_CertState = {
+    // 背景图状态 (x,y,w,h 用于像素级控制)
     bgImage: null,
+    bgRect: { x: 0, y: 0, w: 800, h: 565 }, 
+    
     sealImage: null,
+    seal: { x: 75, y: 75, w: 120, h: 120 }, // 印章依然建议用百分比定位(x,y)，像素大小(w,h)
+    
     texts: {
         title: '荣誉证书',
         winner: '张三 同学',
@@ -18665,14 +18679,7 @@ let G_CertState = {
         textAlign: 'center',
         sizes: { title: 48, winner: 32, desc: 18, footer: 18, date: 16 }
     },
-    // 🔥 新增：纸张设置
-    paper: {
-        size: 'A4',        // A4, A3, B5, Custom
-        orientation: 'L',  // L(Landscape横向), P(Portrait竖向)
-        width: 297,        // mm (用于计算比例)
-        height: 210        // mm
-    },
-    seal: { size: 120, x: 75, y: 75 },
+    paper: { size: 'A4', orientation: 'L' }, // L=横向
     layoutMode: 'auto', 
     manualPos: { 
         title: { x: 50, y: 15 }, 
@@ -18683,11 +18690,9 @@ let G_CertState = {
     }
 };
 
-/**
- * [旗舰版+V4] 渲染奖状定制器 (含纸张设置 + ZIP打包)
- */
+// 2. 渲染定制器界面
 function renderCertificateCreator(container) {
-    // 1. 动态引入字体
+    // 引入字体
     if (!document.getElementById('font-cn-mirror')) {
         const fontLink = document.createElement('link');
         fontLink.id = 'font-cn-mirror';
@@ -18698,54 +18703,44 @@ function renderCertificateCreator(container) {
 
     container.innerHTML = `
         <style>
-            .cert-highlight { font-family: 'Ma Shan Zheng', cursive; font-size: 2em; color: #c0392b; margin: 0 5px; vertical-align: middle; }
-            .cert-element { position: absolute; line-height: 1.6; white-space: pre-wrap; transition: top 0.1s, left 0.1s; }
-            .font-option { font-size: 14px; }
+            .cert-highlight { font-family: 'Ma Shan Zheng', cursive; font-size: 1.5em; color: #c0392b; margin: 0 5px; vertical-align: middle; }
+            .cert-element { position: absolute; line-height: 1.6; white-space: pre-wrap; cursor: grab; border: 1px dashed transparent; z-index: 20; user-select: none; }
+            .cert-element:hover { border-color: #007bff; background: rgba(0,123,255,0.05); }
+            
+            /* 自由变换控制器 */
+            #bg-transform-box {
+                position: absolute; z-index: 10; border: 2px solid #20c997; display: none; pointer-events: none;
+            }
+            .resize-handle { position: absolute; width: 10px; height: 10px; background: #fff; border: 1px solid #20c997; pointer-events: auto; z-index: 11; }
+            .rh-nw { top: -6px; left: -6px; cursor: nw-resize; } .rh-n { top: -6px; left: 50%; margin-left:-5px; cursor: n-resize; }
+            .rh-ne { top: -6px; right: -6px; cursor: ne-resize; } .rh-w { top: 50%; left: -6px; margin-top:-5px; cursor: w-resize; }
+            .rh-e { top: 50%; right: -6px; margin-top:-5px; cursor: e-resize; } .rh-sw { bottom: -6px; left: -6px; cursor: sw-resize; }
+            .rh-s { bottom: -6px; left: 50%; margin-left:-5px; cursor: s-resize; } .rh-se { bottom: -6px; right: -6px; cursor: se-resize; }
+
+            /* 素材库 */
+            .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; margin-top: 8px; }
+            .asset-item { height: 60px; border: 2px solid #eee; border-radius: 4px; cursor: pointer; background-size: cover; background-position: center; position: relative; overflow: hidden; }
+            .asset-del { position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 2px 4px; display: none; }
+            .asset-item:hover .asset-del { display: block; }
         </style>
 
         <div style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
-            <div class="main-card-wrapper" style="flex: 1; min-width: 340px; background: #f8f9fa; border-left: 4px solid #2980b9;">
+            <div class="main-card-wrapper" style="flex: 1; min-width: 350px; background: #f8f9fa; border-left: 4px solid #2980b9;">
                 <h4 style="margin-top:0; color:#2980b9;">🛠️ 定制面板</h4>
                 
-                <div class="cert-control-group" style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
-                    <label class="cert-label">0. 纸张与布局</label>
-                    <div style="display:flex; gap:10px;">
-                        <select id="cert-paper-size" class="sidebar-select" style="flex:1;">
-                            <option value="A4">A4 (210x297mm)</option>
-                            <option value="A3">A3 (297x420mm)</option>
-                            <option value="B5">B5 (176x250mm)</option>
-                            <option value="16:9">16:9 (屏幕壁纸)</option>
-                        </select>
-                        <div style="display:flex; background:#eee; border-radius:4px; padding:2px;">
-                            <button class="paper-orient-btn active" data-o="L" style="border:none; padding:5px 10px; border-radius:3px; cursor:pointer; font-size:1.2em;" title="横向">▭</button>
-                            <button class="paper-orient-btn" data-o="P" style="border:none; padding:5px 10px; border-radius:3px; cursor:pointer; font-size:1.2em;" title="竖向">▯</button>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="cert-control-group" style="background: #e8f4f8; padding: 10px; border-radius: 4px; border: 1px solid #bce8f1;">
                     <label class="cert-label" style="color:#0056b3;">🚀 获奖名单选择</label>
-                    
                     <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:0.85em;">
                         <span style="color:#666;">请勾选要生成的学生：</span>
-                        <div>
-                            <a id="cert-sel-all" style="cursor:pointer; color:#007bff; margin-right:10px; text-decoration:underline;">全选</a>
-                            <a id="cert-sel-none" style="cursor:pointer; color:#666; text-decoration:underline;">清空</a>
-                        </div>
+                        <div><a id="cert-sel-all" style="cursor:pointer; color:#007bff; margin-right:10px;">全选</a><a id="cert-sel-none" style="cursor:pointer; color:#666;">清空</a></div>
                     </div>
-
-                    <div id="cert-checklist-container" style="height: 160px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;">
+                    <div id="cert-checklist-container" style="height: 150px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;">
                         <div style="text-align:center; color:#999; padding:20px;">-- 请先到“荣誉榜”刷新数据 --</div>
                     </div>
-
-                    <button id="btn-batch-generate-certs" class="sidebar-button" style="width:100%; background-color:#6f42c1; font-size:0.9em;">
-                        📦 生成 ZIP 压缩包 (0)
-                    </button>
-                    
+                    <button id="btn-batch-generate-certs" class="sidebar-button" style="width:100%; background-color:#6f42c1; font-size:0.9em;">📦 生成 ZIP 压缩包 (0)</button>
                     <div id="cert-batch-progress-box" style="display:none; margin-top:10px;">
                         <div style="display:flex; justify-content:space-between; font-size:0.8em; color:#555; margin-bottom:2px;">
-                            <span id="cert-batch-status-text">准备中...</span>
-                            <span id="cert-batch-percent">0%</span>
+                            <span id="cert-batch-status-text">准备中...</span><span id="cert-batch-percent">0%</span>
                         </div>
                         <div style="width:100%; height:8px; background:#ccc; border-radius:4px; overflow:hidden;">
                             <div id="cert-batch-bar" style="width:0%; height:100%; background:#28a745; transition:width 0.3s;"></div>
@@ -18754,22 +18749,30 @@ function renderCertificateCreator(container) {
                 </div>
 
                 <div class="cert-control-group">
-                    <label class="cert-label">1. 素材上传</label>
-                    <div style="display:flex; gap:10px; align-items:center; margin-bottom:5px;">
-                        <label class="sidebar-button upload-btn">🖼️ 背景图 <input type="file" id="cert-bg-upload" accept="image/*"></label>
-                        <button id="btn-clear-bg" class="sidebar-button" style="background:#999; padding:6px 10px; font-size:0.8em; display:none;">🗑️</button>
+                    <label class="cert-label">🖼️ 背景素材库</label>
+                    <div style="display:flex; gap:5px; margin-bottom:5px;">
+                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">
+                            ➕ 上传新背景 <input type="file" id="lib-bg-upload" accept="image/*" style="display:none;">
+                        </label>
+                        <button id="btn-bg-fit" class="sidebar-button" style="background:#20c997; font-size:0.8em; padding:4px 8px;" title="铺满">↔️</button>
+                        <button id="btn-bg-reset" class="sidebar-button" style="background:#6c757d; font-size:0.8em; padding:4px 8px;" title="重置">↺</button>
                     </div>
-                    <div style="display:flex; gap:10px; align-items:center;">
-                        <label class="sidebar-button upload-btn" style="background:#e74c3c;">💮 印章图 <input type="file" id="cert-seal-upload" accept="image/*"></label>
-                        <button id="btn-clear-seal" class="sidebar-button" style="background:#999; padding:6px 10px; font-size:0.8em; display:none;">🗑️</button>
+                    <div id="lib-bg-grid" class="asset-grid"></div>
+
+                    <label class="cert-label" style="margin-top:15px;">💮 印章素材库</label>
+                    <div style="display:flex; gap:5px; margin-bottom:5px;">
+                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">
+                            ➕ 上传新印章 <input type="file" id="lib-seal-upload" accept="image/*" style="display:none;">
+                        </label>
                     </div>
+                    <div id="lib-seal-grid" class="asset-grid"></div>
                 </div>
 
                 <div class="cert-control-group">
-                    <label class="cert-label">2. 文本内容</label>
+                    <label class="cert-label">✍️ 文本内容</label>
                     <input type="text" id="cert-text-title" class="cert-input" placeholder="标题" value="${G_CertState.texts.title}">
                     <input type="text" id="cert-text-winner" class="cert-input cert-input-lg" placeholder="姓名" value="${G_CertState.texts.winner}">
-                    <textarea id="cert-text-desc" class="cert-input" rows="3" placeholder="正文描述">${G_CertState.texts.desc}</textarea>
+                    <textarea id="cert-text-desc" class="cert-input" rows="3" placeholder="正文">${G_CertState.texts.desc}</textarea>
                     <div style="display:flex; gap:5px;">
                         <input type="text" id="cert-text-footer" class="cert-input" placeholder="结语" value="${G_CertState.texts.footer}" style="flex:2;">
                         <input type="text" id="cert-text-date" class="cert-input" placeholder="日期" value="${G_CertState.texts.date}" style="flex:1; text-align:right;">
@@ -18777,14 +18780,13 @@ function renderCertificateCreator(container) {
                 </div>
 
                 <div class="cert-control-group">
-                    <label class="cert-label">3. 字体与颜色</label>
-                    <div style="display:flex; gap:5px;">
+                    <label class="cert-label">🎨 样式设置</label>
+                    <div style="display:flex; gap:5px; margin-bottom:10px;">
                         <select id="cert-style-font" class="cert-input" style="margin:0; flex:2;">
-                            <option value='"KaiTi", "STKaiti", "楷体", serif'>楷体 (系统)</option>
-                            <option value='"SimSun", "宋体", serif'>宋体 (系统)</option>
-                            <option value='"Microsoft YaHei", sans-serif'>黑体 (现代)</option>
-                            <option value="'Ma Shan Zheng', cursive">✨ 马善政毛笔</option>
-                            <option value="'Zhi Mang Xing', cursive">✨ 志莽行书</option>
+                            <option value='"KaiTi", "STKaiti", "楷体", serif'>楷体</option>
+                            <option value='"SimSun", "宋体", serif'>宋体</option>
+                            <option value='"Microsoft YaHei", sans-serif'>黑体</option>
+                            <option value="'Ma Shan Zheng', cursive">✨ 马善政书法</option>
                         </select>
                         <input type="color" id="cert-style-color" value="${G_CertState.style.color}" style="height:36px; padding:0; flex:1;">
                         <select id="cert-style-align" class="cert-input" style="margin:0; flex:1;">
@@ -18792,86 +18794,49 @@ function renderCertificateCreator(container) {
                             <option value="left">左对齐</option>
                         </select>
                     </div>
-                </div>
-
-                <div class="cert-control-group">
-                    <label class="cert-label">4. 字号微调 (px)</label>
+                    
+                    <div style="font-size:0.8em; font-weight:bold; color:#555; margin-bottom:5px;">字号微调 (px):</div>
                     <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:5px;">
-                        <label style="font-size:0.75em; text-align:center;">标题<input type="number" id="size-title" class="pos-input" value="${G_CertState.style.sizes.title}"></label>
-                        <label style="font-size:0.75em; text-align:center;">姓名<input type="number" id="size-winner" class="pos-input" value="${G_CertState.style.sizes.winner}"></label>
-                        <label style="font-size:0.75em; text-align:center;">正文<input type="number" id="size-desc" class="pos-input" value="${G_CertState.style.sizes.desc}"></label>
-                        <label style="font-size:0.75em; text-align:center;">结语<input type="number" id="size-footer" class="pos-input" value="${G_CertState.style.sizes.footer}"></label>
-                        <label style="font-size:0.75em; text-align:center;">日期<input type="number" id="size-date" class="pos-input" value="${G_CertState.style.sizes.date}"></label>
-                    </div>
-                </div>
-
-                <div class="cert-control-group">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                         <label class="cert-label">5. 排版与印章</label>
-                         <label style="font-size:0.85em;"><input type="checkbox" id="cert-layout-mode"> 启用手动排版(X/Y)</label>
-                    </div>
-                    <div id="cert-manual-controls" style="display:none; background:#eee; padding:10px; border-radius:4px; margin-bottom:10px;">
-                        <div style="display:flex; justify-content:space-between; font-size:0.75em; color:#666; margin-bottom:5px;">
-                            <span style="margin-left:5px;">元素</span><span style="margin-right:15px;">X轴(%)</span><span style="margin-right:10px;">Y轴(%)</span>
-                        </div>
                         ${['title', 'winner', 'desc', 'footer', 'date'].map(k => {
-                            // 定义中文映射
-                            const labelMap = { title: '标题', winner: '姓名', desc: '正文', footer: '结语', date: '日期' };
-                            return `
-                                <div style="display:flex; gap:5px; margin-bottom:5px; align-items:center;">
-                                    <span style="width:30px; font-size:0.8em; font-weight:bold; text-align:center;">${labelMap[k]}</span>
-                                    <input type="number" id="pos-x-${k}" class="pos-input" value="${G_CertState.manualPos[k].x}">
-                                    <input type="number" id="pos-y-${k}" class="pos-input" value="${G_CertState.manualPos[k].y}">
-                                </div>
-                            `;
+                            const map = {title:'标题', winner:'姓名', desc:'正文', footer:'结语', date:'日期'};
+                            return `<label style="text-align:center; font-size:0.75em;">${map[k]}<input type="number" id="size-${k}" class="pos-input" value="${G_CertState.style.sizes[k]}" style="width:100%"></label>`;
                         }).join('')}
-                        <p style="font-size:0.75em; color:#999; margin-top:8px; text-align:center;">* 提示: X=50 为水平居中</p>
                     </div>
-                    <div style="margin-top:10px; background:#fff5e6; padding:8px; border-radius:4px; border:1px solid #ffe082;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <label style="font-size:0.9em; font-weight:bold; color:#d35400;">💮 印章控制</label>
-                            <span style="font-size:0.8em; color:#999;">(支持拖拽)</span>
-                        </div>
-                        <div style="display:flex; gap:10px; margin-top:5px;">
-                            <label style="font-size:0.8em;">X:<input type="number" id="seal-x" class="pos-input" value="${G_CertState.seal.x}" style="width:40px;"></label>
-                            <label style="font-size:0.8em;">Y:<input type="number" id="seal-y" class="pos-input" value="${G_CertState.seal.y}" style="width:40px;"></label>
-                            <label style="font-size:0.8em;">大:<input type="number" id="seal-size" class="pos-input" value="${G_CertState.seal.size}" style="width:40px;"></label>
+                </div>
+
+                <div class="cert-control-group" style="background: #fff; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+                    <label class="cert-label">0. 纸张与布局</label>
+                    <div style="display:flex; gap:10px;">
+                        <select id="cert-paper-size" class="sidebar-select" style="flex:1;">
+                            <option value="A4">A4 纸</option>
+                            <option value="A3">A3 纸</option>
+                            <option value="16:9">16:9 (屏幕)</option>
+                        </select>
+                        <div style="display:flex; background:#eee; border-radius:4px; padding:2px;">
+                            <button class="paper-orient-btn active" data-o="L" style="border:none; padding:5px 10px; cursor:pointer;" title="横向">▭</button>
+                            <button class="paper-orient-btn" data-o="P" style="border:none; padding:5px 10px; cursor:pointer;" title="竖向">▯</button>
                         </div>
                     </div>
                 </div>
 
-                <button id="btn-generate-cert" class="sidebar-button" style="width:100%; background:#2980b9; font-size:1.1em; padding: 12px;">
-                    🖨️ 生成当前预览图 (JPG)
-                </button>
+                <button id="btn-generate-cert" class="sidebar-button" style="width:100%; background:#2980b9; font-size:1.1em; padding: 12px;">🖨️ 生成当前预览图</button>
             </div>
 
-            <div class="main-card-wrapper" style="
-                flex: 2; 
-                min-width: 400px; 
-                background: #e0e0e0; 
-                padding: 20px; 
-                display: flex; 
-                justify-content: center; 
-                align-items: center;
-                /* 🔥 核心修改：让它粘在屏幕顶部 🔥 */
-                position: sticky; 
-                top: 20px; 
-                align-self: flex-start; 
-                max-height: 95vh; /* 防止过高溢出 */
-            ">
-                <div id="cert-canvas-container" style="
-                    width: 800px; height: 565px; 
-                    background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                    position: relative; overflow: hidden;
-                    background-size: cover; background-position: center;
-                    transition: all 0.3s;
-                ">
-                    <div id="preview-text-title" class="cert-element cert-title"></div>
-                    <div id="preview-text-winner" class="cert-element cert-winner"></div>
-                    <div id="preview-text-desc" class="cert-element cert-desc"></div>
-                    <div id="preview-text-footer" class="cert-element cert-footer"></div>
-                    <div id="preview-text-date" class="cert-element cert-date"></div>
-                    <img id="preview-seal-img" src="" class="cert-element cert-seal" draggable="false" style="display:none;">
+            <div class="main-card-wrapper" style="flex: 2; min-width: 400px; background: #e0e0e0; padding: 20px; display: flex; justify-content: center; align-items: center; position: sticky; top: 20px; align-self: flex-start;">
+                <div id="cert-canvas-container" style="width: 800px; height: 565px; background-color: #fffdf5; box-shadow: 0 10px 30px rgba(0,0,0,0.2); position: relative; overflow: hidden; user-select: none;">
+                    <img id="preview-bg-img" src="" style="display:none; position:absolute; cursor:move;" draggable="false">
+                    <div id="bg-transform-box">
+                        <div class="resize-handle rh-nw" data-dir="nw"></div><div class="resize-handle rh-n" data-dir="n"></div>
+                        <div class="resize-handle rh-ne" data-dir="ne"></div><div class="resize-handle rh-w" data-dir="w"></div>
+                        <div class="resize-handle rh-e" data-dir="e"></div><div class="resize-handle rh-sw" data-dir="sw"></div>
+                        <div class="resize-handle rh-s" data-dir="s"></div><div class="resize-handle rh-se" data-dir="se"></div>
+                    </div>
+                    <div id="preview-text-title" class="cert-element" data-key="title"></div>
+                    <div id="preview-text-winner" class="cert-element" data-key="winner"></div>
+                    <div id="preview-text-desc" class="cert-element" data-key="desc"></div>
+                    <div id="preview-text-footer" class="cert-element" data-key="footer"></div>
+                    <div id="preview-text-date" class="cert-element" data-key="date"></div>
+                    <img id="preview-seal-img" src="" class="cert-element" style="width:120px; opacity:0.9; mix-blend-mode:multiply; display:none;" draggable="false" data-key="seal">
                 </div>
             </div>
         </div>
@@ -18879,8 +18844,8 @@ function renderCertificateCreator(container) {
         <div id="cert-result-modal" class="modal-overlay" style="display: none;">
              <div class="modal-content" style="max-width: 900px; text-align: center; background: #f5f5f5;">
                 <div class="modal-header"><h3>🖨️ 生成结果</h3><span onclick="document.getElementById('cert-result-modal').style.display='none'" class="modal-close-btn">&times;</span></div>
-                <div class="modal-body" style="padding:20px; max-height: 70vh; overflow-y: auto;"><img id="final-cert-img" style="max-width:100%; border: 1px solid #ddd;"></div>
-                <div class="modal-footer" style="justify-content: center;"><a id="btn-download-cert" class="sidebar-button" style="background-color: #27ae60; text-decoration:none;">📥 下载图片</a></div>
+                <div class="modal-body" style="padding:20px;"><img id="final-cert-img" style="max-width:100%; border: 1px solid #ddd;"></div>
+                <div class="modal-footer" style="justify-content: center;"><a id="btn-download-cert" class="sidebar-button" style="background-color: #27ae60;">下载图片</a></div>
             </div>
         </div>
         
@@ -18889,8 +18854,6 @@ function renderCertificateCreator(container) {
             .cert-label { font-weight: bold; display: block; margin-bottom: 5px; color: #555; font-size: 0.9em; }
             .cert-input { width: 100%; padding: 6px; margin-bottom: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing:border-box; }
             .cert-input-lg { font-size: 1.1em; font-weight: bold; }
-            .upload-btn { cursor: pointer; font-size: 0.85em; padding: 4px 8px; display: inline-block; margin-right:5px; }
-            .pos-input { width: 100%; padding: 2px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
             .paper-orient-btn.active { background-color: #2980b9; color: white; }
             .paper-orient-btn { background-color: #ddd; color: #666; }
         </style>
@@ -18898,475 +18861,294 @@ function renderCertificateCreator(container) {
 
     bindCertCreatorEvents();
     updateCertPreview();
-    setupSealDraggable();
-    updateCertImportSelect();
+    setupInteractionEngine(); 
+    
+    // 初始化素材库
+    initAssetLibrary('lib-bg', 'G_Asset_BG_Lib', 'bgImage');
+    initAssetLibrary('lib-seal', 'G_Asset_Seal_Lib', 'sealImage');
 }
 
-
-/**
- * [旗舰版+V4] 核心：更新预览区视图 (修复背景图删除无效 Bug)
- */
+// 3. 核心：更新预览区视图
 function updateCertPreview() {
     const container = document.getElementById('cert-canvas-container');
     if (!container) return;
     const s = G_CertState;
 
-    // 1. 纸张尺寸计算
+    // A. 纸张
     let ratio = 1.414; 
-    if (s.paper.size === 'A3') ratio = 1.414;
-    if (s.paper.size === 'B5') ratio = 1.414;
     if (s.paper.size === '16:9') ratio = 1.777;
-
-    // 横竖屏切换
-    let width, height;
     const BASE_LONG = 800;
-    
-    if (s.paper.orientation === 'L') {
-        width = BASE_LONG;
-        height = BASE_LONG / ratio;
-    } else {
-        height = BASE_LONG;
-        width = BASE_LONG / ratio;
-    }
+    let cw, ch;
+    if (s.paper.orientation === 'L') { cw = BASE_LONG; ch = BASE_LONG / ratio; } 
+    else { ch = BASE_LONG; cw = BASE_LONG / ratio; }
+    container.style.width = cw + 'px'; container.style.height = ch + 'px';
 
-    container.style.width = width + 'px';
-    container.style.height = height + 'px';
-
-    // 2. 🔥 核心修复：背景图处理 🔥
+    // B. 背景图
+    const bgImg = document.getElementById('preview-bg-img');
+    const transformBox = document.getElementById('bg-transform-box');
     if (s.bgImage) {
-        container.style.backgroundImage = `url('${s.bgImage}')`;
+        bgImg.src = s.bgImage;
+        bgImg.style.display = 'block';
+        if (!s.background.w) s.background = { x: 0, y: 0, w: cw, h: ch }; // 容错
+        bgImg.style.left = s.background.x + 'px'; bgImg.style.top = s.background.y + 'px';
+        bgImg.style.width = s.background.w + 'px'; bgImg.style.height = s.background.h + 'px';
+        if (transformBox) {
+            transformBox.style.display = 'block';
+            transformBox.style.left = s.background.x + 'px'; transformBox.style.top = s.background.y + 'px';
+            transformBox.style.width = s.background.w + 'px'; transformBox.style.height = s.background.h + 'px';
+        }
     } else {
-        container.style.backgroundImage = 'none'; // 必须显式清除，否则旧图还在
-        container.style.backgroundColor = '#fffdf5';
+        bgImg.style.display = 'none';
+        if (transformBox) transformBox.style.display = 'none';
+        container.style.backgroundColor = '#fffdf5'; container.style.backgroundImage = 'none';
     }
 
-    container.style.fontFamily = s.style.fontFamily;
-    container.style.color = s.style.color;
-    
-    // 3. 更新文本元素
-    const updateEl = (id, text, key, defaultTop) => {
+    // C. 文本
+    container.style.fontFamily = s.style.fontFamily; container.style.color = s.style.color;
+    const updateEl = (id, text, key) => {
         const el = document.getElementById(id);
         if(!el) return;
-        el.innerHTML = text; 
-        el.style.fontSize = s.style.sizes[key] + 'px'; 
-        
-        if (s.layoutMode === 'auto') {
-            el.style.top = defaultTop;
-            el.style.transform = 'none';
-            if (key === 'footer' || key === 'date') {
-                el.style.left = 'auto'; el.style.right = '10%'; el.style.width = 'auto'; el.style.textAlign = 'right';
-            } else {
-                el.style.left = '0'; el.style.right = 'auto'; el.style.width = '100%'; el.style.textAlign = s.style.textAlign;
-            }
-        } else {
-            const pos = s.manualPos[key];
-            el.style.left = pos.x + '%';
-            el.style.top = pos.y + '%';
-            el.style.width = 'auto';
-            el.style.right = 'auto';
-            el.style.transform = 'translate(-50%, 0)';
-            el.style.textAlign = s.style.textAlign;
-            if (key === 'desc') el.style.width = '80%'; 
-        }
+        el.innerHTML = text; el.style.fontSize = s.style.sizes[key] + 'px'; el.style.textAlign = s.style.textAlign;
+        const pos = s.manualPos[key];
+        el.style.left = pos.x + '%'; el.style.top = pos.y + '%'; el.style.transform = 'translate(-50%, 0)';
+        if (key === 'desc') el.style.width = '80%'; else el.style.width = 'auto';
     };
+    updateEl('preview-text-title', s.texts.title, 'title');
+    updateEl('preview-text-winner', s.texts.winner, 'winner');
+    updateEl('preview-text-desc', s.texts.desc, 'desc');
+    updateEl('preview-text-footer', s.texts.footer, 'footer');
+    updateEl('preview-text-date', s.texts.date, 'date');
 
-    updateEl('preview-text-title', s.texts.title, 'title', '15%');
-    updateEl('preview-text-winner', s.texts.winner, 'winner', '35%');
-    updateEl('preview-text-desc', s.texts.desc, 'desc', '48%');
-    updateEl('preview-text-footer', s.texts.footer, 'footer', '70%');
-    updateEl('preview-text-date', s.texts.date, 'date', '80%');
-
-    // 4. 印章
+    // D. 印章
     const sealEl = document.getElementById('preview-seal-img');
-    if (s.sealImage) {
-        sealEl.src = s.sealImage;
-        sealEl.style.display = 'block';
-        sealEl.style.left = s.seal.x + '%';
-        sealEl.style.top = s.seal.y + '%';
-        sealEl.style.width = s.seal.size + 'px';
+    if (sealEl && s.sealImage) {
+        sealEl.src = s.sealImage; sealEl.style.display = 'block';
+        sealEl.style.left = s.seal.x + '%'; sealEl.style.top = s.seal.y + '%';
+        sealEl.style.width = s.seal.w + 'px';
         sealEl.style.transform = 'translate(-50%, -50%)';
-    } else {
-        sealEl.style.display = 'none';
-    }
+    } else if (sealEl) { sealEl.style.display = 'none'; }
 }
 
-
-/**
- * [旗舰修复版+V4] 生成高分辨率打印稿 (支持返回数据供打包)
- */
-async function generateHighResCertificate(isBatch = false) {
-    const originalDom = document.getElementById('cert-canvas-container');
-    const modal = document.getElementById('cert-result-modal');
-    
-    if (!isBatch) {
-        modal.style.display = 'flex';
-        const finalImg = document.getElementById('final-cert-img');
-        finalImg.src = '';
-        finalImg.alt = '⏳ 正在渲染高清图...';
-    }
-
-    const clone = originalDom.cloneNode(true);
-    clone.id = "cert-clone-temp";
-    clone.style.position = 'absolute';
-    clone.style.top = '-9999px';
-    clone.style.left = '-9999px';
-    clone.style.margin = '0';
-    clone.style.transform = 'none'; 
-    clone.style.zIndex = '-1';
-    document.body.appendChild(clone);
-
-    try {
-        await new Promise(r => setTimeout(r, 100));
-
-        const canvas = await html2canvas(clone, {
-            scale: 4, 
-            useCORS: true,
-            backgroundColor: null,
-            logging: false
-        });
-
-        const imgData = canvas.toDataURL('image/jpeg', 0.92);
-        
-        if (isBatch) {
-            // 🔥 批量模式：返回数据，不由这里下载 🔥
-            return imgData;
-        } else {
-            // 单张模式：显示并提供下载
-            const fileName = `奖状_${G_CertState.texts.winner.replace(/\s+/g, '')}.jpg`;
-            const finalImg = document.getElementById('final-cert-img');
-            const downloadBtn = document.getElementById('btn-download-cert');
-            finalImg.src = imgData;
-            finalImg.alt = '生成成功';
-            downloadBtn.href = imgData;
-            downloadBtn.download = fileName;
-        }
-
-    } catch (err) {
-        console.error(err);
-        if(!isBatch) alert('生成失败，请检查控制台。');
-        return null;
-    } finally {
-        document.body.removeChild(clone);
-    }
-}
-
-/**
- * [旗舰终极合并版] 绑定事件
- * - 包含：多选列表、批量ZIP打包、图片持久化保存
- * - 修复：去除了重复的上传逻辑，修复了空指针报错
- */
+// 4. 绑定事件 (多选列表+批量)
 function bindCertCreatorEvents() {
-    
-    // ============================
-    // 1. 多选列表与数据填充
-    // ============================
+    // 4.1 多选列表
     window.updateCertChecklist = () => {
         const container = document.getElementById('cert-checklist-container');
         const btnBatch = document.getElementById('btn-batch-generate-certs');
         
-        // 安全检查：如果DOM还没渲染出来，就不要执行
         if (!container) return;
+
+        // 🔥 先清空容器，防止追加 🔥
+        container.innerHTML = ''; 
 
         if (!window.G_Honor_List || window.G_Honor_List.length === 0) {
             container.innerHTML = `<div style="text-align:center; color:#999; padding:20px;">-- 暂无数据 --</div>`;
             if(btnBatch) btnBatch.innerText = `📦 生成 ZIP 压缩包 (0)`;
             return;
         }
-
-        // 生成复选框列表
         container.innerHTML = window.G_Honor_List.map((h, i) => `
             <div style="display:flex; align-items:center; padding:4px 0; border-bottom:1px dashed #eee;">
                 <input type="checkbox" class="cert-batch-cb" value="${i}" id="cert-cb-${i}" checked style="margin-right:8px;">
                 <label for="cert-cb-${i}" style="flex:1; cursor:pointer; font-size:0.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     <span style="color:#d35400; font-weight:bold;">[${h.title}]</span> ${h.name}
                 </label>
-                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;" title="填充预览">
-                    👁️
-                </button>
+                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;" title="填充">👁️</button>
             </div>
         `).join('');
-
-        updateBatchBtnText();
-
-        // 绑定勾选事件
-        container.querySelectorAll('.cert-batch-cb').forEach(cb => {
-            cb.addEventListener('change', updateBatchBtnText);
-        });
-
-        // 绑定单个预览按钮
-        container.querySelectorAll('.btn-preview-single').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                // 阻止冒泡防止触发其他点击
-                e.stopPropagation();
-                fillCertData(e.target.dataset.idx);
-            });
-        });
-    };
-
-    // 辅助：更新批量按钮文字
-    const updateBatchBtnText = () => {
-        const count = document.querySelectorAll('.cert-batch-cb:checked').length;
-        const btn = document.getElementById('btn-batch-generate-certs');
-        if(btn) btn.innerText = `📦 生成 ZIP 压缩包 (${count})`;
-    };
-
-    // 辅助：填充单条数据
-    const fillCertData = (idx) => {
-        if (idx === undefined || idx === null) return;
-        const data = window.G_Honor_List[idx];
         
+        const updateBtn = () => { if(btnBatch) btnBatch.innerText = `📦 生成 ZIP 压缩包 (${document.querySelectorAll('.cert-batch-cb:checked').length})`; };
+        updateBtn();
+        container.querySelectorAll('.cert-batch-cb').forEach(cb => cb.addEventListener('change', updateBtn));
+        container.querySelectorAll('.btn-preview-single').forEach(btn => btn.addEventListener('click', (e) => { e.stopPropagation(); fillCertData(e.target.dataset.idx); }));
+    };
+    
+    const fillCertData = (idx) => {
+        if (idx == null) return;
+        const data = window.G_Honor_List[idx];
         G_CertState.texts.winner = data.name + " 同学";
         G_CertState.texts.desc = data.desc;
-        
-        // 安全更新 DOM
-        const elWinner = document.getElementById('cert-text-winner');
-        const elDesc = document.getElementById('cert-text-desc');
-        if(elWinner) elWinner.value = G_CertState.texts.winner;
-        if(elDesc) elDesc.value = G_CertState.texts.desc;
-        
+        const elW = document.getElementById('cert-text-winner'); if(elW) elW.value = G_CertState.texts.winner;
+        const elD = document.getElementById('cert-text-desc'); if(elD) elD.value = G_CertState.texts.desc;
         updateCertPreview();
     };
-
-    // 初始化列表
+    
     updateCertChecklist();
 
-    // ============================
-    // 2. 全选 / 清空 控制
-    // ============================
+    // 4.2 全选清空
     const btnAll = document.getElementById('cert-sel-all');
+    if(btnAll) btnAll.onclick = () => { document.querySelectorAll('.cert-batch-cb').forEach(c=>c.checked=true); document.getElementById('btn-batch-generate-certs').click(); /*触发更新文字*/ };
     const btnNone = document.getElementById('cert-sel-none');
-    
-    if(btnAll) btnAll.addEventListener('click', () => {
-        document.querySelectorAll('.cert-batch-cb').forEach(cb => cb.checked = true);
-        updateBatchBtnText();
-    });
-    
-    if(btnNone) btnNone.addEventListener('click', () => {
-        document.querySelectorAll('.cert-batch-cb').forEach(cb => cb.checked = false);
-        updateBatchBtnText();
-    });
+    if(btnNone) btnNone.onclick = () => { document.querySelectorAll('.cert-batch-cb').forEach(c=>c.checked=false); };
 
-    // ============================
-    // 3. 批量生成 (ZIP打包)
-    // ============================
+    // 4.3 批量生成
     const btnBatch = document.getElementById('btn-batch-generate-certs');
     if (btnBatch) btnBatch.addEventListener('click', async () => {
-        const checkedBoxes = document.querySelectorAll('.cert-batch-cb:checked');
-        const selectedIndices = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
-
-        if (selectedIndices.length === 0) { alert("请至少勾选一名学生！"); return; }
-        if (!confirm(`确定为选中的 ${selectedIndices.length} 名学生生成奖状并打包吗？`)) return;
+        const checked = document.querySelectorAll('.cert-batch-cb:checked');
+        if (checked.length === 0) { alert("请至少勾选一名学生！"); return; }
+        if (!confirm(`确定生成 ${checked.length} 张奖状并打包吗？`)) return;
         
-        const progressBox = document.getElementById('cert-batch-progress-box');
-        const progressBar = document.getElementById('cert-batch-bar');
-        const progressText = document.getElementById('cert-batch-status-text');
-        const progressPercent = document.getElementById('cert-batch-percent');
-        
-        if(progressBox) progressBox.style.display = 'block';
+        document.getElementById('cert-batch-progress-box').style.display = 'block';
+        const pBar = document.getElementById('cert-batch-bar');
         btnBatch.disabled = true;
-        
         const backup = { ...G_CertState.texts };
         const zip = new JSZip();
-        const imgFolder = zip.folder("奖状打包");
+        const folder = zip.folder("奖状");
 
-        for (let i = 0; i < selectedIndices.length; i++) {
-            const dataIdx = selectedIndices[i];
-            const data = window.G_Honor_List[dataIdx];
-            const percent = Math.round(((i + 1) / selectedIndices.length) * 100);
+        for (let i = 0; i < checked.length; i++) {
+            const idx = checked[i].value;
+            const data = window.G_Honor_List[idx];
+            pBar.style.width = `${Math.round(((i + 1) / checked.length) * 100)}%`;
             
-            if(progressText) progressText.innerText = `处理中: ${data.name}`;
-            if(progressBar) progressBar.style.width = `${percent}%`;
-            if(progressPercent) progressPercent.innerText = `${percent}%`;
-
-            // 填入数据并渲染
             G_CertState.texts.winner = data.name + " 同学";
             G_CertState.texts.desc = data.desc;
             updateCertPreview();
+            await new Promise(r => setTimeout(r, 100));
             
-            // 等待渲染
-            await new Promise(r => setTimeout(r, 150)); 
-            
-            // 截图
-            const base64 = await generateHighResCertificate(true); 
-            if (base64) {
-                const imgData = base64.split(',')[1];
-                imgFolder.file(`${data.title}_${data.name}_${dataIdx}.jpg`, imgData, {base64: true});
-            }
+            const base64 = await generateHighResCertificate(true);
+            if (base64) folder.file(`${data.title}_${data.name}.jpg`, base64.split(',')[1], {base64:true});
         }
-        
-        if(progressText) progressText.innerText = "正在压缩...";
         const content = await zip.generateAsync({type:"blob"});
-        saveAs(content, "精选奖状打包.zip");
-
-        if(progressText) progressText.innerText = "✅ 完成！";
+        saveAs(content, "奖状打包.zip");
         btnBatch.disabled = false;
-        G_CertState.texts = backup; // 恢复原始文本
+        G_CertState.texts = backup;
         updateCertPreview();
     });
 
-    // ============================
-    // 4. 素材上传 (持久化)
-    // ============================
-    const handleUploadPersistent = async (inputId, stateKey, clearBtnId, storageKey) => {
-        const input = document.getElementById(inputId);
-        const clearBtn = document.getElementById(clearBtnId);
-
-        // A. 尝试加载缓存
-        try {
-            const savedImage = await localforage.getItem(storageKey);
-            if (savedImage) {
-                G_CertState[stateKey] = savedImage;
-                if (clearBtn) clearBtn.style.display = 'inline-block';
-                updateCertPreview();
-            }
-        } catch (err) { console.warn("读取图片缓存失败", err); }
-
-        // B. 绑定上传
-        if (input) {
-            input.addEventListener('change', (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    const reader = new FileReader();
-                    reader.onload = async (evt) => {
-                        const base64 = evt.target.result;
-                        G_CertState[stateKey] = base64;
-                        await localforage.setItem(storageKey, base64); // 保存
-                        if (clearBtn) clearBtn.style.display = 'inline-block';
-                        updateCertPreview();
-                    };
-                    reader.readAsDataURL(file);
-                }
-            });
-        }
-
-        // C. 绑定删除
-        if (clearBtn) {
-            clearBtn.addEventListener('click', async () => {
-                G_CertState[stateKey] = null;
-                if(input) input.value = ''; 
-                clearBtn.style.display = 'none';
-                await localforage.removeItem(storageKey); // 清除
-                updateCertPreview();
-            });
-        }
-    };
-
-    // 分别绑定
-    handleUploadPersistent('cert-bg-upload', 'bgImage', 'btn-clear-bg', 'G_Cert_Custom_BG');
-    handleUploadPersistent('cert-seal-upload', 'sealImage', 'btn-clear-seal', 'G_Cert_Custom_Seal');
-
-
-    // ============================
-    // 5. 文本/字号/坐标 输入监听
-    // ============================
-    const bindInput = (id, callback) => { 
-        const el = document.getElementById(id); 
-        if(el) el.addEventListener('input', callback); 
-    };
-    
-    ['title', 'winner', 'desc', 'footer', 'date'].forEach(key => {
-        bindInput(`cert-text-${key}`, (e) => { G_CertState.texts[key] = e.target.value; updateCertPreview(); });
-        bindInput(`size-${key}`, (e) => { G_CertState.style.sizes[key] = e.target.value; updateCertPreview(); });
-        bindInput(`pos-x-${key}`, (e) => { G_CertState.manualPos[key].x = e.target.value; updateCertPreview(); });
-        bindInput(`pos-y-${key}`, (e) => { G_CertState.manualPos[key].y = e.target.value; updateCertPreview(); });
+    // 4.4 绑定输入框
+    const bindInput = (id, cb) => { const el=document.getElementById(id); if(el) el.addEventListener('input', cb); };
+    ['title', 'winner', 'desc', 'footer', 'date'].forEach(k => {
+        bindInput(`cert-text-${k}`, (e) => { G_CertState.texts[k] = e.target.value; updateCertPreview(); });
+        bindInput(`size-${k}`, (e) => { G_CertState.style.sizes[k] = e.target.value; updateCertPreview(); });
     });
-
-    // ============================
-    // 6. 样式与布局
-    // ============================
-    const fontSel = document.getElementById('cert-style-font');
-    if(fontSel) fontSel.addEventListener('change', (e) => { G_CertState.style.fontFamily = e.target.value; updateCertPreview(); });
     
-    const colorInp = document.getElementById('cert-style-color');
-    if(colorInp) colorInp.addEventListener('input', (e) => { G_CertState.style.color = e.target.value; updateCertPreview(); });
-    
-    const alignSel = document.getElementById('cert-style-align');
-    if(alignSel) alignSel.addEventListener('change', (e) => { G_CertState.style.textAlign = e.target.value; updateCertPreview(); });
-    
-    const layoutCb = document.getElementById('cert-layout-mode');
-    if(layoutCb) layoutCb.addEventListener('change', (e) => {
-        G_CertState.layoutMode = e.target.checked ? 'manual' : 'auto';
-        const mc = document.getElementById('cert-manual-controls');
-        if(mc) mc.style.display = e.target.checked ? 'block' : 'none';
-        updateCertPreview();
+    // 样式与纸张
+    const fontSel = document.getElementById('cert-style-font'); if(fontSel) fontSel.onchange = (e) => { G_CertState.style.fontFamily = e.target.value; updateCertPreview(); };
+    const colorInp = document.getElementById('cert-style-color'); if(colorInp) colorInp.oninput = (e) => { G_CertState.style.color = e.target.value; updateCertPreview(); };
+    const alignSel = document.getElementById('cert-style-align'); if(alignSel) alignSel.onchange = (e) => { G_CertState.style.textAlign = e.target.value; updateCertPreview(); };
+    const paperSel = document.getElementById('cert-paper-size'); if(paperSel) paperSel.onchange = (e) => { G_CertState.paper.size = e.target.value; updateCertPreview(); };
+    document.querySelectorAll('.paper-orient-btn').forEach(b => b.onclick = function() {
+        document.querySelectorAll('.paper-orient-btn').forEach(x=>x.classList.remove('active'));
+        this.classList.add('active'); G_CertState.paper.orientation = this.dataset.o; updateCertPreview();
     });
-
-    // ============================
-    // 7. 印章控制
-    // ============================
-    bindInput('seal-x', (e) => { G_CertState.seal.x = e.target.value; updateCertPreview(); });
-    bindInput('seal-y', (e) => { G_CertState.seal.y = e.target.value; updateCertPreview(); });
-    bindInput('seal-size', (e) => { G_CertState.seal.size = e.target.value; updateCertPreview(); });
-
-    // ============================
-    // 8. 纸张设置
-    // ============================
-    const paperSelect = document.getElementById('cert-paper-size');
-    if(paperSelect) paperSelect.addEventListener('change', (e) => { G_CertState.paper.size = e.target.value; updateCertPreview(); });
     
-    document.querySelectorAll('.paper-orient-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.paper-orient-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            G_CertState.paper.orientation = btn.dataset.o;
-            updateCertPreview();
-        });
-    });
-
-    // ============================
-    // 9. 生成单张
-    // ============================
+    // 铺满/重置
+    const btnFit = document.getElementById('btn-bg-fit'); if(btnFit) btnFit.onclick = () => { G_CertState.background = { x:0, y:0, w:parseInt(document.getElementById('cert-canvas-container').style.width), h:parseInt(document.getElementById('cert-canvas-container').style.height) }; updateCertPreview(); };
+    const btnReset = document.getElementById('btn-bg-reset'); if(btnReset) btnReset.onclick = () => { G_CertState.background = { x:0, y:0, w:800, h:565 }; updateCertPreview(); };
+    
+    // 单张生成
     const genBtn = document.getElementById('btn-generate-cert');
-    if (genBtn) genBtn.addEventListener('click', () => generateHighResCertificate(false));
+    if(genBtn) genBtn.onclick = () => generateHighResCertificate(false);
 }
 
-function setupSealDraggable() {
-    const seal = document.getElementById('preview-seal-img');
+// 5. 素材库逻辑 (修复上传)
+window.initAssetLibrary = async function(typePrefix, storageKey, targetStateKey) {
+    const uploadInput = document.getElementById(`${typePrefix}-upload`);
+    const gridContainer = document.getElementById(`${typePrefix}-grid`);
+    if (!uploadInput || !gridContainer) return;
+
+    let library = await localforage.getItem(storageKey) || [];
+    const renderGrid = () => {
+        if (library.length === 0) { gridContainer.innerHTML = `<div style="font-size:0.8em; color:#ccc; padding:10px;">暂无素材</div>`; return; }
+        gridContainer.innerHTML = library.map((item, idx) => `
+            <div class="asset-item" onclick="window.applyAssetData('${item}', '${targetStateKey}')" style="background-image:url('${item}');">
+                <div class="asset-del" onclick="event.stopPropagation(); window.deleteAssetItem('${storageKey}', ${idx}, '${typePrefix}', '${targetStateKey}')">🗑️</div>
+            </div>`).join('');
+    };
+    
+    const newInput = uploadInput.cloneNode(true);
+    uploadInput.parentNode.replaceChild(newInput, uploadInput);
+    newInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            library.push(evt.target.result); await localforage.setItem(storageKey, library);
+            window.applyAssetData(evt.target.result, targetStateKey); renderGrid();
+        };
+        reader.readAsDataURL(file);
+        newInput.value = '';
+    });
+    renderGrid();
+};
+
+window.applyAssetData = function(base64, key) {
+    G_CertState[key] = base64;
+    if (key === 'bgImage') G_CertState.background = { x: 0, y: 0, w: 800, h: 565 };
+    updateCertPreview();
+};
+
+window.deleteAssetItem = async function(sKey, idx, pre, tKey) {
+    if(!confirm('删除?')) return;
+    let lib = await localforage.getItem(sKey); lib.splice(idx, 1); await localforage.setItem(sKey, lib);
+    window.initAssetLibrary(pre, sKey, tKey);
+};
+
+// 6. 交互引擎 (拖拽)
+function setupInteractionEngine() {
     const container = document.getElementById('cert-canvas-container');
-    let isDragging = false;
-
-    if (!container || !seal) return;
-
+    let mode = null, startX, startY, startRect, startPos, activeKey;
+    
     container.addEventListener('mousedown', (e) => {
-        if (e.target === seal) {
-            isDragging = true;
-            seal.style.cursor = 'grabbing';
+        const t = e.target;
+        startX = e.clientX; startY = e.clientY;
+        if (t.classList.contains('resize-handle')) {
+            mode = 'resize_bg'; startRect = { ...G_CertState.background }; e.preventDefault();
+        } else if (t.id === 'preview-bg-img') {
+            mode = 'move_bg'; startRect = { ...G_CertState.background }; e.preventDefault();
+        } else if (t.dataset.key === 'seal') {
+            mode = 'move_seal'; startPos = { x: parseFloat(G_CertState.seal.x), y: parseFloat(G_CertState.seal.y) }; e.preventDefault();
+        } else if (t.classList.contains('cert-element')) {
+            mode = 'move_text'; activeKey = t.dataset.key;
+            startPos = { x: parseFloat(G_CertState.manualPos[activeKey].x), y: parseFloat(G_CertState.manualPos[activeKey].y) }; e.preventDefault();
         }
     });
 
     document.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
+        if (!mode) return;
         e.preventDefault();
-
+        const dx = e.clientX - startX, dy = e.clientY - startY;
         const rect = container.getBoundingClientRect();
-        let left = e.clientX - rect.left;
-        let top = e.clientY - rect.top;
-
-        // 限制范围
-        if (left < 0) left = 0; if (left > rect.width) left = rect.width;
-        if (top < 0) top = 0; if (top > rect.height) top = rect.height;
-
-        let px = (left / rect.width) * 100;
-        let py = (top / rect.height) * 100;
-
-        G_CertState.seal.x = px.toFixed(1);
-        G_CertState.seal.y = py.toFixed(1);
         
-        // 实时更新输入框
-        const elX = document.getElementById('seal-x');
-        const elY = document.getElementById('seal-y');
-        if(elX) elX.value = G_CertState.seal.x;
-        if(elY) elY.value = G_CertState.seal.y;
-
-        updateCertPreview();
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (isDragging) {
-            isDragging = false;
-            seal.style.cursor = 'move';
+        if (mode === 'move_bg') {
+            G_CertState.background.x = startRect.x + dx; G_CertState.background.y = startRect.y + dy;
+        } else if (mode === 'move_seal') {
+            G_CertState.seal.x = (startPos.x + (dx/rect.width)*100).toFixed(1);
+            G_CertState.seal.y = (startPos.y + (dy/rect.height)*100).toFixed(1);
+        } else if (mode === 'move_text') {
+            G_CertState.manualPos[activeKey].x = (startPos.x + (dx/rect.width)*100).toFixed(1);
+            G_CertState.manualPos[activeKey].y = (startPos.y + (dy/rect.height)*100).toFixed(1);
+        } else if (mode === 'resize_bg') {
+            G_CertState.background.w = Math.max(20, startRect.w + dx); // 简化右下角拉伸
+            G_CertState.background.h = Math.max(20, startRect.h + dy);
         }
+        requestAnimationFrame(updateCertPreview);
     });
+    document.addEventListener('mouseup', () => mode = null);
+}
+
+// 7. 生成高清图
+async function generateHighResCertificate(isBatch = false) {
+    const dom = document.getElementById('cert-canvas-container');
+    const modal = document.getElementById('cert-result-modal');
+    if (!isBatch) { modal.style.display = 'flex'; document.getElementById('final-cert-img').alt = '渲染中...'; }
+
+    const clone = dom.cloneNode(true);
+    clone.style.cssText += 'position:absolute; top:-9999px; left:-9999px; margin:0; transform:none; z-index:-1;';
+    document.body.appendChild(clone);
+
+    try {
+        await new Promise(r => setTimeout(r, 100));
+        const canvas = await html2canvas(clone, { scale: 4, useCORS: true, backgroundColor: null, logging: false });
+        const data = canvas.toDataURL('image/jpeg', 0.9);
+        
+        if (isBatch) return data;
+        
+        document.getElementById('final-cert-img').src = data;
+        const btn = document.getElementById('btn-download-cert');
+        btn.href = data;
+        btn.download = `奖状_${G_CertState.texts.winner.replace(/\s/g,'')}.jpg`;
+    } catch (e) { console.error(e); } 
+    finally { document.body.removeChild(clone); }
 }
 
 
