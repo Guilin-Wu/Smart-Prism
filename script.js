@@ -19126,31 +19126,71 @@ function setupInteractionEngine() {
     document.addEventListener('mouseup', () => mode = null);
 }
 
-// 7. 生成高清图
+/**
+ * [旗舰修复版+V5] 生成高分辨率打印稿 (支持返回数据供打包)
+ * - 修复：生成图片时去除选中的绿色边框
+ */
 async function generateHighResCertificate(isBatch = false) {
-    const dom = document.getElementById('cert-canvas-container');
+    const originalDom = document.getElementById('cert-canvas-container');
     const modal = document.getElementById('cert-result-modal');
-    if (!isBatch) { modal.style.display = 'flex'; document.getElementById('final-cert-img').alt = '渲染中...'; }
+    
+    if (!isBatch) {
+        modal.style.display = 'flex';
+        const finalImg = document.getElementById('final-cert-img');
+        finalImg.src = '';
+        finalImg.alt = '⏳ 正在渲染高清图...';
+    }
 
-    const clone = dom.cloneNode(true);
-    clone.style.cssText += 'position:absolute; top:-9999px; left:-9999px; margin:0; transform:none; z-index:-1;';
+    // 1. 克隆节点
+    const clone = originalDom.cloneNode(true);
+    clone.id = "cert-clone-temp";
+    clone.style.position = 'absolute';
+    clone.style.top = '-9999px';
+    clone.style.left = '-9999px';
+    clone.style.margin = '0';
+    clone.style.transform = 'none'; 
+    clone.style.zIndex = '-1';
+    
+    // 🔥🔥🔥 核心修复：强制隐藏调节框和手柄 🔥🔥🔥
+    const transformBox = clone.querySelector('#bg-transform-box');
+    if (transformBox) {
+        transformBox.style.display = 'none';
+    }
+
     document.body.appendChild(clone);
 
     try {
         await new Promise(r => setTimeout(r, 100));
-        const canvas = await html2canvas(clone, { scale: 4, useCORS: true, backgroundColor: null, logging: false });
-        const data = canvas.toDataURL('image/jpeg', 0.9);
-        
-        if (isBatch) return data;
-        
-        document.getElementById('final-cert-img').src = data;
-        const btn = document.getElementById('btn-download-cert');
-        btn.href = data;
-        btn.download = `奖状_${G_CertState.texts.winner.replace(/\s/g,'')}.jpg`;
-    } catch (e) { console.error(e); } 
-    finally { document.body.removeChild(clone); }
-}
 
+        const canvas = await html2canvas(clone, {
+            scale: 4, 
+            useCORS: true,
+            backgroundColor: null,
+            logging: false
+        });
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+        
+        if (isBatch) {
+            return imgData;
+        } else {
+            const fileName = `奖状_${G_CertState.texts.winner.replace(/\s+/g, '')}.jpg`;
+            const finalImg = document.getElementById('final-cert-img');
+            const downloadBtn = document.getElementById('btn-download-cert');
+            finalImg.src = imgData;
+            finalImg.alt = '生成成功';
+            downloadBtn.href = imgData;
+            downloadBtn.download = fileName;
+        }
+
+    } catch (err) {
+        console.error(err);
+        if(!isBatch) alert('生成失败，请检查控制台。');
+        return null;
+    } finally {
+        document.body.removeChild(clone);
+    }
+}
 
 // =====================================================================
 //    NEW    侧边栏模块显示管理器
