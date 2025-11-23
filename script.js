@@ -11693,8 +11693,9 @@ function generateStudentReportHTML(student) {
 // =====================================================================
 
 /**
- * 13.18.    启动“小题分析-学生诊断表”的打印作业 (智能版)
- * (此函数由 "item-print-btn" 按钮直接调用)
+ * [修复版] 13.18. 启动“小题分析-学生诊断表”的打印作业
+ * - 修复：同时计算“知识点统计”和“小题统计”
+ * - 解决：打印报告中“层均得分率”和“偏差”显示 N/A 的问题
  */
 function startItemDetailPrintJob() {
     // 1. 找到打印按钮自己
@@ -11704,35 +11705,35 @@ function startItemDetailPrintJob() {
         return;
     }
 
-    // 2.    核心    检查按钮的模式
+    // 2. 检查按钮的模式
     const target = printBtn.dataset.printTarget;
     let studentIdsToPrint = [];
 
     if (target === 'current') {
-        // 模式A: 打印当前选中的学生
         const studentId = printBtn.dataset.studentId;
-        if (studentId) {
-            studentIdsToPrint = [studentId];
-        }
+        if (studentId) studentIdsToPrint = [studentId];
     } else {
-        // 模式B: 打印当前筛选的列表
-        // G_ItemOutlierList 已经在 drawItemAnalysisOutlierTable 中被正确筛选
-        studentIdsToPrint = G_ItemOutlierList.map(s => s.id);
+        // 模式B: 打印当前筛选的列表 (从 DOM 或 缓存读取)
+        // 如果 G_ItemOutlierList 为空，说明还没计算过，需要先计算
+        if (!G_ItemOutlierList || G_ItemOutlierList.length === 0) {
+             // 尝试根据筛选条件现场计算名单
+             // (为了代码简洁，这里建议用户先看表再打印，或者复用下方逻辑)
+             // 如果这里为空，下面的逻辑会重新计算一遍
+        } else {
+             studentIdsToPrint = G_ItemOutlierList.map(s => s.id);
+        }
     }
 
     if (studentIdsToPrint.length === 0) {
-        alert("没有可打印的学生。");
+        // 如果全局列表为空，尝试从筛选条件全量计算
+        // (下面的逻辑会覆盖这种情况)
+    }
+
+    if (studentIdsToPrint.length > 20 && !confirm(`即将打印 ${studentIdsToPrint.length} 份报告，是否继续？`)) {
         return;
     }
 
-    // (如果打印列表超过20人，给一个提示)
-    if (studentIdsToPrint.length > 20) {
-        if (!confirm(`您即将打印 ${studentIdsToPrint.length} 份学生报告。\n这可能需要一些时间来生成，是否继续？`)) {
-            return;
-        }
-    }
-
-    // 3.    核心    获取所有计算所需的上下文
+    // 3. 获取所有计算所需的上下文
     const subjectName = document.getElementById('item-subject-select').value;
     const selectedClass = document.getElementById('item-class-filter').value;
     const numGroups = parseInt(document.getElementById('item-layer-groups').value);
@@ -11744,63 +11745,61 @@ function startItemDetailPrintJob() {
         ? allStudents
         : allStudents.filter(s => s.class === selectedClass);
 
-    // 5.    核心计算    (这会比较慢，但必须执行)
-    const recalculatedStats = getRecalculatedItemStats(subjectName);
-    const { groupStats, knowledgePoints, studentsWithRates } = calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents, questionType);
+    if (filteredStudents.length === 0) {
+        alert("当前筛选范围内无学生数据。");
+        return;
+    }
 
-    // 6. 构建打印页面的完整 HTML (复用 Module 2 的样式)
+    // ============================================================
+    // 🔥🔥🔥 核心修复区域 🔥🔥🔥
+    // ============================================================
+    
+    const recalculatedStats = getRecalculatedItemStats(subjectName);
+
+    // A. 计算【知识点】统计 (目的是为了获得 studentsWithRates 和 计算分层归属)
+    const knowledgeResult = calculateLayeredKnowledgeStats(subjectName, numGroups, filteredStudents, questionType);
+    
+    // B. 计算【小题】统计 (这是打印表中 "层均得分率" 真正需要的数据源！)
+    const itemResult = calculateLayeredItemStats(subjectName, numGroups, filteredStudents);
+
+    // C. 重新生成一份临时的 OutlierList，确保能找到每个学生对应的层级 (G1/G2...)
+    // (必须用 knowledgeResult 来生成，因为分层逻辑在那里)
+    const tempOutlierList = calculateStudentKnowledgeOutliers(
+        subjectName, 
+        numGroups, 
+        knowledgeResult.groupStats, 
+        knowledgeResult.knowledgePoints, 
+        knowledgeResult.studentsWithRates, 
+        questionType
+    );
+
+    // 如果之前没选中学生，默认打印所有筛选出的学生
+    if (studentIdsToPrint.length === 0) {
+        studentIdsToPrint = tempOutlierList.map(s => s.id);
+    }
+    
+    if (studentIdsToPrint.length === 0) {
+         alert("没有可打印的学生。"); return;
+    }
+    // ============================================================
+
+    // 6. 构建打印 HTML
     let html = `
         <html>
         <head>
-            <title>学生知识点诊断</title>
+            <title>${subjectName} - 学生知识点诊断</title>
             <style>
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                }
-                .print-page-container {
-                    padding: 2cm;
-                }
-                
-                /* 基础表格样式 (来自 style.css) */
+                body { font-family: "Segoe UI", sans-serif; padding: 2cm; color: #333; }
+                .print-page-container { padding: 0; page-break-after: always; }
                 .table-container { width: 100%; margin-top: 15px; }
-                table { width: 100%; border-collapse: collapse; }
-                th, td { 
-                    border: 1px solid #999; 
-                    padding: 10px; 
-                    text-align: center; 
-                    font-size: 0.9em;
-                }
+                table { width: 100%; border-collapse: collapse; font-size: 12px; }
+                th, td { border: 1px solid #999; padding: 8px; text-align: center; }
                 th { background-color: #f0f0f0; }
-                
-                /* 进/退步颜色 (来自 style.css) */
-                .progress { color: #00a876 !important; }
-                .regress { color: #e53935 !important; }
-                
-                /* 打印机设置 */
-                @media print {
-                    @page {
-                        size: A4 portrait;
-                        margin: 0; /* 我们用 padding: 2cm 控制 */
-                    }
-                    body {
-                        -webkit-print-color-adjust: exact;
-                        print-color-adjust: exact;
-                    }
-                    .print-page-break {
-                        page-break-before: always;
-                    }
-                }
-                @media screen {
-                    /* 预览样式 */
-                    body { background-color: #EEE; }
-                    .print-page-container {
-                        background-color: #FFF;
-                        width: 210mm;
-                        min-height: 297mm;
-                        margin: 20px auto;
-                        box-shadow: 0 0 10px rgba(0,0,0,0.2);
-                        box-sizing: border-box;
-                    }
+                .progress { color: #00a876 !important; font-weight: bold; }
+                .regress { color: #e53935 !important; font-weight: bold; }
+                @media print { 
+                    .print-page-break { page-break-before: always; }
+                    body { -webkit-print-color-adjust: exact; }
                 }
             </style>
         </head>
@@ -11808,38 +11807,39 @@ function startItemDetailPrintJob() {
             <main class="print-content-wrapper">
     `;
 
-    // 7.    核心循环   
+    // 7. 循环生成
     let printedCount = 0;
     for (let i = 0; i < studentIdsToPrint.length; i++) {
         const studentId = studentIdsToPrint[i];
 
-        // (A) 找到学生和他们的层级
-        const student = studentsWithRates.find(s => s.id === studentId);
-        // (B) G_ItemOutlierList 是我们唯一能获取 "layer" 的地方
-        const outlierData = G_ItemOutlierList.find(s => s.id === studentId);
+        // 找到学生对象 (用 knowledgeResult 里的，因为包含了一些预计算属性，或者直接用 filteredStudents 也可以)
+        const student = knowledgeResult.studentsWithRates.find(s => String(s.id) === String(studentId));
+        
+        // 找到学生的分层 (从 tempOutlierList 找)
+        const outlierData = tempOutlierList.find(s => String(s.id) === String(studentId));
 
         if (!student || !outlierData) continue;
 
-        const studentLayer = outlierData.layer;
+        const studentLayer = outlierData.layer; // e.g., "G1", "G8"
         const pageBreakClass = (printedCount === 0) ? '' : 'print-page-break';
 
-        // (C) 生成该学生的报告 HTML
         html += `
             <div class="print-page-container ${pageBreakClass}">
-                ${generateItemDetailReportHTML(student, studentLayer, subjectName, questionType, groupStats, recalculatedStats)}
+                ${generateItemDetailReportHTML(
+                    student, 
+                    studentLayer, 
+                    subjectName, 
+                    questionType, 
+                    itemResult.groupStats, // ✅ 修复：传入小题维度的层级统计数据
+                    recalculatedStats
+                )}
             </div>
         `;
         printedCount++;
     }
 
-    // 8. 关闭 HTML
-    html += `
-            </main>
-        </body>
-        </html>
-    `;
+    html += `</main></body></html>`;
 
-    // 9. 打开  窗口并打印
     const printWindow = window.open('', '_blank');
     printWindow.document.write(html);
     printWindow.document.close();
@@ -11847,7 +11847,7 @@ function startItemDetailPrintJob() {
     setTimeout(() => {
         printWindow.focus();
         printWindow.print();
-    }, 1000); // (使用1秒延迟确保CSS应用)
+    }, 1000);
 }
 
 
@@ -18714,13 +18714,21 @@ function renderCertificateCreator(container) {
                          <label style="font-size:0.85em;"><input type="checkbox" id="cert-layout-mode"> 启用手动排版(X/Y)</label>
                     </div>
                     <div id="cert-manual-controls" style="display:none; background:#eee; padding:10px; border-radius:4px; margin-bottom:10px;">
-                        ${['title', 'winner', 'desc', 'footer', 'date'].map(k => `
-                            <div style="display:flex; gap:5px; margin-bottom:5px; align-items:center;">
-                                <span style="width:30px; font-size:0.8em;">${k.substr(0,2)}</span>
-                                <input type="number" id="pos-x-${k}" class="pos-input" value="${G_CertState.manualPos[k].x}">
-                                <input type="number" id="pos-y-${k}" class="pos-input" value="${G_CertState.manualPos[k].y}">
-                            </div>
-                        `).join('')}
+                        <div style="display:flex; justify-content:space-between; font-size:0.75em; color:#666; margin-bottom:5px;">
+                            <span style="margin-left:5px;">元素</span><span style="margin-right:15px;">X轴(%)</span><span style="margin-right:10px;">Y轴(%)</span>
+                        </div>
+                        ${['title', 'winner', 'desc', 'footer', 'date'].map(k => {
+                            // 定义中文映射
+                            const labelMap = { title: '标题', winner: '姓名', desc: '正文', footer: '结语', date: '日期' };
+                            return `
+                                <div style="display:flex; gap:5px; margin-bottom:5px; align-items:center;">
+                                    <span style="width:30px; font-size:0.8em; font-weight:bold; text-align:center;">${labelMap[k]}</span>
+                                    <input type="number" id="pos-x-${k}" class="pos-input" value="${G_CertState.manualPos[k].x}">
+                                    <input type="number" id="pos-y-${k}" class="pos-input" value="${G_CertState.manualPos[k].y}">
+                                </div>
+                            `;
+                        }).join('')}
+                        <p style="font-size:0.75em; color:#999; margin-top:8px; text-align:center;">* 提示: X=50 为水平居中</p>
                     </div>
                     <div style="margin-top:10px; background:#fff5e6; padding:8px; border-radius:4px; border:1px solid #ffe082;">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
