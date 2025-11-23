@@ -2718,128 +2718,71 @@ function renderSingleSubjectQuadrant(elementId, students, subject, gradeStats) {
 }
 
 /**
- * 9.4. [升级版 V3] 模块十一：成绩趋势对比 (修复年排排序选项)
+ * [旗舰修复版] 模块十一：成绩趋势对比 (修复总分图表 + 优化0值显示)
  */
 function renderTrend(container, currentData, compareData) {
 
     if (!compareData || compareData.length === 0) {
-        container.innerHTML = `<h2>模块十一：成绩趋势对比 (当前筛选: ${G_CurrentClassFilter})</h2><p>请先在侧边栏导入 "对比成绩" 数据。</p>`;
+        container.innerHTML = `<h2>模块十一：成绩趋势对比 (当前筛选: ${G_CurrentClassFilter})</h2><p style="padding:20px; color:#999;">请先在侧边栏导入 "对比成绩" 数据。</p>`;
         return;
     }
 
-    // 1. 匹配数据并保留单科排名信息
+    // 1. 数据预处理：合并新旧数据，并预计算总分差异 (修复图表数据源)
     const mergedData = currentData.map(student => {
         const oldStudent = compareData.find(s => String(s.id) === String(student.id));
+        
+        // 预计算总分差异 (供图表函数使用)
+        let rankDiff = null;
+        let gradeRankDiff = null;
+        let scoreDiff = null;
 
-        if (!oldStudent) {
-            return {
-                ...student,
-                oldTotalScore: null, oldRank: null, oldGradeRank: null,
-                oldClassRanks: {}, oldGradeRanks: {},
-                scoreDiff: 0, rankDiff: 0, gradeRankDiff: 0
-            };
+        if (oldStudent) {
+            // 分数差异
+            if (student.totalScore !== null && oldStudent.totalScore !== null) {
+                scoreDiff = parseFloat((student.totalScore - oldStudent.totalScore).toFixed(2));
+            }
+            // 排名差异 (旧 - 新 = 进步)
+            if (student.rank !== null && oldStudent.rank !== null) {
+                rankDiff = oldStudent.rank - student.rank;
+            }
+            if (student.gradeRank !== null && oldStudent.gradeRank !== null) {
+                gradeRankDiff = oldStudent.gradeRank - student.gradeRank;
+            }
         }
 
-        const scoreDiff = student.totalScore - oldStudent.totalScore;
-        const rankDiff = oldStudent.rank - student.rank; // 正数=进步
-        const gradeRankDiff = (oldStudent.gradeRank && student.gradeRank) ? oldStudent.gradeRank - student.gradeRank : 0;
-
-        return {
+        // 构建基础对象
+        const item = {
             ...student,
-            oldTotalScore: oldStudent.totalScore,
-            oldRank: oldStudent.rank,
-            oldGradeRank: oldStudent.gradeRank || null,
-            oldClassRanks: oldStudent.classRanks || {}, 
-            oldGradeRanks: oldStudent.gradeRanks || {},
-            scoreDiff: parseFloat(scoreDiff.toFixed(2)),
+            oldFound: !!oldStudent,
+            // 总分数据
+            oldTotalScore: oldStudent ? oldStudent.totalScore : null,
+            oldRank: oldStudent ? oldStudent.rank : null,
+            oldGradeRank: oldStudent ? oldStudent.gradeRank : null,
+            
+            // 🔥 核心修复：必须包含这些字段，顶部的柱状图才能正常显示总分趋势
+            scoreDiff: scoreDiff,
             rankDiff: rankDiff,
-            gradeRankDiff: gradeRankDiff
+            gradeRankDiff: gradeRankDiff,
+
+            // 原始数据对象 (用于提取单科)
+            oldScores: oldStudent ? (oldStudent.scores || {}) : {},
+            oldClassRanks: oldStudent ? (oldStudent.classRanks || {}) : {},
+            oldGradeRanks: oldStudent ? (oldStudent.gradeRanks || {}) : {}
         };
+        return item;
     });
 
-    // 2. 表格行渲染逻辑
-    const renderTableRows = (dataToRender) => {
-        if (dataToRender.length === 0) return '<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">无匹配学生</td></tr>';
-        
-        return dataToRender.map(s => `
-            <tr>
-               <td>${s.id}</td>
-                <td>${s.name}</td>
-                <td><strong>${s.totalScore}</strong> (上次: ${s.oldTotalScore ?? 'N/A'})</td>
-                <td class="${s.scoreDiff > 0 ? 'progress' : s.scoreDiff < 0 ? 'regress' : ''}">
-                    ${s.scoreDiff > 0 ? '▲' : s.scoreDiff < 0 ? '▼' : ''} ${Math.abs(s.scoreDiff)}
-                </td>
-                <td><strong>${s.rank}</strong></td>
-                <td class="${s.rankDiff > 0 ? 'progress' : s.rankDiff < 0 ? 'regress' : ''}">
-                    ${s.rankDiff > 0 ? '▲' : s.rankDiff < 0 ? '▼' : ''} ${Math.abs(s.rankDiff)} (上次: ${s.oldRank ?? 'N/A'})
-                </td>
-                <td>${s.gradeRank ?? 'N/A'}</td>
-                <td class="${s.gradeRankDiff > 0 ? 'progress' : s.gradeRankDiff < 0 ? 'regress' : ''}">
-                    ${s.gradeRankDiff > 0 ? '▲' : s.gradeRankDiff < 0 ? '▼' : ''} ${Math.abs(s.gradeRankDiff)} (上次: ${s.oldGradeRank ?? 'N/A'})
-                </td>
-            </tr>
-        `).join('');
-    };
-
-    // 3. 排序和表格刷  逻辑
-    const drawTable = () => {
-        const searchTerm = document.getElementById('trend-search').value.toLowerCase();
-        const selectedClass = document.getElementById('trend-class-filter').value;
-
-        const filteredData = mergedData.filter(s => {
-            if (selectedClass !== 'ALL' && s.class !== selectedClass) return false;
-            return String(s.name).toLowerCase().includes(searchTerm) || String(s.id).toLowerCase().includes(searchTerm);
-        });
-
-        const { key, direction } = G_TrendSort;
-        filteredData.sort((a, b) => {
-            let valA = a[key];
-            let valB = b[key];
-            valA = (valA === null || valA === undefined) ? (direction === 'asc' ? Infinity : -Infinity) : valA;
-            valB = (valB === null || valB === undefined) ? (direction === 'asc' ? Infinity : -Infinity) : valB;
-
-            if (typeof valA === 'string' || typeof valB === 'string') {
-                valA = String(valA); valB = String(valB);
-                return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-            } else {
-                return direction === 'asc' ? valA - valB : valB - valA;
-            }
-        });
-
-        document.getElementById('trend-table-body').innerHTML = renderTableRows(filteredData);
-        
-        document.querySelectorAll('#trend-table-header th[data-sort-key]').forEach(th => {
-            th.classList.remove('sort-asc', 'sort-desc');
-            if (th.dataset.sortKey === key) {
-                th.classList.add(direction === 'asc' ? 'sort-asc' : 'sort-desc');
-            }
-        });
-    };
-
-    // 4. 绘制图表函数
-    const drawCharts = () => {
-        const classFilter = document.getElementById('trend-class-filter').value;
-        const sortFilter = document.getElementById('trend-sort-filter').value;
-        const subjectFilter = document.getElementById('trend-subject-select').value;
-
-        const scatterData = (classFilter === 'ALL')
-            ? mergedData
-            : mergedData.filter(s => s.class === classFilter);
-
-        renderRankChangeBarChart('trend-rank-change-bar-chart', scatterData, sortFilter, subjectFilter);
-    };
-
-    // 5. 渲染 UI (已添加年排选项)
+    // 2. 渲染 HTML 框架
     container.innerHTML = `
         <h2>模块十一：成绩趋势对比 (当前筛选: ${G_CurrentClassFilter})</h2>
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <div class="controls-bar chart-controls" style="flex-wrap: wrap;">
                 
-                <label for="trend-subject-select" style="font-weight:bold;">图表统计对象:</label>
+                <label for="trend-subject-select" style="font-weight:bold;">分析对象:</label>
                 <select id="trend-subject-select" class="sidebar-select" style="min-width: 120px; margin-right: 15px; color: #6f42c1; font-weight: bold;">
-                    <option value="totalScore">总分排名</option>
-                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}排名</option>`).join('')}
+                    <option value="totalScore">总分</option>
+                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
                 </select>
 
                 <label for="trend-class-filter">班级:</label>
@@ -2851,34 +2794,37 @@ function renderTrend(container, currentData, compareData) {
                 <label for="trend-sort-filter">图表排序:</label>
                 <select id="trend-sort-filter" class="sidebar-select" style="min-width: 180px;">
                     <option value="name">按学生姓名 (默认)</option>
-                    <option value="rankDiff_desc">按【班排】进步 (进步最多)</option>
-                    <option value="rankDiff_asc">按【班排】退步 (退步最多)</option>
-                    <option value="gradeRankDiff_desc">按【年排】进步 (进步最多)</option>
-                    <option value="gradeRankDiff_asc">按【年排】退步 (退步最多)</option>
+                    <option value="rankDiff_desc">按【班排】进步幅度</option>
+                    <option value="rankDiff_asc">按【班排】退步幅度</option>
+                    <option value="gradeRankDiff_desc">按【年排】进步幅度</option>
                 </select>
             </div>
             <div class="chart-container" id="trend-rank-change-bar-chart" style="height: 350px;"></div>
         </div>
 
         <div class="main-card-wrapper">
-            <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0 0 15px 0;">
-                <label for="trend-search">搜索学生:</label>
-                <input type="text" id="trend-search" placeholder="输入姓名或考号...">
-                <span style="margin-left:auto; font-size:0.8em; color:#999;">* 下方表格固定显示“总分”变动情况</span>
+            <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0 0 15px 0; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center;">
+                    <label for="trend-search">搜索学生:</label>
+                    <input type="text" id="trend-search" placeholder="输入姓名或考号..." class="sidebar-select" style="width:200px;">
+                </div>
+                <span id="trend-table-status" style="font-size:0.85em; color:#20c997; font-weight:bold;">
+                    * 下方表格已联动显示“总分”数据
+                </span>
             </div>
 
-            <div class="table-container">
+            <div class="table-container" style="max-height: 600px; overflow-y: auto;">
                 <table>
                     <thead id="trend-table-header">
                         <tr>
-                            <th data-sort-key="id">考号</th>
-                            <th data-sort-key="name">姓名</th>
-                            <th data-sort-key="totalScore">总分</th>
-                            <th data-sort-key="scoreDiff">分数变化</th>
-                            <th data-sort-key="rank">班排</th>
-                            <th data-sort-key="rankDiff">班排变化</th>
-                            <th data-sort-key="gradeRank">年排</th>
-                            <th data-sort-key="gradeRankDiff">年排变化</th>
+                            <th data-sort-key="id" style="cursor:pointer;">考号 ⇅</th>
+                            <th data-sort-key="name" style="cursor:pointer;">姓名 ⇅</th>
+                            <th data-sort-key="currentVal" style="cursor:pointer;" id="th-trend-score">总分 ⇅</th>
+                            <th data-sort-key="diffVal" style="cursor:pointer;">分数变化 ⇅</th>
+                            <th data-sort-key="currentCR" style="cursor:pointer;" id="th-trend-cr">班排 ⇅</th>
+                            <th data-sort-key="diffCR" style="cursor:pointer;">班排变化 ⇅</th>
+                            <th data-sort-key="currentGR" style="cursor:pointer;" id="th-trend-gr">年排 ⇅</th>
+                            <th data-sort-key="diffGR" style="cursor:pointer;">年排变化 ⇅</th>
                         </tr>
                     </thead>
                     <tbody id="trend-table-body"></tbody>
@@ -2887,34 +2833,175 @@ function renderTrend(container, currentData, compareData) {
         </div>
     `;
 
+    // 3. 核心逻辑：动态计算当前科目的数据 (表格用)
+    const getDisplayData = () => {
+        const subject = document.getElementById('trend-subject-select').value;
+        const isTotal = subject === 'totalScore';
+
+        return mergedData.map(s => {
+            let currentVal, oldVal, currentCR, oldCR, currentGR, oldGR;
+            
+            if (isTotal) {
+                currentVal = s.totalScore;
+                oldVal = s.oldTotalScore;
+                currentCR = s.rank;
+                oldCR = s.oldRank;
+                currentGR = s.gradeRank;
+                oldGR = s.oldGradeRank;
+            } else {
+                currentVal = s.scores[subject];
+                oldVal = s.oldScores[subject];
+                // 防御性读取排名
+                currentCR = s.classRanks ? s.classRanks[subject] : null;
+                oldCR = s.oldClassRanks ? s.oldClassRanks[subject] : null;
+                currentGR = s.gradeRanks ? s.gradeRanks[subject] : null;
+                oldGR = s.oldGradeRanks ? s.oldGradeRanks[subject] : null;
+            }
+
+            // 计算差值
+            let diffVal = (currentVal !== null && oldVal !== null) ? (currentVal - oldVal) : null;
+            let diffCR = (currentCR !== null && oldCR !== null) ? (oldCR - currentCR) : null;
+            let diffGR = (currentGR !== null && oldGR !== null) ? (oldGR - currentGR) : null;
+
+            return {
+                raw: s,
+                id: s.id,
+                name: s.name,
+                class: s.class,
+                currentVal, oldVal, diffVal,
+                currentCR, oldCR, diffCR,
+                currentGR, oldGR, diffGR
+            };
+        });
+    };
+
+    // 4. 渲染表格
+    const drawTable = () => {
+        const subject = document.getElementById('trend-subject-select').value;
+        const subjectLabel = (subject === 'totalScore') ? '总分' : subject;
+        const searchTerm = document.getElementById('trend-search').value.toLowerCase();
+        const selectedClass = document.getElementById('trend-class-filter').value;
+
+        document.getElementById('th-trend-score').innerText = `${subjectLabel} ⇅`;
+        document.getElementById('th-trend-cr').innerText = `${subjectLabel}班排 ⇅`;
+        document.getElementById('th-trend-gr').innerText = `${subjectLabel}年排 ⇅`;
+        document.getElementById('trend-table-status').innerText = `* 下方表格已联动显示“${subjectLabel}”变动情况`;
+
+        let data = getDisplayData();
+
+        data = data.filter(item => {
+            if (selectedClass !== 'ALL' && item.class !== selectedClass) return false;
+            if (searchTerm && !item.name.toLowerCase().includes(searchTerm) && !String(item.id).includes(searchTerm)) return false;
+            return true;
+        });
+
+        const { key, direction } = G_TrendSort; 
+        data.sort((a, b) => {
+            let valA = a[key];
+            let valB = b[key];
+            if (valA === null || valA === undefined) valA = direction === 'asc' ? 99999 : -99999;
+            if (valB === null || valB === undefined) valB = direction === 'asc' ? 99999 : -99999;
+
+            if (typeof valA === 'string') return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            return direction === 'asc' ? valA - valB : valB - valA;
+        });
+
+        const tbody = document.getElementById('trend-table-body');
+        if (data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">无匹配数据</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = data.map(row => {
+            // 辅助显示函数 (优化版)
+            const formatDiff = (val) => {
+                if (val === null || val === undefined) return '<span style="color:#ccc">-</span>';
+                if (val === 0) return `<span style="color:#999; font-size:0.9em; font-weight:bold;">0</span>`; // 🔥 0值明确显示
+                if (val > 0) return `<span class="progress">▲ ${val}</span>`;
+                if (val < 0) return `<span class="regress">▼ ${Math.abs(val)}</span>`;
+                return `<span style="color:#ccc">-</span>`;
+            };
+            
+            const formatScoreDiff = (val) => {
+                 if (val === null || val === undefined) return '<span style="color:#ccc">-</span>';
+                 if (val === 0) return `<span style="color:#999; font-size:0.9em;">0</span>`;
+                 if (val > 0) return `<span class="progress">▲ +${val.toFixed(1)}</span>`;
+                 if (val < 0) return `<span class="regress">▼ ${val.toFixed(1)}</span>`;
+                 return `<span style="color:#ccc">-</span>`;
+            };
+
+            return `
+                <tr>
+                    <td>${row.id}</td>
+                    <td><strong>${row.name}</strong></td>
+                    
+                    <td>
+                        <strong>${row.currentVal !== null ? row.currentVal : '-'}</strong>
+                        <span style="font-size:0.8em; color:#999;">(上次:${row.oldVal !== null ? row.oldVal : '-'})</span>
+                    </td>
+                    <td>${formatScoreDiff(row.diffVal)}</td>
+                    
+                    <td>
+                        <strong>${row.currentCR !== null ? row.currentCR : '-'}</strong>
+                        <span style="font-size:0.8em; color:#999;">(上次:${row.oldCR !== null ? row.oldCR : '-'})</span>
+                    </td>
+                    <td>${formatDiff(row.diffCR)}</td>
+                    
+                    <td>${row.currentGR !== null ? row.currentGR : '-'}</td>
+                    <td>${formatDiff(row.diffGR)}</td>
+                </tr>
+            `;
+        }).join('');
+    };
+
+    // 5. 绘制图表
+    const drawCharts = () => {
+        const classFilter = document.getElementById('trend-class-filter').value;
+        const sortFilter = document.getElementById('trend-sort-filter').value;
+        const subject = document.getElementById('trend-subject-select').value;
+        
+        let chartSource = mergedData;
+        if (classFilter !== 'ALL') {
+            chartSource = mergedData.filter(s => s.class === classFilter);
+        }
+        
+        renderRankChangeBarChart('trend-rank-change-bar-chart', chartSource, sortFilter, subject);
+    };
+
     // 6. 绑定事件
     const searchInput = document.getElementById('trend-search');
-    const tableHeader = document.getElementById('trend-table-header');
-    const classFilterSelect = document.getElementById('trend-class-filter');
-    const sortFilterSelect = document.getElementById('trend-sort-filter');
-    const subjectFilterSelect = document.getElementById('trend-subject-select');
+    const subjectSelect = document.getElementById('trend-subject-select');
+    const classSelect = document.getElementById('trend-class-filter');
+    const sortSelect = document.getElementById('trend-sort-filter');
+    const tableHead = document.getElementById('trend-table-header');
 
+    subjectSelect.addEventListener('change', () => { drawCharts(); drawTable(); });
+    classSelect.addEventListener('change', () => { drawCharts(); drawTable(); });
+    sortSelect.addEventListener('change', drawCharts);
     searchInput.addEventListener('input', drawTable);
-    classFilterSelect.addEventListener('change', () => { drawCharts(); drawTable(); });
-    sortFilterSelect.addEventListener('change', drawCharts);
-    subjectFilterSelect.addEventListener('change', drawCharts);
 
-    tableHeader.addEventListener('click', (e) => {
+    tableHead.addEventListener('click', (e) => {
         const th = e.target.closest('th[data-sort-key]');
         if (!th) return;
+        
         const newKey = th.dataset.sortKey;
         const { key, direction } = G_TrendSort;
+        
         if (newKey === key) {
             G_TrendSort.direction = (direction === 'asc') ? 'desc' : 'asc';
         } else {
             G_TrendSort.key = newKey;
-            G_TrendSort.direction = ['rankDiff', 'scoreDiff', 'gradeRankDiff'].includes(newKey) ? 'desc' : 'asc';
+            if (['currentCR', 'currentGR', 'rank'].includes(newKey)) G_TrendSort.direction = 'asc';
+            else G_TrendSort.direction = 'desc';
         }
+        
+        tableHead.querySelectorAll('th').forEach(h => h.style.color = '');
+        th.style.color = '#007bff';
         drawTable();
     });
 
-    // 7. 初始绘制
-    G_TrendSort = { key: 'rank', direction: 'asc' };
+    // 7. 初始化
+    G_TrendSort = { key: 'currentCR', direction: 'asc' };
     drawTable();
     drawCharts();
 }
@@ -4639,7 +4726,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
     };
 
 
-    // 7. 绑定桑基图点击事件 (逻辑保持最  )
+    // 7. 绑定桑基图点击事件 (修复版：解决单科点击无反应 Bug)
     function bindSankeyEvents() {
         const resultsWrapper = document.getElementById('dist-sankey-results-wrapper');
         const resultsTitle = document.getElementById('dist-sankey-results-title');
@@ -4653,7 +4740,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                 const useGradeRank = (currentFilter === 'ALL');
                 const { dataType, data } = params;
 
-                // 动态获取排名和分数
+                // [核心修复] 安全获取排名和分数
                 const getRanks = (s) => {
                     if (isTotal) {
                         return {
@@ -4663,11 +4750,17 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                             newScore: s.totalScore
                         };
                     } else {
+                        // 🔥 修复点：增加 (s.oldGradeRanks || {}) 安全访问
+                        // 防止因排名数据缺失导致的 undefined 报错
+                        const oldRanks = useGradeRank ? (s.oldGradeRanks || {}) : (s.oldClassRanks || {});
+                        const newRanks = useGradeRank ? (s.gradeRanks || {}) : (s.classRanks || {});
+                        
                         return {
-                            old: useGradeRank ? (s.oldGradeRanks[subject] || 0) : (s.oldClassRanks[subject] || 0),
-                            new: useGradeRank ? (s.gradeRanks[subject] || 0) : (s.classRanks[subject] || 0),
-                            oldScore: s.oldScores[subject],
-                            newScore: s.scores[subject]
+                            old: oldRanks[subject] || 0,
+                            new: newRanks[subject] || 0,
+                            // 分数也加安全检查
+                            oldScore: (s.oldScores && s.oldScores[subject] !== undefined) ? s.oldScores[subject] : '-',
+                            newScore: (s.scores && s.scores[subject] !== undefined) ? s.scores[subject] : '-'
                         };
                     }
                 };
@@ -4688,7 +4781,8 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                     });
                 } else if (dataType === 'node') {
                     title = `${params.name} (${params.value}人)`;
-                    const nodeName = data.name.replace('上次: ', '').replace('本次: ', '');
+                    // 修复节点名称解析 (去掉前缀)
+                    const nodeName = data.name.replace(/^(上次|本次): /, '');
                     const isOld = data.name.startsWith('上次:');
 
                     students = mergedData.filter(s => {
@@ -4720,7 +4814,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                         ${students.map(s => {
                         const r = getRanks(s);
 
-                        //    获取分层名称
+                        // 获取分层名称
                         const oldTierName = getRankCategory(r.old);
                         const newTierName = getRankCategory(r.new);
 
@@ -4728,7 +4822,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                         const tierNew = rankTiers.findIndex(t => t.name === newTierName);
 
                         let rowClass = '';
-                        // 索引越小代表排名越靠前 (Top 10% 是 0)，所以 旧索引 >   索引 = 进步
+                        // 索引越小代表排名越靠前 (Top 10% 是 0)，所以 旧索引 > 新索引 = 进步
                         if (tierOld > tierNew) rowClass = 'progress';
                         else if (tierOld < tierNew) rowClass = 'regress';
 
@@ -4739,9 +4833,9 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                                             <td style="color: #888; font-size: 0.9em;">${oldTierName}</td>
                                             <td style="font-weight: bold;">${newTierName}</td>
                                             
-                                            <td><strong>${r.newScore ?? '-'}</strong></td>
+                                            <td><strong>${r.newScore}</strong></td>
                                             <td>${r.new}</td>
-                                            <td>${r.oldScore ?? '-'}</td>
+                                            <td>${r.oldScore}</td>
                                             <td>${r.old}</td>
                                         </tr>`;
                     }).join('')}
@@ -4749,6 +4843,9 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                             </table>
                         </div>
                     `;
+                    
+                    // 滚动到表格位置
+                    resultsWrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             });
         }
