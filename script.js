@@ -18672,15 +18672,15 @@ else if (type === 'progress_grade') { // 年级进步
 };
 
 // =====================================================================
-//    🏆 模块二十四：专业奖状定制 (V9 完美交互版)
-//    修复：拖拽卡顿、文字异常换行、对齐方式优化
+//    🏆 模块二十四：专业奖状定制 (终极完整版)
 // =====================================================================
-// 全局状态对象 (旗舰版+V10：增加自定义署名)
+
+// 1. 全局状态对象 (带自动修复)
 let G_CertState = {
     bgImage: null,
     bgRect: { x: 0, y: 0, w: 800, h: 565 },
     sealImage: null,
-    seal: { x: 75, y: 75, w: 120, h: 120 },
+    seal: { x: 75, y: 75, w: 120, h: 120 }, // 统一使用 w, h
     
     texts: {
         title: '荣誉证书',
@@ -18688,15 +18688,13 @@ let G_CertState = {
         desc: '在本次期末考试中成绩优异。',
         award: '特被评为：<span class="cert-highlight">学习标兵</span>', 
         footer: '特发此状，以资鼓励', 
-        // 🔥 新增：署名
-        signature: '北京大学', 
+        signature: '北京大学附属中学莆田学校', // 默认署名
         date: '二〇二三年十一月'
     },
     style: {
         fontFamily: '"KaiTi", "STKaiti", "楷体", serif', 
         color: '#333333',
         textAlign: 'center',
-        // 🔥 新增：signature 字号
         sizes: { title: 48, winner: 32, desc: 18, award: 24, footer: 18, signature: 16, date: 16 }
     },
     paper: { size: 'A4', orientation: 'L' },
@@ -18707,16 +18705,23 @@ let G_CertState = {
         desc: { x: 50, y: 48 }, 
         award: { x: 50, y: 60 },
         footer: { x: 80, y: 70 }, 
-        // 🔥 新增：signature 坐标 (默认在日期上方)
-        signature: { x: 80, y: 70 },
+        signature: { x: 80, y: 70 }, // 署名坐标
         date: { x: 80, y: 75 } 
     }
 };
 
+// 强制状态检查 (防止报错)
+(function fixCertState() {
+    if (!G_CertState.background) G_CertState.background = { x: 0, y: 0, w: 800, h: 565 };
+    if (!G_CertState.seal) G_CertState.seal = { x: 75, y: 75, w: 120, h: 120 };
+})();
+
+
 /**
- * [旗舰版+V10] 渲染界面 (增加自定义署名)
+ * 2. 渲染定制器主界面
  */
 function renderCertificateCreator(container) {
+    // 字体加载
     if (!document.getElementById('font-cn-mirror')) {
         const fontLink = document.createElement('link');
         fontLink.id = 'font-cn-mirror';
@@ -18731,21 +18736,25 @@ function renderCertificateCreator(container) {
             .cert-element { position: absolute; line-height: 1.6; white-space: nowrap; cursor: grab; border: 1px dashed transparent; z-index: 20; user-select: none; transform-origin: center center; }
             .cert-desc { white-space: pre-wrap; word-break: break-word; } /* 正文允许换行 */
             .cert-element:hover { border-color: #007bff; background: rgba(0,123,255,0.05); }
+            .cert-element:active { cursor: grabbing; }
             
             #bg-transform-box { position: absolute; z-index: 10; border: 2px solid #20c997; display: none; pointer-events: none; }
             .resize-handle { position: absolute; width: 10px; height: 10px; background: #fff; border: 1px solid #20c997; pointer-events: auto; z-index: 11; }
-            .rh-nw { top:-6px; left:-6px; cursor:nw-resize; } .rh-se { bottom:-6px; right:-6px; cursor:se-resize; } /* 省略其他手柄CSS */
-            .rh-n{top:-6px;left:50%;margin-left:-5px;cursor:n-resize}.rh-ne{top:-6px;right:-6px;cursor:ne-resize}.rh-w{top:50%;left:-6px;margin-top:-5px;cursor:w-resize}.rh-e{top:50%;right:-6px;margin-top:-5px;cursor:e-resize}.rh-sw{bottom:-6px;left:-6px;cursor:sw-resize}.rh-s{bottom:-6px;left:50%;margin-left:-5px;cursor:s-resize}
+            .rh-nw { top: -6px; left: -6px; cursor: nw-resize; } .rh-n { top: -6px; left: 50%; margin-left:-5px; cursor: n-resize; }
+            .rh-ne { top: -6px; right: -6px; cursor: ne-resize; } .rh-w { top: 50%; left: -6px; margin-top:-5px; cursor: w-resize; }
+            .rh-e { top: 50%; right: -6px; margin-top:-5px; cursor: e-resize; } .rh-sw { bottom: -6px; left: -6px; cursor: sw-resize; }
+            .rh-s { bottom: -6px; left: 50%; margin-left:-5px; cursor: s-resize; } .rh-se { bottom: -6px; right: -6px; cursor: se-resize; }
 
             .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; margin-top: 8px; }
             .asset-item { height: 60px; border: 2px solid #eee; border-radius: 4px; cursor: pointer; background-size: cover; background-position: center; position: relative; overflow: hidden; }
             .asset-del { position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 2px 4px; display: none; }
             .asset-item:hover .asset-del { display: block; }
+            .font-option { font-size: 14px; }
         </style>
 
         <div style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
             
-            <div class="main-card-wrapper" style="flex: 1; min-width: 360px; background: #f8f9fa; border-left: 4px solid #2980b9;">
+            <div class="main-card-wrapper" style="flex: 1; min-width: 350px; background: #f8f9fa; border-left: 4px solid #2980b9;">
                 <h4 style="margin-top:0; color:#2980b9;">🛠️ 定制面板</h4>
                 
                 <div class="cert-control-group" style="background: #e8f4f8; padding: 10px; border-radius: 4px; border: 1px solid #bce8f1;">
@@ -18754,22 +18763,33 @@ function renderCertificateCreator(container) {
                         <span>请勾选要生成的学生：</span>
                         <div><a id="cert-sel-all" style="cursor:pointer; color:#007bff; margin-right:10px;">全选</a><a id="cert-sel-none" style="cursor:pointer; color:#666;">清空</a></div>
                     </div>
-                    <div id="cert-checklist-container" style="height: 120px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;"></div>
+                    <div id="cert-checklist-container" style="height: 120px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;">
+                        <div style="text-align:center; color:#999; padding:20px;">-- 请先到“荣誉榜”刷新数据 --</div>
+                    </div>
                     <button id="btn-batch-generate-certs" class="sidebar-button" style="width:100%; background-color:#6f42c1; font-size:0.9em;">📦 生成 ZIP 压缩包 (0)</button>
                     <div id="cert-batch-progress-box" style="display:none; margin-top:10px;">
-                        <div style="width:100%; height:8px; background:#ccc; border-radius:4px; overflow:hidden;"><div id="cert-batch-bar" style="width:0%; height:100%; background:#28a745;"></div></div>
+                        <div style="width:100%; height:8px; background:#ccc; border-radius:4px; overflow:hidden;">
+                            <div id="cert-batch-bar" style="width:0%; height:100%; background:#28a745; transition:width 0.3s;"></div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="cert-control-group">
+                    <label class="cert-label">🖼️ 背景素材库</label>
                     <div style="display:flex; gap:5px; margin-bottom:5px;">
-                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">➕ 背景 <input type="file" id="lib-bg-upload" accept="image/*" style="display:none;"></label>
+                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">
+                            ➕ 上传新背景 <input type="file" id="lib-bg-upload" accept="image/*" style="display:none;">
+                        </label>
                         <button id="btn-bg-fit" class="sidebar-button" style="background:#20c997; font-size:0.8em; padding:4px 8px;" title="铺满">↔️</button>
                         <button id="btn-bg-reset" class="sidebar-button" style="background:#6c757d; font-size:0.8em; padding:4px 8px;" title="重置">↺</button>
                     </div>
-                    <div id="lib-bg-grid" class="asset-grid" style="margin-bottom:10px;"></div>
+                    <div id="lib-bg-grid" class="asset-grid"></div>
+
+                    <label class="cert-label" style="margin-top:15px;">💮 印章素材库</label>
                     <div style="display:flex; gap:5px; margin-bottom:5px;">
-                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">➕ 印章 <input type="file" id="lib-seal-upload" accept="image/*" style="display:none;"></label>
+                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">
+                            ➕ 上传新印章 <input type="file" id="lib-seal-upload" accept="image/*" style="display:none;">
+                        </label>
                     </div>
                     <div id="lib-seal-grid" class="asset-grid"></div>
                 </div>
@@ -18789,17 +18809,18 @@ function renderCertificateCreator(container) {
                 </div>
 
                 <div class="cert-control-group">
+                    <label class="cert-label">🎨 样式设置</label>
                     <div style="display:flex; gap:5px; margin-bottom:10px;">
                         <select id="cert-style-font" class="cert-input" style="margin:0; flex:2;">
                             <option value='"KaiTi", "STKaiti", "楷体", serif'>楷体</option>
                             <option value='"SimSun", "宋体", serif'>宋体</option>
                             <option value='"Microsoft YaHei", sans-serif'>黑体</option>
-                            <option value="'Ma Shan Zheng', cursive">✨ 书法</option>
+                            <option value="'Ma Shan Zheng', cursive">✨ 马善政书法</option>
                         </select>
                         <input type="color" id="cert-style-color" value="${G_CertState.style.color}" style="height:36px; padding:0; flex:1;">
                         <select id="cert-style-align" class="cert-input" style="margin:0; flex:1;">
                             <option value="center">居中</option>
-                            <option value="left">靠左</option>
+                            <option value="left">左对齐</option>
                         </select>
                     </div>
                     
@@ -18886,6 +18907,7 @@ function renderCertificateCreator(container) {
                 <div class="modal-footer" style="justify-content: center;"><a id="btn-download-cert" class="sidebar-button" style="background-color: #27ae60;">下载图片</a></div>
             </div>
         </div>
+        
         <style>
             .cert-control-group { margin-bottom: 15px; border-bottom: 1px dashed #eee; padding-bottom: 15px; }
             .cert-label { font-weight: bold; display: block; margin-bottom: 5px; color: #555; font-size: 0.9em; }
@@ -18905,22 +18927,31 @@ function renderCertificateCreator(container) {
     initAssetLibrary('lib-seal', 'G_Asset_Seal_Lib', 'sealImage');
 }
 
+/**
+ * 3. 更新视图 (带防崩检查)
+ */
 function updateCertPreview() {
     const container = document.getElementById('cert-canvas-container');
     if (!container) return;
     const s = G_CertState;
 
+    // 防崩检查
+    if (!s.background) s.background = { x: 0, y: 0, w: 800, h: 565 };
+    if (!s.seal) s.seal = { x: 75, y: 75, w: 120, h: 120 };
+
+    // A. 纸张
     let ratio = 1.414; if (s.paper.size === '16:9') ratio = 1.777;
     const BASE = 800; let cw, ch;
     if (s.paper.orientation === 'L') { cw = BASE; ch = BASE / ratio; } else { ch = BASE; cw = BASE / ratio; }
     container.style.width = cw + 'px'; container.style.height = ch + 'px';
 
+    // B. 背景图
     const bgImg = document.getElementById('preview-bg-img');
     const tb = document.getElementById('bg-transform-box');
     if (s.bgImage) {
         bgImg.src = s.bgImage; bgImg.style.display = 'block';
         if (!s.background.w) s.background = { x:0, y:0, w:cw, h:ch };
-        bgImg.style.left = s.background.x + 'px'; bgImg.style.top = s.background.y + 'px';
+        bgImg.style.left = (s.background.x||0) + 'px'; bgImg.style.top = (s.background.y||0) + 'px';
         bgImg.style.width = s.background.w + 'px'; bgImg.style.height = s.background.h + 'px';
         if(tb) { tb.style.display='block'; tb.style.left=bgImg.style.left; tb.style.top=bgImg.style.top; tb.style.width=bgImg.style.width; tb.style.height=bgImg.style.height; }
     } else {
@@ -18928,21 +18959,21 @@ function updateCertPreview() {
         container.style.backgroundColor = '#fffdf5'; container.style.backgroundImage = 'none';
     }
 
+    // C. 文本
     container.style.fontFamily = s.style.fontFamily; container.style.color = s.style.color;
 
     const updateEl = (id, text, key, defaultTop) => {
         const el = document.getElementById(id);
         if(!el) return;
         el.innerHTML = text; 
-        el.style.fontSize = s.style.sizes[key] + 'px'; 
+        el.style.fontSize = (s.style.sizes[key]||16) + 'px'; 
         
-        // 对齐
+        // 对齐逻辑
         if (key === 'desc') {
             el.style.textAlign = 'left'; el.style.textIndent = '2em'; el.style.width = '80%';
         } else if (key === 'award') {
             el.style.textAlign = 'center'; el.style.width = '100%'; 
         } else if (key === 'footer' || key === 'date' || key === 'signature') {
-            // 🔥 署名也默认靠右
             el.style.textAlign = 'right'; el.style.width = 'auto'; el.style.textIndent = '0';
         } else {
             el.style.textAlign = s.style.textAlign; el.style.width = 'auto'; el.style.textIndent = '0';
@@ -18965,21 +18996,20 @@ function updateCertPreview() {
     updateEl('preview-text-desc', s.texts.desc, 'desc', '48%');
     updateEl('preview-text-award', s.texts.award, 'award', '60%');
     updateEl('preview-text-footer', s.texts.footer, 'footer', '70%');
-    // 🔥 渲染署名 (默认在 75% 高度)
     updateEl('preview-text-signature', s.texts.signature, 'signature', '75%');
     updateEl('preview-text-date', s.texts.date, 'date', '80%');
 
+    // D. 印章
     const sealEl = document.getElementById('preview-seal-img');
     if (s.sealImage) {
         sealEl.src = s.sealImage; sealEl.style.display = 'block';
-        sealEl.style.left = s.seal.x + '%'; sealEl.style.top = s.seal.y + '%';
-        sealEl.style.width = s.seal.w + 'px';
+        sealEl.style.left = (s.seal.x||75) + '%'; sealEl.style.top = (s.seal.y||75) + '%';
+        sealEl.style.width = (s.seal.w||120) + 'px';
         sealEl.style.transform = 'translate(-50%, -50%)';
     } else { sealEl.style.display = 'none'; }
 }
 
-
-// 4. 绑定事件
+// 4. 绑定事件 (多选列表+批量)
 function bindCertCreatorEvents() {
     window.updateCertChecklist = () => {
         const container = document.getElementById('cert-checklist-container');
@@ -19102,7 +19132,6 @@ function setupInteractionEngine() {
         const t = e.target;
         startX = e.clientX; startY = e.clientY;
         
-        // 🔥 核心修复：防止拖拽时选中文字导致卡顿 🔥
         document.body.style.userSelect = 'none';
         
         if (t.classList.contains('cert-element') || t.classList.contains('resize-handle') || t.id==='preview-bg-img') {
@@ -19137,24 +19166,20 @@ function setupInteractionEngine() {
         } else if (mode === 'move_seal') {
             G_CertState.seal.x = (startPos.x + (dx/rect.width)*100).toFixed(1);
             G_CertState.seal.y = (startPos.y + (dy/rect.height)*100).toFixed(1);
-            document.getElementById('seal-x').value = G_CertState.seal.x;
-            document.getElementById('seal-y').value = G_CertState.seal.y;
+            const sx=document.getElementById('seal-x'), sy=document.getElementById('seal-y');
+            if(sx) sx.value = G_CertState.seal.x; if(sy) sy.value = G_CertState.seal.y;
         } else if (mode === 'move_text') {
             G_CertState.manualPos[activeKey].x = (startPos.x + (dx/rect.width)*100).toFixed(1);
             G_CertState.manualPos[activeKey].y = (startPos.y + (dy/rect.height)*100).toFixed(1);
-            document.getElementById(`pos-x-${activeKey}`).value = G_CertState.manualPos[activeKey].x;
-            document.getElementById(`pos-y-${activeKey}`).value = G_CertState.manualPos[activeKey].y;
+            const ix=document.getElementById(`pos-x-${activeKey}`), iy=document.getElementById(`pos-y-${activeKey}`);
+            if(ix) ix.value = G_CertState.manualPos[activeKey].x; if(iy) iy.value = G_CertState.manualPos[activeKey].y;
         } else if (mode === 'resize_bg') {
             G_CertState.background.w = Math.max(20, startRect.w + dx);
             G_CertState.background.h = Math.max(20, startRect.h + dy);
         }
         requestAnimationFrame(updateCertPreview);
     });
-    document.addEventListener('mouseup', () => {
-        mode = null;
-        // 🔥 恢复文字选中 🔥
-        document.body.style.userSelect = '';
-    });
+    document.addEventListener('mouseup', () => { mode = null; document.body.style.userSelect = ''; });
 }
 
 // 6. 素材库与辅助
@@ -19179,8 +19204,13 @@ window.initAssetLibrary = async function(typePrefix, storageKey, targetStateKey)
         if (!file) return;
         const reader = new FileReader();
         reader.onload = async (evt) => {
-            library.push(evt.target.result); await localforage.setItem(storageKey, library);
-            window.applyAssetData(evt.target.result, targetStateKey); renderGrid();
+            let base64 = evt.target.result;
+            // 自动去白底
+            if (targetStateKey === 'sealImage' && typeof removeWhiteBackground === 'function') {
+                if(confirm("是否去除印章白底?")) base64 = await removeWhiteBackground(base64);
+            }
+            library.push(base64); await localforage.setItem(storageKey, library);
+            window.applyAssetData(base64, targetStateKey); renderGrid();
         };
         reader.readAsDataURL(file);
         newInput.value = '';
@@ -19200,6 +19230,33 @@ window.deleteAssetItem = async function(sKey, idx, pre, tKey) {
     window.initAssetLibrary(pre, sKey, tKey);
 };
 
+/**
+ * [辅助函数] 图片智能去白底
+ */
+function removeWhiteBackground(base64Data, tolerance = 60) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous";
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width; canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const distance = Math.sqrt((255-r)**2 + (255-g)**2 + (255-b)**2);
+                if (distance < tolerance) data[i+3] = 0;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+        };
+        img.src = base64Data;
+    });
+}
+
 // 7. 生成高清图
 async function generateHighResCertificate(isBatch = false) {
     const dom = document.getElementById('cert-canvas-container');
@@ -19209,7 +19266,7 @@ async function generateHighResCertificate(isBatch = false) {
     const clone = dom.cloneNode(true);
     clone.style.cssText += 'position:absolute; top:-9999px; left:-9999px; margin:0; transform:none; z-index:-1;';
     
-    // 🔥 隐藏变形框 🔥
+    // 隐藏变形框
     const box = clone.querySelector('#bg-transform-box');
     if(box) box.style.display = 'none';
     
@@ -19229,6 +19286,7 @@ async function generateHighResCertificate(isBatch = false) {
     } catch (e) { console.error(e); } 
     finally { document.body.removeChild(clone); }
 }
+
 
 // =====================================================================
 //    NEW    侧边栏模块显示管理器
