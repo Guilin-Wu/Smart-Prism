@@ -2716,9 +2716,8 @@ function renderSingleSubjectQuadrant(elementId, students, subject, gradeStats) {
     };
     myChart.setOption(option);
 }
-
 /**
- * [旗舰修复版] 模块十一：成绩趋势对比 (修复总分图表 + 优化0值显示)
+ * [旗舰升级版] 模块十一：成绩趋势对比 (含班级增值评价)
  */
 function renderTrend(container, currentData, compareData) {
 
@@ -2727,21 +2726,19 @@ function renderTrend(container, currentData, compareData) {
         return;
     }
 
-    // 1. 数据预处理：合并新旧数据，并预计算总分差异 (修复图表数据源)
+    // 1. 数据预处理：合并新旧数据
     const mergedData = currentData.map(student => {
         const oldStudent = compareData.find(s => String(s.id) === String(student.id));
         
-        // 预计算总分差异 (供图表函数使用)
+        // 预计算差异
         let rankDiff = null;
         let gradeRankDiff = null;
         let scoreDiff = null;
 
         if (oldStudent) {
-            // 分数差异
             if (student.totalScore !== null && oldStudent.totalScore !== null) {
                 scoreDiff = parseFloat((student.totalScore - oldStudent.totalScore).toFixed(2));
             }
-            // 排名差异 (旧 - 新 = 进步)
             if (student.rank !== null && oldStudent.rank !== null) {
                 rankDiff = oldStudent.rank - student.rank;
             }
@@ -2750,54 +2747,63 @@ function renderTrend(container, currentData, compareData) {
             }
         }
 
-        // 构建基础对象
-        const item = {
+        return {
             ...student,
             oldFound: !!oldStudent,
-            // 总分数据
             oldTotalScore: oldStudent ? oldStudent.totalScore : null,
             oldRank: oldStudent ? oldStudent.rank : null,
             oldGradeRank: oldStudent ? oldStudent.gradeRank : null,
-            
-            // 🔥 核心修复：必须包含这些字段，顶部的柱状图才能正常显示总分趋势
             scoreDiff: scoreDiff,
             rankDiff: rankDiff,
             gradeRankDiff: gradeRankDiff,
-
-            // 原始数据对象 (用于提取单科)
             oldScores: oldStudent ? (oldStudent.scores || {}) : {},
             oldClassRanks: oldStudent ? (oldStudent.classRanks || {}) : {},
             oldGradeRanks: oldStudent ? (oldStudent.gradeRanks || {}) : {}
         };
-        return item;
     });
 
     // 2. 渲染 HTML 框架
     container.innerHTML = `
         <h2>模块十一：成绩趋势对比 (当前筛选: ${G_CurrentClassFilter})</h2>
 
+        <div class="controls-bar chart-controls" style="flex-wrap: wrap; margin-bottom: 20px;">
+            <label for="trend-subject-select" style="font-weight:bold;">分析对象:</label>
+            <select id="trend-subject-select" class="sidebar-select" style="min-width: 120px; margin-right: 15px; color: #6f42c1; font-weight: bold;">
+                <option value="totalScore">总分</option>
+                ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+            </select>
+
+            <label for="trend-class-filter">班级:</label>
+            <select id="trend-class-filter" class="sidebar-select" style="min-width: 120px;">
+                <option value="ALL">-- 全体年段 --</option>
+                ${[...new Set(currentData.map(s => s.class))].sort().map(c => `<option value="${c}">${c}</option>`).join('')}
+            </select>
+        </div>
+
+        <div class="main-card-wrapper" style="margin-bottom: 20px; border-left: 5px solid #fd7e14;">
+            <h4 style="margin: 0 0 10px 0; color: #fd7e14;">📊 班级增值评价 (Value-Added)</h4>
+            <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+                <strong>“低进高出”即为增值。</strong><br>
+                X轴：上次排名 (上次考试平均年排，越靠右生源越差)；Y轴：增值幅度。<br>
+                <span style="color:#28a745">● 第一象限 (排名差，进步大)</span>
+                <span style="color:#dc3545">● 第四象限 (排名差，退步)</span>
+                <span style="color:#007bff">● 第二象限 (排名高，进步)</span>
+                <span style="color:#6c757d">● 第三象限 (排名高，退步)</span>
+            </p>
+            <div class="chart-container" id="trend-class-value-added-chart" style="height: 450px;"></div>
+        </div>
+
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
-            <div class="controls-bar chart-controls" style="flex-wrap: wrap;">
-                
-                <label for="trend-subject-select" style="font-weight:bold;">分析对象:</label>
-                <select id="trend-subject-select" class="sidebar-select" style="min-width: 120px; margin-right: 15px; color: #6f42c1; font-weight: bold;">
-                    <option value="totalScore">总分</option>
-                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
-                </select>
-
-                <label for="trend-class-filter">班级:</label>
-                <select id="trend-class-filter" class="sidebar-select" style="min-width: 120px;">
-                    <option value="ALL">-- 全体年段 --</option>
-                    ${[...new Set(currentData.map(s => s.class))].sort().map(c => `<option value="${c}">${c}</option>`).join('')}
-                </select>
-
-                <label for="trend-sort-filter">图表排序:</label>
-                <select id="trend-sort-filter" class="sidebar-select" style="min-width: 180px;">
-                    <option value="name">按学生姓名 (默认)</option>
-                    <option value="rankDiff_desc">按【班排】进步幅度</option>
-                    <option value="rankDiff_asc">按【班排】退步幅度</option>
-                    <option value="gradeRankDiff_desc">按【年排】进步幅度</option>
-                </select>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h4 style="margin:0;">学生个体进退步详情</h4>
+                <div style="display:flex; align-items:center;">
+                    <label for="trend-sort-filter" style="margin-right:5px; font-size:0.9em;">排序:</label>
+                    <select id="trend-sort-filter" class="sidebar-select" style="width: 160px;">
+                        <option value="name">按姓名</option>
+                        <option value="rankDiff_desc">按 班排进步 (大到小)</option>
+                        <option value="gradeRankDiff_desc">按 年排进步 (大到小)</option>
+                    </select>
+                </div>
             </div>
             <div class="chart-container" id="trend-rank-change-bar-chart" style="height: 350px;"></div>
         </div>
@@ -2805,12 +2811,10 @@ function renderTrend(container, currentData, compareData) {
         <div class="main-card-wrapper">
             <div class="controls-bar" style="background: transparent; box-shadow: none; padding: 0 0 15px 0; display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center;">
-                    <label for="trend-search">搜索学生:</label>
-                    <input type="text" id="trend-search" placeholder="输入姓名或考号..." class="sidebar-select" style="width:200px;">
+                    <label for="trend-search">搜索:</label>
+                    <input type="text" id="trend-search" placeholder="姓名/考号..." class="sidebar-select" style="width:150px;">
                 </div>
-                <span id="trend-table-status" style="font-size:0.85em; color:#20c997; font-weight:bold;">
-                    * 下方表格已联动显示“总分”数据
-                </span>
+                <span id="trend-table-status" style="font-size:0.85em; color:#20c997; font-weight:bold;">* 联动显示总分</span>
             </div>
 
             <div class="table-container" style="max-height: 600px; overflow-y: auto;">
@@ -2820,11 +2824,11 @@ function renderTrend(container, currentData, compareData) {
                             <th data-sort-key="id" style="cursor:pointer;">考号 ⇅</th>
                             <th data-sort-key="name" style="cursor:pointer;">姓名 ⇅</th>
                             <th data-sort-key="currentVal" style="cursor:pointer;" id="th-trend-score">总分 ⇅</th>
-                            <th data-sort-key="diffVal" style="cursor:pointer;">分数变化 ⇅</th>
+                            <th data-sort-key="diffVal" style="cursor:pointer;">分差 ⇅</th>
                             <th data-sort-key="currentCR" style="cursor:pointer;" id="th-trend-cr">班排 ⇅</th>
-                            <th data-sort-key="diffCR" style="cursor:pointer;">班排变化 ⇅</th>
+                            <th data-sort-key="diffCR" style="cursor:pointer;">班排变 ⇅</th>
                             <th data-sort-key="currentGR" style="cursor:pointer;" id="th-trend-gr">年排 ⇅</th>
-                            <th data-sort-key="diffGR" style="cursor:pointer;">年排变化 ⇅</th>
+                            <th data-sort-key="diffGR" style="cursor:pointer;">年排变 ⇅</th>
                         </tr>
                     </thead>
                     <tbody id="trend-table-body"></tbody>
@@ -2833,7 +2837,7 @@ function renderTrend(container, currentData, compareData) {
         </div>
     `;
 
-    // 3. 核心逻辑：动态计算当前科目的数据 (表格用)
+    // 3. 核心逻辑：动态计算当前科目
     const getDisplayData = () => {
         const subject = document.getElementById('trend-subject-select').value;
         const isTotal = subject === 'totalScore';
@@ -2842,40 +2846,99 @@ function renderTrend(container, currentData, compareData) {
             let currentVal, oldVal, currentCR, oldCR, currentGR, oldGR;
             
             if (isTotal) {
-                currentVal = s.totalScore;
-                oldVal = s.oldTotalScore;
-                currentCR = s.rank;
-                oldCR = s.oldRank;
-                currentGR = s.gradeRank;
-                oldGR = s.oldGradeRank;
+                currentVal = s.totalScore; oldVal = s.oldTotalScore;
+                currentCR = s.rank; oldCR = s.oldRank;
+                currentGR = s.gradeRank; oldGR = s.oldGradeRank;
             } else {
-                currentVal = s.scores[subject];
-                oldVal = s.oldScores[subject];
-                // 防御性读取排名
+                currentVal = s.scores[subject]; oldVal = s.oldScores[subject];
                 currentCR = s.classRanks ? s.classRanks[subject] : null;
                 oldCR = s.oldClassRanks ? s.oldClassRanks[subject] : null;
                 currentGR = s.gradeRanks ? s.gradeRanks[subject] : null;
                 oldGR = s.oldGradeRanks ? s.oldGradeRanks[subject] : null;
             }
 
-            // 计算差值
             let diffVal = (currentVal !== null && oldVal !== null) ? (currentVal - oldVal) : null;
-            let diffCR = (currentCR !== null && oldCR !== null) ? (oldCR - currentCR) : null;
+            let diffCR = (currentCR !== null && oldCR !== null) ? (oldCR - currentCR) : null; 
             let diffGR = (currentGR !== null && oldGR !== null) ? (oldGR - currentGR) : null;
 
             return {
-                raw: s,
-                id: s.id,
-                name: s.name,
-                class: s.class,
+                raw: s, id: s.id, name: s.name, class: s.class,
                 currentVal, oldVal, diffVal,
                 currentCR, oldCR, diffCR,
-                currentGR, oldGR, diffGR
+                currentGR, oldGR, diffGR,
+                // 辅助字段：用于增值计算
+                validGradeChange: (currentGR !== null && oldGR !== null)
             };
         });
     };
 
-    // 4. 渲染表格
+    // 4. 🔥 绘制 增值评价图 (上帝视角修复版) 🔥
+    const drawValueAddedChart = () => {
+        const subject = document.getElementById('trend-subject-select').value;
+        const subjectLabel = (subject === 'totalScore') ? '总分' : subject;
+        const currentFilterClass = document.getElementById('trend-class-filter').value;
+
+        // 🔥 关键：强制使用全局数据 G_StudentsData 计算班级指标，不受筛选影响
+        const globalClassMap = {};
+        
+        G_StudentsData.forEach(s => {
+            // 找到旧数据
+            const oldS = G_CompareData.find(o => String(o.id) === String(s.id));
+            if (!globalClassMap[s.class]) globalClassMap[s.class] = { name: s.class, sumOldRank: 0, sumChange: 0, count: 0 };
+            
+            // 计算单科/总分排名变化
+            let oldR = null, newR = null;
+            if (subject === 'totalScore') {
+                if (s.gradeRank && oldS && oldS.gradeRank) { oldR = oldS.gradeRank; newR = s.gradeRank; }
+            } else {
+                // 确保单科排名存在
+                if (s.gradeRanks && s.gradeRanks[subject] && oldS && oldS.gradeRanks && oldS.gradeRanks[subject]) {
+                    oldR = oldS.gradeRanks[subject];
+                    newR = s.gradeRanks[subject];
+                }
+            }
+
+            if (oldR !== null && newR !== null) {
+                globalClassMap[s.class].sumOldRank += oldR;
+                globalClassMap[s.class].sumChange += (oldR - newR); // 正数=进步
+                globalClassMap[s.class].count++;
+            }
+        });
+
+        const chartData = [];
+        const missingClasses = [];
+
+        // 获取所有班级列表
+        const allClasses = [...new Set(G_StudentsData.map(s => s.class))].sort();
+        
+        allClasses.forEach(cls => {
+            const c = globalClassMap[cls];
+            if (c && c.count > 0) {
+                // 🔥 防重叠抖动 (Jitter)：加一个极小的随机数 (-0.05 ~ 0.05)
+                // 这样即使两个班数据完全一样，也能错开显示
+                const jitterX = (Math.random() - 0.5) * 0.1; 
+                const jitterY = (Math.random() - 0.5) * 0.1;
+
+                chartData.push({
+                    name: cls,
+                    x: parseFloat((c.sumOldRank / c.count).toFixed(1)) + jitterX,
+                    y: parseFloat((c.sumChange / c.count).toFixed(1)) + jitterY,
+                    count: c.count,
+                    isHighlight: (currentFilterClass === 'ALL' || currentFilterClass === cls) // 标记高亮
+                });
+            } else {
+                missingClasses.push(cls);
+            }
+        });
+
+        let subTitle = "";
+        if (missingClasses.length > 0) subTitle = `⚠️ [${missingClasses.join(', ')}] 因缺数据未显示`;
+
+        // 调用绘图 (传入高亮标记)
+        renderClassValueAddedChart('trend-class-value-added-chart', chartData, subjectLabel, subTitle);
+    };
+
+    // 5. 渲染表格
     const drawTable = () => {
         const subject = document.getElementById('trend-subject-select').value;
         const subjectLabel = (subject === 'totalScore') ? '总分' : subject;
@@ -2885,7 +2948,7 @@ function renderTrend(container, currentData, compareData) {
         document.getElementById('th-trend-score').innerText = `${subjectLabel} ⇅`;
         document.getElementById('th-trend-cr').innerText = `${subjectLabel}班排 ⇅`;
         document.getElementById('th-trend-gr').innerText = `${subjectLabel}年排 ⇅`;
-        document.getElementById('trend-table-status').innerText = `* 下方表格已联动显示“${subjectLabel}”变动情况`;
+        document.getElementById('trend-table-status').innerText = `* 已联动显示“${subjectLabel}”数据`;
 
         let data = getDisplayData();
 
@@ -2897,113 +2960,238 @@ function renderTrend(container, currentData, compareData) {
 
         const { key, direction } = G_TrendSort; 
         data.sort((a, b) => {
-            let valA = a[key];
-            let valB = b[key];
-            if (valA === null || valA === undefined) valA = direction === 'asc' ? 99999 : -99999;
-            if (valB === null || valB === undefined) valB = direction === 'asc' ? 99999 : -99999;
-
+            let valA = a[key], valB = b[key];
+            if (valA == null) valA = direction === 'asc' ? 99999 : -99999;
+            if (valB == null) valB = direction === 'asc' ? 99999 : -99999;
             if (typeof valA === 'string') return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
             return direction === 'asc' ? valA - valB : valB - valA;
         });
 
         const tbody = document.getElementById('trend-table-body');
-        if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">无匹配数据</td></tr>`;
-            return;
-        }
+        if (data.length === 0) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:#999;">无数据</td></tr>`; return; }
 
         tbody.innerHTML = data.map(row => {
-            // 辅助显示函数 (优化版)
             const formatDiff = (val) => {
-                if (val === null || val === undefined) return '<span style="color:#ccc">-</span>';
-                if (val === 0) return `<span style="color:#999; font-size:0.9em; font-weight:bold;">0</span>`; // 🔥 0值明确显示
+                if (val == null) return '<span style="color:#ccc">-</span>';
+                if (val === 0) return `<span style="color:#999;">0</span>`;
                 if (val > 0) return `<span class="progress">▲ ${val}</span>`;
-                if (val < 0) return `<span class="regress">▼ ${Math.abs(val)}</span>`;
-                return `<span style="color:#ccc">-</span>`;
+                return `<span class="regress">▼ ${Math.abs(val)}</span>`;
             };
-            
             const formatScoreDiff = (val) => {
-                 if (val === null || val === undefined) return '<span style="color:#ccc">-</span>';
-                 if (val === 0) return `<span style="color:#999; font-size:0.9em;">0</span>`;
+                 if (val == null) return '<span style="color:#ccc">-</span>';
+                 if (val === 0) return `<span style="color:#999;">0</span>`;
                  if (val > 0) return `<span class="progress">▲ +${val.toFixed(1)}</span>`;
-                 if (val < 0) return `<span class="regress">▼ ${val.toFixed(1)}</span>`;
-                 return `<span style="color:#ccc">-</span>`;
+                 return `<span class="regress">▼ ${val.toFixed(1)}</span>`;
             };
 
             return `
                 <tr>
-                    <td>${row.id}</td>
-                    <td><strong>${row.name}</strong></td>
-                    
-                    <td>
-                        <strong>${row.currentVal !== null ? row.currentVal : '-'}</strong>
-                        <span style="font-size:0.8em; color:#999;">(上次:${row.oldVal !== null ? row.oldVal : '-'})</span>
-                    </td>
+                    <td>${row.id}</td><td><strong>${row.name}</strong></td>
+                    <td><strong>${row.currentVal ?? '-'}</strong> <span style="font-size:0.8em; color:#999;">(前:${row.oldVal ?? '-'})</span></td>
                     <td>${formatScoreDiff(row.diffVal)}</td>
-                    
-                    <td>
-                        <strong>${row.currentCR !== null ? row.currentCR : '-'}</strong>
-                        <span style="font-size:0.8em; color:#999;">(上次:${row.oldCR !== null ? row.oldCR : '-'})</span>
-                    </td>
-                    <td>${formatDiff(row.diffCR)}</td>
-                    
-                    <td>${row.currentGR !== null ? row.currentGR : '-'}</td>
-                    <td>${formatDiff(row.diffGR)}</td>
+                    <td><strong>${row.currentCR ?? '-'}</strong></td><td>${formatDiff(row.diffCR)}</td>
+                    <td>${row.currentGR ?? '-'}</td><td>${formatDiff(row.diffGR)}</td>
                 </tr>
             `;
         }).join('');
     };
 
-    // 5. 绘制图表
+    // 6. 绘制个体柱状图
     const drawCharts = () => {
         const classFilter = document.getElementById('trend-class-filter').value;
         const sortFilter = document.getElementById('trend-sort-filter').value;
         const subject = document.getElementById('trend-subject-select').value;
         
         let chartSource = mergedData;
-        if (classFilter !== 'ALL') {
-            chartSource = mergedData.filter(s => s.class === classFilter);
-        }
+        if (classFilter !== 'ALL') chartSource = mergedData.filter(s => s.class === classFilter);
         
         renderRankChangeBarChart('trend-rank-change-bar-chart', chartSource, sortFilter, subject);
     };
 
-    // 6. 绑定事件
-    const searchInput = document.getElementById('trend-search');
+    // 7. 绑定事件
     const subjectSelect = document.getElementById('trend-subject-select');
     const classSelect = document.getElementById('trend-class-filter');
     const sortSelect = document.getElementById('trend-sort-filter');
+    const searchInput = document.getElementById('trend-search');
     const tableHead = document.getElementById('trend-table-header');
 
-    subjectSelect.addEventListener('change', () => { drawCharts(); drawTable(); });
-    classSelect.addEventListener('change', () => { drawCharts(); drawTable(); });
+    const refreshAll = () => { drawValueAddedChart(); drawCharts(); drawTable(); };
+
+    subjectSelect.addEventListener('change', refreshAll);
+    classSelect.addEventListener('change', refreshAll);
     sortSelect.addEventListener('change', drawCharts);
     searchInput.addEventListener('input', drawTable);
 
     tableHead.addEventListener('click', (e) => {
         const th = e.target.closest('th[data-sort-key]');
         if (!th) return;
-        
         const newKey = th.dataset.sortKey;
-        const { key, direction } = G_TrendSort;
-        
-        if (newKey === key) {
-            G_TrendSort.direction = (direction === 'asc') ? 'desc' : 'asc';
-        } else {
-            G_TrendSort.key = newKey;
-            if (['currentCR', 'currentGR', 'rank'].includes(newKey)) G_TrendSort.direction = 'asc';
-            else G_TrendSort.direction = 'desc';
-        }
+        if (newKey === G_TrendSort.key) G_TrendSort.direction = (G_TrendSort.direction === 'asc') ? 'desc' : 'asc';
+        else { G_TrendSort.key = newKey; G_TrendSort.direction = ['diffVal','diffCR','diffGR'].includes(newKey) ? 'desc' : 'asc'; }
         
         tableHead.querySelectorAll('th').forEach(h => h.style.color = '');
         th.style.color = '#007bff';
         drawTable();
     });
 
-    // 7. 初始化
-    G_TrendSort = { key: 'currentCR', direction: 'asc' };
-    drawTable();
-    drawCharts();
+    // 8. 初始化
+    G_TrendSort = { key: 'diffGR', direction: 'desc' }; // 默认按年排进步排序
+    refreshAll();
+}
+
+/**
+ * [完整版] 绘制班级增值评价散点图 (四象限带标签)
+ * @param {string} elementId - DOM 容器 ID
+ * @param {Array} data - 数据数组 [{name: '1班', x: 120, y: 5, count: 45}, ...]
+ * @param {string} subjectName - 科目名称
+ * @param {string} subTitle - (可选) 副标题，用于显示缺失班级提示
+ */
+
+/**
+ * [旗舰完整版] 绘制班级增值评价散点图
+ * - 特性1：支持高亮选中班级 (UI 优化)
+ * - 特性2：Tooltip 显示详细数据且保留有效数字 (toFixed修复)
+ */
+function renderClassValueAddedChart(elementId, data, subjectName, subTitle = "") {
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    if (!data || data.length === 0) {
+        chartDom.innerHTML = `<div style="display:flex;justify-content:center;align-items:center;height:100%;color:#999;">暂无有效增值数据 (需同时拥有两次考试的排名)</div>`;
+        return;
+    }
+
+    // 定义颜色
+    const colors = { Q1: '#28a745', Q2: '#007bff', Q3: '#ffc107', Q4: '#dc3545' };
+
+    // 1. 计算坐标轴范围
+    const xValues = data.map(d => d.x);
+// 动态计算 X 轴范围，避免点贴在边缘 (并向下/向上取整，去除小数)
+    const minX = Math.floor(Math.min(...xValues) * 0.9);
+    const maxX = Math.ceil(Math.max(...xValues) * 1.1);
+    const avgEntryRank = xValues.reduce((a,b)=>a+b,0) / xValues.length;
+
+    // 2. 准备 Series Data (带高亮逻辑)
+    const seriesData = data.map(item => ({
+        name: item.name,
+        value: [item.x, item.y, item.count],
+        // 高亮逻辑：选中的不透明，未选中的半透明
+        itemStyle: { 
+            shadowBlur: item.isHighlight ? 20 : 0, 
+            shadowColor: 'rgba(0,0,0,0.5)',
+            opacity: item.isHighlight ? 1 : 0.2, 
+            borderColor: item.isHighlight ? '#000' : null,
+            borderWidth: item.isHighlight ? 1 : 0
+        },
+        label: {
+            show: true,
+            formatter: '{b}',
+            position: 'top',
+            color: item.isHighlight ? '#333' : '#ccc',
+            fontWeight: item.isHighlight ? 'bold' : 'normal'
+        }
+    }));
+
+    // 3. ECharts 配置
+    const option = {
+        title: {
+            text: `${subjectName} - 班级增值四象限 (全校视角)`,
+            subtext: subTitle,
+            left: 'center',
+            textStyle: { fontSize: 16, fontWeight: 'normal' },
+            subtextStyle: { color: '#f56c6c' }
+        },
+        tooltip: {
+            trigger: 'item',
+            backgroundColor: 'rgba(255,255,255,0.95)',
+            formatter: (params) => {
+                if (params.componentType !== 'series') return;
+                
+                const d = params.data;
+                const entryRank = d.value[0];
+                const progress = d.value[1];
+
+                // 🔥 修复点：强制保留小数位，防止显示过长 🔥
+                const progressFixed = parseFloat(progress).toFixed(2);
+                const entryRankFixed = parseFloat(entryRank).toFixed(1);
+                
+                // 判断象限
+                let type = "";
+                if (progress >= 0) {
+                    type = entryRank >= avgEntryRank ? "🌟 逆袭班级 (生源弱, 进步大)" : "💪 培优班级 (生源强, 进步大)";
+                } else {
+                    type = entryRank >= avgEntryRank ? "⚠️ 低效区 (生源弱, 且退步)" : "📉 警示区 (生源强, 但退步)";
+                }
+
+                // 返回详细的 HTML 结构
+                return `<strong>${d.name}</strong><br/>` +
+                       `入口生源: 年排 ${entryRankFixed}<br/>` +
+                       `本次增值: <strong style="color:${progress>=0?'#28a745':'#dc3545'}">${progress>0?'+':''}${progressFixed} 名</strong><br/>` +
+                       `参评人数: ${d.value[2]}<br/>` +
+                       `<hr style="margin:5px 0;border-color:#eee"/>${type}`;
+            }
+        },
+        grid: { left: '8%', right: '12%', bottom: '10%', top: '18%', containLabel: true },
+        xAxis: {
+            type: 'value', name: '入口生源 (排名越大越弱 →)', nameLocation: 'middle', nameGap: 30,
+            min: minX, max: maxX, scale: true, splitLine: { show: false }, axisLine: { symbol: ['none', 'arrow'] }
+        },
+        yAxis: {
+            type: 'value', name: '教学增值 (进步名次 ↑)', nameLocation: 'middle', nameGap: 40,
+            scale: true, splitLine: { show: false }, axisLine: { symbol: ['none', 'arrow'] }
+        },
+        series: [
+            {
+                type: 'scatter',
+                data: seriesData,
+                symbolSize: (val) => Math.max(15, Math.min(50, val[2])),
+                itemStyle: {
+                    // 动态计算气泡颜色
+                    color: (params) => {
+                        const [x, y] = params.value;
+                        if (x >= avgEntryRank && y >= 0) return colors.Q1;
+                        if (x < avgEntryRank && y >= 0) return colors.Q2;
+                        if (x < avgEntryRank && y < 0) return colors.Q3;
+                        return colors.Q4;
+                    }
+                },
+                markLine: {
+                    silent: true, symbol: 'none', lineStyle: { color: '#333', width: 2, type: 'dashed' },
+                    data: [
+                        { xAxis: avgEntryRank, name: '平均生源线' },
+                        { yAxis: 0, name: '零增值线' }
+                    ]
+                },
+                markArea: {
+                    silent: true, itemStyle: { opacity: 0.08 },
+                    data: [
+                        [{ xAxis: avgEntryRank, yAxis: 0, itemStyle: {color: colors.Q1} }, { xAxis: 99999, yAxis: 99999 }],
+                        [{ xAxis: -99999, yAxis: 0, itemStyle: {color: colors.Q2} }, { xAxis: avgEntryRank, yAxis: 99999 }],
+                        [{ xAxis: -99999, yAxis: -99999, itemStyle: {color: colors.Q3} }, { xAxis: avgEntryRank, yAxis: 0 }],
+                        [{ xAxis: avgEntryRank, yAxis: -99999, itemStyle: {color: colors.Q4} }, { xAxis: 99999, yAxis: 0 }]
+                    ]
+                }
+            }
+        ]
+    };
+
+    myChart.setOption(option);
+    
+    // 动态添加四角标签
+    setTimeout(() => {
+        myChart.setOption({
+            graphic: [
+                { type: 'text', right: '5%', top: '20%', style: { text: '🌟 逆袭区', fill: colors.Q1, font: 'bold 14px sans-serif' } },
+                { type: 'text', left: '10%', top: '20%', style: { text: '💪 培优区', fill: colors.Q2, font: 'bold 14px sans-serif' } },
+                { type: 'text', left: '10%', bottom: '15%', style: { text: '📉 警示区', fill: colors.Q3, font: 'bold 14px sans-serif' } },
+                { type: 'text', right: '5%', bottom: '15%', style: { text: '⚠️ 低效区', fill: colors.Q4, font: 'bold 14px sans-serif' } }
+            ]
+        });
+    }, 100);
 }
 
 /**
@@ -9006,7 +9194,20 @@ function renderItemAnalysis(container) {
                 </div>
             </div>
 
-            <div id="item-kpi-grid" class="kpi-grid" style="margin-bottom: 20px;"></div>
+            <div class="main-card-wrapper" style="margin-bottom: 20px;">
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+                    <div>
+                        <h4 style="margin:0 0 10px 0;">📊 核心指标概览</h4>
+                        <div id="item-kpi-grid" class="kpi-grid" style="grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));"></div>
+                    </div>
+                    
+                    <div style="border-left: 1px solid #eee; padding-left: 20px;">
+                        <h4 style="margin:0 0 5px 0; text-align:center;">🧩 试卷难度结构</h4>
+                        <div class="chart-container" id="item-difficulty-pie-chart" style="height: 220px;"></div>
+                        <p style="text-align:center; font-size:0.8em; color:#999; margin:0;">(基于题目满分权重统计)</p>
+                    </div>
+                </div>
+            </div>
             
             
             <h3 style="margin-top: 30px;">📊 各大题 (文字/字母) 分析</h3>
@@ -10054,7 +10255,96 @@ function renderItemAnalysisCharts() {
         drawItemScatterQuadrantChart(); //    NEW   
         drawItemKnowledgeGraph();
         drawLayerStudentTable();
+
+        drawItemDifficultyPie();
     }, 0);
+}
+
+/**
+ * [新增] 13.22. 绘制试卷难度结构饼图
+ * 统计：简单题(>=0.7)、中档题(0.4-0.7)、难题(<0.4) 的分值占比
+ */
+function drawItemDifficultyPie() {
+    const elementId = 'item-difficulty-pie-chart';
+    const chartDom = document.getElementById(elementId);
+    if (!chartDom) return;
+
+    if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
+    const myChart = echarts.init(chartDom);
+    echartsInstances[elementId] = myChart;
+
+    const subjectName = document.getElementById('item-subject-select').value;
+    const recalculatedStats = getRecalculatedItemStats(subjectName);
+
+    // 1. 统计各难度分值
+    let scores = { easy: 0, medium: 0, hard: 0 };
+    let totalFullScore = 0;
+
+    const processStats = (statsObj) => {
+        if (!statsObj) return;
+        for (const qName in statsObj) {
+            const stat = statsObj[qName];
+            const full = stat.manualFullScore || stat.maxScore || 0;
+            const diff = stat.difficulty; // 得分率
+
+            if (full > 0) {
+                totalFullScore += full;
+                if (diff >= 0.75) scores.easy += full;      // 容易
+                else if (diff >= 0.45) scores.medium += full; // 中档
+                else scores.hard += full;                   // 困难
+            }
+        }
+    };
+
+    processStats(recalculatedStats.minorStats);
+    processStats(recalculatedStats.majorStats);
+
+    // 2. 准备数据
+    const data = [
+        { value: scores.easy, name: '容易 (≥0.75)', itemStyle: { color: '#28a745' } },
+        { value: scores.medium, name: '中档 (0.45-0.75)', itemStyle: { color: '#007bff' } },
+        { value: scores.hard, name: '困难 (<0.45)', itemStyle: { color: '#dc3545' } }
+    ];
+
+    // 3. 渲染
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            formatter: (p) => {
+                return `<strong>${p.name}</strong><br/>分值: ${p.value}分<br/>占比: ${p.percent}%`;
+            }
+        },
+        legend: { bottom: 0, left: 'center', itemWidth: 10, itemHeight: 10, textStyle:{fontSize:10} },
+        series: [
+            {
+                name: '难度分布',
+                type: 'pie',
+                radius: ['40%', '65%'],
+                center: ['50%', '45%'],
+                avoidLabelOverlap: false,
+                itemStyle: {
+                    borderRadius: 5,
+                    borderColor: '#fff',
+                    borderWidth: 2
+                },
+                label: {
+                    show: false,
+                    position: 'center'
+                },
+                emphasis: {
+                    label: {
+                        show: true,
+                        fontSize: 14,
+                        fontWeight: 'bold',
+                        formatter: '{b}\n{d}%'
+                    }
+                },
+                data: data
+            }
+        ]
+    };
+
+    myChart.setOption(option);
 }
 
 /**
