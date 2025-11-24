@@ -9359,7 +9359,7 @@ function renderItemAnalysis(container) {
             <div class="main-card-wrapper" style="margin-bottom: 40px; border-left: 5px solid #d35400; background-color: #fff5e6;">
                 <p style="color: #666; font-size: 0.9em;">
                     <strong>算法说明：</strong> 指标 = ∑ [ (1 - 预设难度) × 该题总得分 ] / 参考人数。<br>
-                    请确保在“配置题目”中已填写难度系数（0.0~1.0，数值越大越难），否则默认难度为 0。
+                    请确保在“配置题目”中已填写难度系数（0.0~1.0，数值越小越难），否则默认难度为 0。
                 </p>
                 
                 <div class="controls-bar" style="background: transparent; padding: 0; flex-wrap: wrap; gap: 15px;">
