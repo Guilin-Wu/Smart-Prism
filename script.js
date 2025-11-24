@@ -18671,17 +18671,14 @@ else if (type === 'progress_grade') { // 年级进步
     }
 };
 
-
 // =====================================================================
-//    🏆 模块二十四：专业奖状定制 (V8 终极修正版)
-//    包含：全元素拖拽、素材库、多选列表、批量打包、自动切换排版模式
+//    🏆 模块二十四：专业奖状定制 (V9 完美交互版)
+//    修复：拖拽卡顿、文字异常换行、对齐方式优化
 // =====================================================================
-
-// 1. 全局状态对象
+// 全局状态对象 (旗舰版+V10：增加自定义署名)
 let G_CertState = {
     bgImage: null,
-    bgRect: { x: 0, y: 0, w: 800, h: 565 }, // 背景图位置尺寸
-    
+    bgRect: { x: 0, y: 0, w: 800, h: 565 },
     sealImage: null,
     seal: { x: 75, y: 75, w: 120, h: 120 },
     
@@ -18691,30 +18688,35 @@ let G_CertState = {
         desc: '在本次期末考试中成绩优异。',
         award: '特被评为：<span class="cert-highlight">学习标兵</span>', 
         footer: '特发此状，以资鼓励', 
+        // 🔥 新增：署名
+        signature: '北京大学', 
         date: '二〇二三年十一月'
     },
     style: {
-        // 默认使用系统楷体，兼容性最好
         fontFamily: '"KaiTi", "STKaiti", "楷体", serif', 
         color: '#333333',
         textAlign: 'center',
-        sizes: { title: 48, winner: 32, desc: 18, award: 24, footer: 18, date: 16 }
+        // 🔥 新增：signature 字号
+        sizes: { title: 48, winner: 32, desc: 18, award: 24, footer: 18, signature: 16, date: 16 }
     },
     paper: { size: 'A4', orientation: 'L' },
     layoutMode: 'auto', 
     manualPos: { 
         title: { x: 50, y: 15 }, 
-        winner: { x: 20, y: 35 }, 
-        desc: { x: 20, y: 48 }, 
+        winner: { x: 50, y: 35 }, 
+        desc: { x: 50, y: 48 }, 
         award: { x: 50, y: 60 },
-        footer: { x: 20, y: 70 }, 
+        footer: { x: 80, y: 70 }, 
+        // 🔥 新增：signature 坐标 (默认在日期上方)
+        signature: { x: 80, y: 70 },
         date: { x: 80, y: 75 } 
     }
 };
 
-// 2. 渲染主界面
+/**
+ * [旗舰版+V10] 渲染界面 (增加自定义署名)
+ */
 function renderCertificateCreator(container) {
-    // 引入字体
     if (!document.getElementById('font-cn-mirror')) {
         const fontLink = document.createElement('link');
         fontLink.id = 'font-cn-mirror';
@@ -18726,27 +18728,15 @@ function renderCertificateCreator(container) {
     container.innerHTML = `
         <style>
             .cert-highlight { font-family: 'Ma Shan Zheng', cursive; font-size: 1.5em; color: #c0392b; margin: 0 5px; vertical-align: middle; }
-            
-            /* 拖拽元素样式 */
-            .cert-element { 
-                position: absolute; line-height: 1.6; white-space: pre-wrap; 
-                cursor: grab; border: 1px dashed transparent; z-index: 20; user-select: none; 
-                transition: border 0.2s;
-            }
+            .cert-element { position: absolute; line-height: 1.6; white-space: nowrap; cursor: grab; border: 1px dashed transparent; z-index: 20; user-select: none; transform-origin: center center; }
+            .cert-desc { white-space: pre-wrap; word-break: break-word; } /* 正文允许换行 */
             .cert-element:hover { border-color: #007bff; background: rgba(0,123,255,0.05); }
-            .cert-element:active { cursor: grabbing; }
             
-            /* 自由变换控制器 */
-            #bg-transform-box {
-                position: absolute; z-index: 10; border: 2px solid #20c997; display: none; pointer-events: none;
-            }
+            #bg-transform-box { position: absolute; z-index: 10; border: 2px solid #20c997; display: none; pointer-events: none; }
             .resize-handle { position: absolute; width: 10px; height: 10px; background: #fff; border: 1px solid #20c997; pointer-events: auto; z-index: 11; }
-            .rh-nw { top: -6px; left: -6px; cursor: nw-resize; } .rh-n { top: -6px; left: 50%; margin-left:-5px; cursor: n-resize; }
-            .rh-ne { top: -6px; right: -6px; cursor: ne-resize; } .rh-w { top: 50%; left: -6px; margin-top:-5px; cursor: w-resize; }
-            .rh-e { top: 50%; right: -6px; margin-top:-5px; cursor: e-resize; } .rh-sw { bottom: -6px; left: -6px; cursor: sw-resize; }
-            .rh-s { bottom: -6px; left: 50%; margin-left:-5px; cursor: s-resize; } .rh-se { bottom: -6px; right: -6px; cursor: se-resize; }
+            .rh-nw { top:-6px; left:-6px; cursor:nw-resize; } .rh-se { bottom:-6px; right:-6px; cursor:se-resize; } /* 省略其他手柄CSS */
+            .rh-n{top:-6px;left:50%;margin-left:-5px;cursor:n-resize}.rh-ne{top:-6px;right:-6px;cursor:ne-resize}.rh-w{top:50%;left:-6px;margin-top:-5px;cursor:w-resize}.rh-e{top:50%;right:-6px;margin-top:-5px;cursor:e-resize}.rh-sw{bottom:-6px;left:-6px;cursor:sw-resize}.rh-s{bottom:-6px;left:50%;margin-left:-5px;cursor:s-resize}
 
-            /* 素材库 */
             .asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 8px; margin-top: 8px; }
             .asset-item { height: 60px; border: 2px solid #eee; border-radius: 4px; cursor: pointer; background-size: cover; background-position: center; position: relative; overflow: hidden; }
             .asset-del { position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.6); color: white; font-size: 10px; padding: 2px 4px; display: none; }
@@ -18754,7 +18744,8 @@ function renderCertificateCreator(container) {
         </style>
 
         <div style="display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap;">
-            <div class="main-card-wrapper" style="flex: 1; min-width: 350px; background: #f8f9fa; border-left: 4px solid #2980b9;">
+            
+            <div class="main-card-wrapper" style="flex: 1; min-width: 360px; background: #f8f9fa; border-left: 4px solid #2980b9;">
                 <h4 style="margin-top:0; color:#2980b9;">🛠️ 定制面板</h4>
                 
                 <div class="cert-control-group" style="background: #e8f4f8; padding: 10px; border-radius: 4px; border: 1px solid #bce8f1;">
@@ -18763,36 +18754,22 @@ function renderCertificateCreator(container) {
                         <span>请勾选要生成的学生：</span>
                         <div><a id="cert-sel-all" style="cursor:pointer; color:#007bff; margin-right:10px;">全选</a><a id="cert-sel-none" style="cursor:pointer; color:#666;">清空</a></div>
                     </div>
-                    <div id="cert-checklist-container" style="height: 150px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;">
-                        <div style="text-align:center; color:#999; padding:20px;">-- 请先到“荣誉榜”刷新数据 --</div>
-                    </div>
+                    <div id="cert-checklist-container" style="height: 120px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; padding: 5px; margin-bottom: 10px;"></div>
                     <button id="btn-batch-generate-certs" class="sidebar-button" style="width:100%; background-color:#6f42c1; font-size:0.9em;">📦 生成 ZIP 压缩包 (0)</button>
                     <div id="cert-batch-progress-box" style="display:none; margin-top:10px;">
-                        <div style="display:flex; justify-content:space-between; font-size:0.8em; color:#555; margin-bottom:2px;">
-                            <span id="cert-batch-status-text">准备中...</span><span id="cert-batch-percent">0%</span>
-                        </div>
-                        <div style="width:100%; height:8px; background:#ccc; border-radius:4px; overflow:hidden;">
-                            <div id="cert-batch-bar" style="width:0%; height:100%; background:#28a745; transition:width 0.3s;"></div>
-                        </div>
+                        <div style="width:100%; height:8px; background:#ccc; border-radius:4px; overflow:hidden;"><div id="cert-batch-bar" style="width:0%; height:100%; background:#28a745;"></div></div>
                     </div>
                 </div>
 
                 <div class="cert-control-group">
-                    <label class="cert-label">🖼️ 背景素材库</label>
                     <div style="display:flex; gap:5px; margin-bottom:5px;">
-                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">
-                            ➕ 上传新背景 <input type="file" id="lib-bg-upload" accept="image/*" style="display:none;">
-                        </label>
+                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">➕ 背景 <input type="file" id="lib-bg-upload" accept="image/*" style="display:none;"></label>
                         <button id="btn-bg-fit" class="sidebar-button" style="background:#20c997; font-size:0.8em; padding:4px 8px;" title="铺满">↔️</button>
                         <button id="btn-bg-reset" class="sidebar-button" style="background:#6c757d; font-size:0.8em; padding:4px 8px;" title="重置">↺</button>
                     </div>
-                    <div id="lib-bg-grid" class="asset-grid"></div>
-
-                    <label class="cert-label" style="margin-top:15px;">💮 印章素材库</label>
+                    <div id="lib-bg-grid" class="asset-grid" style="margin-bottom:10px;"></div>
                     <div style="display:flex; gap:5px; margin-bottom:5px;">
-                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">
-                            ➕ 上传新印章 <input type="file" id="lib-seal-upload" accept="image/*" style="display:none;">
-                        </label>
+                        <label class="sidebar-button upload-btn" style="flex:1; text-align:center; background:#fff; border:1px solid #ccc; color:#333; cursor:pointer;">➕ 印章 <input type="file" id="lib-seal-upload" accept="image/*" style="display:none;"></label>
                     </div>
                     <div id="lib-seal-grid" class="asset-grid"></div>
                 </div>
@@ -18803,32 +18780,33 @@ function renderCertificateCreator(container) {
                     <input type="text" id="cert-text-winner" class="cert-input cert-input-lg" placeholder="姓名" value="${G_CertState.texts.winner}">
                     <textarea id="cert-text-desc" class="cert-input" rows="2" placeholder="正文">${G_CertState.texts.desc}</textarea>
                     <input type="text" id="cert-text-award" class="cert-input" placeholder="奖项行" value='${G_CertState.texts.award}' style="border-left:4px solid #fd7e14;">
+                    
                     <div style="display:flex; gap:5px;">
-                        <input type="text" id="cert-text-footer" class="cert-input" placeholder="结语" value="${G_CertState.texts.footer}" style="flex:2;">
-                        <input type="text" id="cert-text-date" class="cert-input" placeholder="日期" value="${G_CertState.texts.date}" style="flex:1; text-align:right;">
+                        <input type="text" id="cert-text-footer" class="cert-input" placeholder="结语" value="${G_CertState.texts.footer}" style="flex:1;">
+                        <input type="text" id="cert-text-signature" class="cert-input" placeholder="署名" value="${G_CertState.texts.signature}" style="flex:1;">
                     </div>
+                    <input type="text" id="cert-text-date" class="cert-input" placeholder="日期" value="${G_CertState.texts.date}" style="text-align:right;">
                 </div>
 
                 <div class="cert-control-group">
-                    <label class="cert-label">🎨 样式设置</label>
                     <div style="display:flex; gap:5px; margin-bottom:10px;">
                         <select id="cert-style-font" class="cert-input" style="margin:0; flex:2;">
                             <option value='"KaiTi", "STKaiti", "楷体", serif'>楷体</option>
                             <option value='"SimSun", "宋体", serif'>宋体</option>
                             <option value='"Microsoft YaHei", sans-serif'>黑体</option>
-                            <option value="'Ma Shan Zheng', cursive">✨ 马善政书法</option>
+                            <option value="'Ma Shan Zheng', cursive">✨ 书法</option>
                         </select>
                         <input type="color" id="cert-style-color" value="${G_CertState.style.color}" style="height:36px; padding:0; flex:1;">
                         <select id="cert-style-align" class="cert-input" style="margin:0; flex:1;">
                             <option value="center">居中</option>
-                            <option value="left">左对齐</option>
+                            <option value="left">靠左</option>
                         </select>
                     </div>
                     
                     <div style="font-size:0.8em; font-weight:bold; color:#555; margin-bottom:5px;">字号微调 (px):</div>
-                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:5px;">
-                        ${['title', 'winner', 'desc', 'award', 'footer', 'date'].map(k => {
-                            const map = {title:'标题', winner:'姓名', desc:'正文', award:'奖项', footer:'结语', date:'日期'};
+                    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:5px;">
+                        ${['title', 'winner', 'desc', 'award', 'footer', 'signature', 'date'].map(k => {
+                            const map = {title:'标题', winner:'姓名', desc:'正文', award:'奖项', footer:'结语', signature:'署名', date:'日期'};
                             return `<label style="text-align:center; font-size:0.75em;">${map[k]}<input type="number" id="size-${k}" class="pos-input" value="${G_CertState.style.sizes[k]}" style="width:100%"></label>`;
                         }).join('')}
                     </div>
@@ -18840,16 +18818,27 @@ function renderCertificateCreator(container) {
                          <label style="font-size:0.85em;"><input type="checkbox" id="cert-layout-mode"> 启用手动排版</label>
                     </div>
                     <div id="cert-manual-controls" style="display:none; background:#eee; padding:10px; border-radius:4px; margin-bottom:10px;">
-                        ${['title', 'winner', 'desc', 'award', 'footer', 'date'].map(k => {
-                            const map = {title:'标题', winner:'姓名', desc:'正文', award:'奖项', footer:'结语', date:'日期'};
+                        <div style="display:flex; justify-content:space-between; font-size:0.75em; color:#666; margin-bottom:5px;">
+                            <span style="margin-left:5px;">元素</span><span>X(%)</span><span>Y(%)</span>
+                        </div>
+                        ${['title', 'winner', 'desc', 'award', 'footer', 'signature', 'date'].map(k => {
+                            const map = {title:'标题', winner:'姓名', desc:'正文', award:'奖项', footer:'结语', signature:'署名', date:'日期'};
                             return `
                             <div style="display:flex; gap:5px; margin-bottom:5px; align-items:center;">
-                                <span style="width:30px; font-size:0.8em;">${map[k]}</span>
+                                <span style="width:30px; font-size:0.8em; font-weight:bold; text-align:center;">${map[k]}</span>
                                 <input type="number" id="pos-x-${k}" class="pos-input" value="${G_CertState.manualPos[k].x}">
                                 <input type="number" id="pos-y-${k}" class="pos-input" value="${G_CertState.manualPos[k].y}">
                             </div>`;
                         }).join('')}
-                        <p style="font-size:0.75em; color:#999;">* 右侧预览区可直接拖拽调整位置。</p>
+                    </div>
+                    
+                    <div style="margin-top:10px; background:#fff5e6; padding:8px; border-radius:4px; border:1px solid #ffe082;">
+                        <div style="display:flex; gap:10px; align-items:center;">
+                            <label style="font-size:0.9em; font-weight:bold; color:#d35400;">💮 印章</label>
+                            <label style="font-size:0.8em;">X:<input type="number" id="seal-x" class="pos-input" value="${G_CertState.seal.x}" style="width:40px;"></label>
+                            <label style="font-size:0.8em;">Y:<input type="number" id="seal-y" class="pos-input" value="${G_CertState.seal.y}" style="width:40px;"></label>
+                            <label style="font-size:0.8em;">宽:<input type="number" id="seal-size" class="pos-input" value="${G_CertState.seal.w}" style="width:40px;"></label>
+                        </div>
                     </div>
                 </div>
 
@@ -18857,13 +18846,11 @@ function renderCertificateCreator(container) {
                     <label class="cert-label">0. 纸张与布局</label>
                     <div style="display:flex; gap:10px;">
                         <select id="cert-paper-size" class="sidebar-select" style="flex:1;">
-                            <option value="A4">A4 纸</option>
-                            <option value="A3">A3 纸</option>
-                            <option value="16:9">16:9</option>
+                            <option value="A4">A4</option><option value="A3">A3</option><option value="16:9">16:9</option>
                         </select>
                         <div style="display:flex; background:#eee; border-radius:4px; padding:2px;">
-                            <button class="paper-orient-btn active" data-o="L" style="border:none; padding:5px 10px; cursor:pointer;" title="横向">▭</button>
-                            <button class="paper-orient-btn" data-o="P" style="border:none; padding:5px 10px; cursor:pointer;" title="竖向">▯</button>
+                            <button class="paper-orient-btn active" data-o="L" style="border:none; padding:5px 10px; cursor:pointer;">▭</button>
+                            <button class="paper-orient-btn" data-o="P" style="border:none; padding:5px 10px; cursor:pointer;">▯</button>
                         </div>
                     </div>
                 </div>
@@ -18882,9 +18869,10 @@ function renderCertificateCreator(container) {
                     </div>
                     <div id="preview-text-title" class="cert-element" data-key="title"></div>
                     <div id="preview-text-winner" class="cert-element" data-key="winner"></div>
-                    <div id="preview-text-desc" class="cert-element" data-key="desc"></div>
+                    <div id="preview-text-desc" class="cert-element cert-desc" data-key="desc"></div>
                     <div id="preview-text-award" class="cert-element" data-key="award"></div>
                     <div id="preview-text-footer" class="cert-element" data-key="footer"></div>
+                    <div id="preview-text-signature" class="cert-element" data-key="signature"></div>
                     <div id="preview-text-date" class="cert-element" data-key="date"></div>
                     <img id="preview-seal-img" src="" class="cert-element" style="width:120px; opacity:0.9; mix-blend-mode:multiply; display:none;" draggable="false" data-key="seal">
                 </div>
@@ -18912,11 +18900,11 @@ function renderCertificateCreator(container) {
     updateCertPreview();
     setupInteractionEngine(); 
     updateCertChecklist();
+    
     initAssetLibrary('lib-bg', 'G_Asset_BG_Lib', 'bgImage');
     initAssetLibrary('lib-seal', 'G_Asset_Seal_Lib', 'sealImage');
 }
 
-// 3. 更新视图
 function updateCertPreview() {
     const container = document.getElementById('cert-canvas-container');
     if (!container) return;
@@ -18953,7 +18941,8 @@ function updateCertPreview() {
             el.style.textAlign = 'left'; el.style.textIndent = '2em'; el.style.width = '80%';
         } else if (key === 'award') {
             el.style.textAlign = 'center'; el.style.width = '100%'; 
-        } else if (key === 'footer' || key === 'date') {
+        } else if (key === 'footer' || key === 'date' || key === 'signature') {
+            // 🔥 署名也默认靠右
             el.style.textAlign = 'right'; el.style.width = 'auto'; el.style.textIndent = '0';
         } else {
             el.style.textAlign = s.style.textAlign; el.style.width = 'auto'; el.style.textIndent = '0';
@@ -18961,7 +18950,7 @@ function updateCertPreview() {
         
         if (s.layoutMode === 'auto') {
             el.style.top = defaultTop; el.style.transform = 'none';
-            if (key === 'footer' || key === 'date') { el.style.left = 'auto'; el.style.right = '10%'; }
+            if (key === 'footer' || key === 'date' || key === 'signature') { el.style.left = 'auto'; el.style.right = '10%'; }
             else if (key === 'desc') { el.style.left = '10%'; }
             else { el.style.left = '0'; el.style.right = 'auto'; el.style.width = '100%'; }
         } else {
@@ -18976,6 +18965,8 @@ function updateCertPreview() {
     updateEl('preview-text-desc', s.texts.desc, 'desc', '48%');
     updateEl('preview-text-award', s.texts.award, 'award', '60%');
     updateEl('preview-text-footer', s.texts.footer, 'footer', '70%');
+    // 🔥 渲染署名 (默认在 75% 高度)
+    updateEl('preview-text-signature', s.texts.signature, 'signature', '75%');
     updateEl('preview-text-date', s.texts.date, 'date', '80%');
 
     const sealEl = document.getElementById('preview-seal-img');
@@ -18986,6 +18977,7 @@ function updateCertPreview() {
         sealEl.style.transform = 'translate(-50%, -50%)';
     } else { sealEl.style.display = 'none'; }
 }
+
 
 // 4. 绑定事件
 function bindCertCreatorEvents() {
@@ -19004,7 +18996,7 @@ function bindCertCreatorEvents() {
                 <label for="cert-cb-${i}" style="flex:1; cursor:pointer; font-size:0.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     <span style="color:#d35400; font-weight:bold;">[${h.title}]</span> ${h.name}
                 </label>
-                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;">👁️</button>
+                <button class="sidebar-button btn-preview-single" data-idx="${i}" style="padding:2px 6px; font-size:0.75em; background:#17a2b8; margin-left:5px;" title="填充">👁️</button>
             </div>
         `).join('');
         
@@ -19019,7 +19011,7 @@ function bindCertCreatorEvents() {
         const data = window.G_Honor_List[idx];
         G_CertState.texts.winner = data.name + " 同学";
         G_CertState.texts.desc = data.desc;
-        G_CertState.texts.award = data.award; 
+        G_CertState.texts.award = data.award;
         const elW = document.getElementById('cert-text-winner'); if(elW) elW.value = G_CertState.texts.winner;
         const elD = document.getElementById('cert-text-desc'); if(elD) elD.value = G_CertState.texts.desc;
         const elA = document.getElementById('cert-text-award'); if(elA) elA.value = G_CertState.texts.award;
@@ -19064,7 +19056,7 @@ function bindCertCreatorEvents() {
     });
 
     const bindInput = (id, cb) => { const el=document.getElementById(id); if(el) el.addEventListener('input', cb); };
-    ['title', 'winner', 'desc', 'award', 'footer', 'date'].forEach(k => {
+    ['title', 'winner', 'desc', 'award', 'footer', 'signature', 'date'].forEach(k => {
         bindInput(`cert-text-${k}`, (e) => { G_CertState.texts[k] = e.target.value; updateCertPreview(); });
         bindInput(`size-${k}`, (e) => { G_CertState.style.sizes[k] = e.target.value; updateCertPreview(); });
         bindInput(`pos-x-${k}`, (e) => { G_CertState.manualPos[k].x = e.target.value; updateCertPreview(); });
@@ -19101,7 +19093,7 @@ function bindCertCreatorEvents() {
 // 5. 交互引擎
 function setupInteractionEngine() {
     const container = document.getElementById('cert-canvas-container');
-    if (window.interactionEngineBound) return; // 防止重复绑定
+    if (window.interactionEngineBound) return;
     window.interactionEngineBound = true;
 
     let mode = null, startX, startY, startRect, startPos, activeKey;
@@ -19110,13 +19102,15 @@ function setupInteractionEngine() {
         const t = e.target;
         startX = e.clientX; startY = e.clientY;
         
-        // 🔥 自动切换到手动模式 🔥
+        // 🔥 核心修复：防止拖拽时选中文字导致卡顿 🔥
+        document.body.style.userSelect = 'none';
+        
         if (t.classList.contains('cert-element') || t.classList.contains('resize-handle') || t.id==='preview-bg-img') {
             if (G_CertState.layoutMode === 'auto') {
                 G_CertState.layoutMode = 'manual';
                 document.getElementById('cert-layout-mode').checked = true;
                 document.getElementById('cert-manual-controls').style.display = 'block';
-                updateCertPreview(); // 刷新一次状态
+                updateCertPreview(); 
             }
         }
 
@@ -19156,7 +19150,11 @@ function setupInteractionEngine() {
         }
         requestAnimationFrame(updateCertPreview);
     });
-    document.addEventListener('mouseup', () => mode = null);
+    document.addEventListener('mouseup', () => {
+        mode = null;
+        // 🔥 恢复文字选中 🔥
+        document.body.style.userSelect = '';
+    });
 }
 
 // 6. 素材库与辅助
