@@ -9355,6 +9355,41 @@ function renderItemAnalysis(container) {
                 <div class="chart-container" id="item-chart-knowledge-graph" style="height: 600px;"></div>
             </div>
 
+            </div>  <h3 style="margin-top: 40px; border-top: 2px dashed #ccc; padding-top: 20px;">⚖️ 跨考试难度加权对比 (Custom Difficulty Metric)</h3>
+            <div class="main-card-wrapper" style="margin-bottom: 40px; border-left: 5px solid #d35400; background-color: #fff5e6;">
+                <p style="color: #666; font-size: 0.9em;">
+                    <strong>算法说明：</strong> 指标 = ∑ [ (1 - 预设难度) × 该题总得分 ] / 参考人数。<br>
+                    请确保在“配置题目”中已填写难度系数（0.0~1.0，数值越大越难），否则默认难度为 0。
+                </p>
+                
+                <div class="controls-bar" style="background: transparent; padding: 0; flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <label style="font-weight:bold;">考试 A (基准):</label>
+                        <select id="comp-exam-a" class="sidebar-select" style="width: 200px;"></select>
+                    </div>
+                    <div>
+                        <label style="font-weight:bold;">考试 B (对比):</label>
+                        <select id="comp-exam-b" class="sidebar-select" style="width: 200px;"></select>
+                    </div>
+                    <div>
+                        <label style="font-weight:bold;">分析科目:</label>
+                        <select id="comp-subject-select" class="sidebar-select" style="width: 120px;"></select>
+                    </div>
+                    <button id="btn-run-diff-compare" class="sidebar-button" style="background-color: #d35400;">📊 开始对比</button>
+                </div>
+
+                <div class="dashboard-chart-grid-2x2" style="margin-top: 20px;">
+                    <div class="main-card-wrapper">
+                        <h4 style="text-align:center; margin:0;">年段/班级 指标对比</h4>
+                        <div class="chart-container" id="chart-diff-compare-bar" style="height: 400px;"></div>
+                    </div>
+                    <div class="main-card-wrapper">
+                        <h4 style="text-align:center; margin:0;">指标差异 (考试 A - 考试 B)</h4>
+                        <div class="chart-container" id="chart-diff-compare-diff" style="height: 400px;"></div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     `;
 
@@ -10257,6 +10292,10 @@ function renderItemAnalysisCharts() {
         drawLayerStudentTable();
 
         drawItemDifficultyPie();
+
+        if (typeof initDiffCompareUI === 'function') {
+            initDiffCompareUI();
+        }
     }, 0);
 }
 
@@ -10545,7 +10584,7 @@ function drawItemAnalysisChart(type) { // type is 'minor' or 'major'
 }
 
 /**
- * 13.7. [  强版] 填充配置弹窗 (支持回显试卷文本)
+ * 13.7. [增强版] 填充配置弹窗 (支持难度系数 + 试卷文本回显)
  */
 function populateItemAnalysisConfigModal() {
     const subjectName = document.getElementById('item-subject-select').value;
@@ -10556,20 +10595,14 @@ function populateItemAnalysisConfigModal() {
     const recalculatedStats = getRecalculatedItemStats(subjectName);
 
     const tableBody = document.getElementById('item-config-table-body');
-    const paperTextarea = document.getElementById('item-config-full-paper'); //    获取文本框
+    const paperTextarea = document.getElementById('item-config-full-paper'); 
 
-
-    // 在 populateItemAnalysisConfigModal 函数内部，  加以下代码：
+    // 回显设置
     const skipRowsInput = document.getElementById('item-config-skip-rows');
-    // 读取全局设置，如果不存在则默认为 3
     const globalSettings = G_ItemAnalysisConfig._global_settings_ || {};
     skipRowsInput.value = globalSettings.rowsToSkip !== undefined ? globalSettings.rowsToSkip : 3;
 
-    //    NEW    回显已保存的试卷文本
-    // 我们使用一个特殊的 key "_full_paper_context_" 来存储试卷文本
     paperTextarea.value = subjectConfig['_full_paper_context_'] || "";
-
-    //    回显图谱定义
     const graphDefTextarea = document.getElementById('item-config-graph-def');
     graphDefTextarea.value = subjectConfig['_knowledge_graph_def_'] || "";
 
@@ -10580,11 +10613,19 @@ function populateItemAnalysisConfigModal() {
         const autoFull = stat.maxScore;
         const manualFull = qConfig.fullScore || '';
         const content = qConfig.content || '';
+        
+        // ✅【新增】读取已保存的难度
+        const difficulty = qConfig.manualDifficulty !== undefined ? qConfig.manualDifficulty : '';
 
         return `
             <tr data-q-name="${qName}">
                 <td><strong>${qName}</strong> (${type})</td>
                 <td><input type="number" class="item-config-full" placeholder="自动: ${autoFull}" value="${manualFull}" style="width: 80px;"></td>
+                
+                <td>
+                    <input type="number" class="item-config-diff" placeholder="0.0-1.0" value="${difficulty}" step="0.01" min="0" max="1" style="width: 80px; border: 1px solid #d35400; color: #d35400; font-weight: bold;">
+                </td>
+
                 <td><input type="text" class="item-config-content" value="${content}" style="width: 100%;"></td>
             </tr>
         `;
@@ -10602,7 +10643,7 @@ function populateItemAnalysisConfigModal() {
 }
 
 /**
- * 13.8. [  强版] 保存配置弹窗 (支持保存试卷文本)
+ * 13.8. [增强版] 保存配置弹窗 (保存难度系数)
  */
 function saveItemAnalysisConfigFromModal() {
     const modal = document.getElementById('item-analysis-config-modal');
@@ -10611,59 +10652,54 @@ function saveItemAnalysisConfigFromModal() {
 
     let allConfigs = G_ItemAnalysisConfig;
 
-    // --- [核心修改 START] ---
-    // 获取旧的跳过行数（用于对比）
     const oldSkipRows = allConfigs._global_settings_ ? allConfigs._global_settings_.rowsToSkip : 3;
-
     const skipRowsInput = document.getElementById('item-config-skip-rows').value;
     const newSkipRows = parseInt(skipRowsInput);
 
     allConfigs._global_settings_ = allConfigs._global_settings_ || {};
-
-    // 确保值是整数
     allConfigs._global_settings_.rowsToSkip = isNaN(newSkipRows) ? 3 : newSkipRows;
-
-    // --- [核心修改 END] ---
 
     let subjectConfig = allConfigs[subjectName] || {};
 
-    //    NEW    保存试卷文本到特殊字段
     const fullPaperText = document.getElementById('item-config-full-paper').value;
     subjectConfig['_full_paper_context_'] = fullPaperText;
 
-    //    保存图谱定义
     const graphDefText = document.getElementById('item-config-graph-def').value;
     subjectConfig['_knowledge_graph_def_'] = graphDefText;
 
-    // 保存题目配置
+    // ✅【新增】保存难度逻辑
     const rows = document.getElementById('item-config-table-body').querySelectorAll('tr');
     rows.forEach(row => {
         const qName = row.dataset.qName;
         const manualFullInput = row.querySelector('.item-config-full').value;
         const contentInput = row.querySelector('.item-config-content').value;
+        
+        // 获取难度输入
+        const diffInput = row.querySelector('.item-config-diff').value;
+        
         const manualFull = parseFloat(manualFullInput);
+        const manualDiff = parseFloat(diffInput);
 
         subjectConfig[qName] = {
             fullScore: (!isNaN(manualFull) && manualFull > 0) ? manualFull : undefined,
-            content: contentInput || undefined
+            content: contentInput || undefined,
+            // 保存难度 (如果是有效数字)
+            manualDifficulty: (!isNaN(manualDiff)) ? manualDiff : undefined
         };
     });
 
     allConfigs[subjectName] = subjectConfig;
     G_ItemAnalysisConfig = allConfigs;
 
-    // 保存到数据库
     localforage.setItem('G_ItemAnalysisConfig', allConfigs).then(() => {
         modal.style.display = 'none';
-        renderItemAnalysisCharts(); // 重绘图表 (应用满分修改)
+        renderItemAnalysisCharts(); 
 
-        // --- [核心修改 START] 智能提示 ---
         if (oldSkipRows !== allConfigs._global_settings_.rowsToSkip) {
-            alert(`✅ 配置已保存！\n\n⚠️ 检测到您修改了“末尾跳过行数” (从 ${oldSkipRows} 改为 ${allConfigs._global_settings_.rowsToSkip})。\n\n请务必【重  导入】Excel 文件，该设置才会生效！`);
+            alert(`✅ 配置已保存！\n\n⚠️ 检测到您修改了“末尾跳过行数”...\n请务必【重新导入】Excel 文件！`);
         } else {
-            alert("✅ 配置已保存！(试卷内容/满分设置已更  )");
+            alert("✅ 配置已保存！(难度系数已更新)");
         }
-        // --- [核心修改 END] ---
     });
 }
 
@@ -13142,6 +13178,208 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         }
         currentAIController = null;
     }
+}
+
+
+// ============================================================
+//    NEW Feature: 跨考试难度加权对比分析
+// ============================================================
+
+// 1. 初始化对比下拉框 (增强版：支持动态加载科目)
+async function initDiffCompareUI() {
+    const selectA = document.getElementById('comp-exam-a');
+    const selectB = document.getElementById('comp-exam-b');
+    const selectSub = document.getElementById('comp-subject-select');
+    
+    if (!selectA || !selectB || !selectSub) return;
+
+    // 1. 加载所有可用考试 (当前 + 历史存档)
+    const library = await localforage.getItem('G_ItemAnalysis_Library') || [];
+    
+    // 构建选项：当前数据 + 历史数据
+    let optionsHtml = `<option value="current">当前正在分析的数据 (未存档)</option>`;
+    optionsHtml += library.map(item => `<option value="${item.id}">${item.name} (${item.date})</option>`).join('');
+
+    selectA.innerHTML = optionsHtml;
+    selectB.innerHTML = optionsHtml;
+
+    // 2. 定义：根据选中的考试ID，动态更新科目列表
+    const updateSubjectList = async () => {
+        const examId = selectA.value; // 以考试 A 为准
+        let subjects = [];
+
+        if (examId === 'current') {
+            // 读取当前内存数据
+            if (window.G_ItemAnalysisData) {
+                subjects = Object.keys(window.G_ItemAnalysisData);
+            }
+        } else {
+            // 读取历史存档数据
+            const lib = await localforage.getItem('G_ItemAnalysis_Library') || [];
+            const record = lib.find(r => r.id === examId);
+            if (record && record.data) {
+                subjects = Object.keys(record.data);
+            }
+        }
+
+        // 渲染科目下拉框
+        if (subjects.length > 0) {
+            // 记录当前选中的值，尝试在刷新后保持
+            const oldVal = selectSub.value;
+            selectSub.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+            if (subjects.includes(oldVal)) selectSub.value = oldVal;
+        } else {
+            selectSub.innerHTML = `<option value="">无可用科目</option>`;
+        }
+    };
+
+    // 3. 绑定事件：当考试A变化时，刷新科目列表
+    selectA.onchange = updateSubjectList;
+
+    // 4. 绑定对比按钮事件
+    document.getElementById('btn-run-diff-compare').onclick = performDiffCompare;
+
+    // 5. 初始执行一次，填满科目
+    await updateSubjectList();
+}
+
+
+
+// 2. 核心计算逻辑
+async function performDiffCompare() {
+    const idA = document.getElementById('comp-exam-a').value;
+    const idB = document.getElementById('comp-exam-b').value;
+    const subject = document.getElementById('comp-subject-select').value;
+
+    if (!idA || !idB) { alert("请选择两次考试进行对比"); return; }
+
+    // 辅助：加载数据
+    const loadData = async (id) => {
+        if (id === 'current') {
+            return { 
+                data: window.G_ItemAnalysisData, 
+                config: window.G_ItemAnalysisConfig,
+                name: "当前数据"
+            };
+        } else {
+            const library = await localforage.getItem('G_ItemAnalysis_Library') || [];
+            const record = library.find(r => r.id === id);
+            return record ? { data: record.data, config: record.config, name: record.name } : null;
+        }
+    };
+
+    const recA = await loadData(idA);
+    const recB = await loadData(idB);
+
+    if (!recA || !recA.data[subject]) { alert(`考试A中未找到科目：${subject}`); return; }
+    if (!recB || !recB.data[subject]) { alert(`考试B中未找到科目：${subject}`); return; }
+
+    // 核心公式计算函数
+    // Formula: Sum( (1 - Difficulty) * QuestionTotalScore ) / StudentCount
+    const calculateWeightedMetric = (examRecord, subName) => {
+        const itemData = examRecord.data[subName];
+        const itemConfig = examRecord.config[subName] || {};
+        const students = itemData.students;
+        
+        // 获取所有题目
+        const allQuestions = [...(itemData.minorQuestions||[]), ...(itemData.majorQuestions||[])];
+        
+        // 按班级分组
+        const classMap = { '全年段': students };
+        students.forEach(s => {
+            if (!classMap[s.class]) classMap[s.class] = [];
+            classMap[s.class].push(s);
+        });
+
+        const results = {}; // { "全年段": 120.5, "1班": 118.2 ... }
+
+        for (const [className, groupStudents] of Object.entries(classMap)) {
+            if (groupStudents.length === 0) continue;
+
+            let numerator = 0; // 分子累加
+
+            allQuestions.forEach(qName => {
+                // 1. 获取配置的难度 (默认为0)
+                const conf = itemConfig[qName] || {};
+                const difficulty = (conf.manualDifficulty !== undefined) ? conf.manualDifficulty : 0;
+                
+                // 2. 计算该题在该群体中的总分
+                let qTotalScore = 0;
+                groupStudents.forEach(s => {
+                    // 尝试从小题或大题分数中获取
+                    let val = s.minorScores[qName];
+                    if (val === undefined) val = s.majorScores[qName];
+                    
+                    if (typeof val === 'number' && !isNaN(val)) {
+                        qTotalScore += val;
+                    }
+                });
+
+                // 3. 累加公式项: (1 - 难度) * 群体该题总分
+                numerator += (1 - difficulty) * qTotalScore;
+            });
+
+            // 4. 最终计算: 分子 / 参考人数
+            results[className] = parseFloat((numerator / groupStudents.length).toFixed(2));
+        }
+
+        return results;
+    };
+
+    const resultA = calculateWeightedMetric(recA, subject);
+    const resultB = calculateWeightedMetric(recB, subject);
+
+    renderDiffCompareCharts(resultA, resultB, recA.name, recB.name);
+}
+
+// 3. 渲染图表
+function renderDiffCompareCharts(resA, resB, nameA, nameB) {
+    // 提取所有班级 (并集)
+    const classes = Array.from(new Set([...Object.keys(resA), ...Object.keys(resB)])).sort();
+    // 把 "全年段" 放在最前面
+    const sortedClasses = ['全年段', ...classes.filter(c => c !== '全年段')];
+
+    const dataA = sortedClasses.map(c => resA[c] || 0);
+    const dataB = sortedClasses.map(c => resB[c] || 0);
+    const diffData = sortedClasses.map(c => {
+        const va = resA[c] || 0;
+        const vb = resB[c] || 0;
+        return parseFloat((va - vb).toFixed(2));
+    });
+
+    // 图表1：对比柱状图
+    const chartBar = echarts.init(document.getElementById('chart-diff-compare-bar'));
+    chartBar.setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        legend: { data: [nameA, nameB], top: 0 },
+        grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
+        xAxis: { type: 'category', data: sortedClasses, axisLabel: { rotate: 30 } },
+        yAxis: { type: 'value', name: '加权得分指标', scale:true },
+        series: [
+            { name: nameA, type: 'bar', data: dataA, itemStyle: { color: '#3498db' } },
+            { name: nameB, type: 'bar', data: dataB, itemStyle: { color: '#e67e22' } }
+        ]
+    });
+
+    // 图表2：差异瀑布图/柱状图
+    const chartDiff = echarts.init(document.getElementById('chart-diff-compare-diff'));
+    chartDiff.setOption({
+        tooltip: { trigger: 'axis', formatter: '{b}<br/>差异: {c}' },
+        grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
+        xAxis: { type: 'category', data: sortedClasses, axisLabel: { rotate: 30 } },
+        yAxis: { type: 'value', name: '差异值 (A - B)' },
+        series: [
+            {
+                name: '差异',
+                type: 'bar',
+                data: diffData,
+                itemStyle: {
+                    color: (params) => params.value >= 0 ? '#2ecc71' : '#e74c3c'
+                },
+                label: { show: true, position: 'top' }
+            }
+        ]
+    });
 }
 
 // 4. [最终完整版] 发送追问消息 (支持 R1 思考、单独打印、历史记录更  )
