@@ -18242,11 +18242,13 @@ function renderHonorWall(container) {
 }
 
 /**
- * [旗舰版] 24.2 计算荣誉名单 (支持班级/年级双维度进步榜)
+ * [旗舰修复版] 24.2 计算荣誉名单 (文案智能适配班级/年级)
+ * - 修复：切换班级时，奖状描述自动变为“班级排名”
+ * - 优化：同时展示年排和班排，信息更全面
  */
 function calculateAndRenderHonors() {
     const container = document.getElementById('honor-display-area');
-    const filterVal = document.getElementById('honor-class-filter').value;
+    const filterVal = document.getElementById('honor-class-filter').value; // 当前选中的范围
 
     // 1. 获取数据上下文
     let activeData = G_StudentsData;
@@ -18261,6 +18263,8 @@ function calculateAndRenderHonors() {
 
     if (!activeData || activeData.length === 0) {
         container.innerHTML = `<p style="text-align:center; padding:20px; color:#999;">该范围内暂无数据。</p>`;
+        window.G_Honor_List = [];
+        if (typeof window.updateCertChecklist === 'function') window.updateCertChecklist();
         return;
     }
 
@@ -18280,26 +18284,24 @@ function calculateAndRenderHonors() {
     const subjectKings = [];
     G_DynamicSubjectList.forEach(sub => {
         let maxScore = -Infinity;
-        activeData.forEach(s => { if (s.scores[sub] > maxScore) maxScore = s.scores[sub]; });
+        activeData.forEach(s => { if ((s.scores[sub]||0) > maxScore) maxScore = s.scores[sub]; });
         if (maxScore > 0) {
             const kings = activeData.filter(s => s.scores[sub] === maxScore);
             subjectKings.push({ subject: sub, score: maxScore, students: kings });
         }
     });
 
-    // 3. 🔥🔥 [拆分] 进步之星 🔥🔥
+    // 3. 🚀 进步之星 (拆分)
     let gradeProgressStars = [];
     let classProgressStars = [];
     
     if (compareData && compareData.length > 0) {
-        // A. 年级进步榜 (对比 gradeRank)
         gradeProgressStars = activeData.map(s => {
             const old = compareData.find(o => String(o.id) === String(s.id));
             if (!old || !old.gradeRank || !s.gradeRank) return null;
             return { ...s, diff: old.gradeRank - s.gradeRank };
         }).filter(s => s && s.diff > 0).sort((a, b) => b.diff - a.diff).slice(0, 5);
 
-        // B. 班级进步榜 (对比 rank)
         classProgressStars = activeData.map(s => {
             const old = compareData.find(o => String(o.id) === String(s.id));
             if (!old || !old.rank || !s.rank) return null;
@@ -18307,7 +18309,7 @@ function calculateAndRenderHonors() {
         }).filter(s => s && s.diff > 0).sort((a, b) => b.diff - a.diff).slice(0, 5);
     }
 
-    // 4. ⚖️ 全能战士 (均衡度 Top 5)
+    // 4. ⚖️ 全能战士
     const top30PercentCount = Math.ceil(activeData.length * 0.3);
     const highScorers = [...activeData].sort((a, b) => b.totalScore - a.totalScore).slice(0, top30PercentCount);
     const balancedStars = highScorers.map(s => {
@@ -18342,64 +18344,68 @@ function calculateAndRenderHonors() {
         </div>
     `;
 
-    // 1. 总分榜
-    const topContent = topTotal.map((s, i) => 
-        `<div class="honor-badge" style="background:#fff8e1; border:1px solid #ffe082; color:#bf360c;">
-            <span style="font-weight:bold;">Top${i+1} ${s.name}</span> <span style="font-size:0.8em;">(${s.totalScore})</span>
-        </div>`
-    ).join('');
+    // 1. 总分
+    const topContent = topTotal.map((s, i) => `<div class="honor-badge" style="background:#fff8e1; border:1px solid #ffe082; color:#bf360c;"><span style="font-weight:bold;">Top${i+1} ${s.name}</span> <span style="font-size:0.8em;">(${s.totalScore})</span></div>`).join('');
     html += createCard('巅峰领跑榜 (Top5)', '🏆', '#f39c12', topContent, 'total');
 
-    // 2. 单科状元
-    const kingContent = subjectKings.map(k => 
-        `<div class="honor-badge" style="background:#e3f2fd; border:1px solid #90caf9; color:#0d47a1;">
-            <span style="font-weight:bold;">${k.subject}：${k.students[0].name}${k.students.length>1?'等':''}</span> <span style="font-size:0.8em;">(${k.score})</span>
-        </div>`
-    ).join('');
+    // 2. 单科
+    const kingContent = subjectKings.map(k => {
+        const names = k.students.map(s=>s.name).join('、');
+        return `<div class="honor-badge" style="background:#e3f2fd; border:1px solid #90caf9; color:#0d47a1;"><span style="font-weight:bold;">${k.subject}：${names}</span> <span style="font-size:0.8em;">(${k.score})</span></div>`;
+    }).join('');
     html += createCard('单科状元榜', '🥇', '#3498db', kingContent, 'subject');
 
-    // 3. 🔥 [拆分] 渲染两个进步榜 🔥
-    
-    // A. 年级进步 (绿色)
+    // 3. 进步
     if (gradeProgressStars.length > 0) {
-        const gradeContent = gradeProgressStars.map(s => 
-            `<div class="honor-badge" style="background:#e8f5e9; border:1px solid #a5d6a7; color:#1b5e20;">
-                <span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(年排 ⬆️${s.diff})</span>
-            </div>`
-        ).join('');
-        // type 传入 'progress_grade'
+        const gradeContent = gradeProgressStars.map(s => `<div class="honor-badge" style="background:#e8f5e9; border:1px solid #a5d6a7; color:#1b5e20;"><span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(年排 ⬆️${s.diff})</span></div>`).join('');
         html += createCard('年级进步之星', '🚀', '#2ecc71', gradeContent, 'progress_grade');
     }
-
-    // B. 班级进步 (青色/蓝色)
     if (classProgressStars.length > 0) {
-        const classContent = classProgressStars.map(s => 
-            `<div class="honor-badge" style="background:#e0f7fa; border:1px solid #80deea; color:#006064;">
-                <span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(班排 ⬆️${s.diff})</span>
-            </div>`
-        ).join('');
-        // type 传入 'progress_class'
+        const classContent = classProgressStars.map(s => `<div class="honor-badge" style="background:#e0f7fa; border:1px solid #80deea; color:#006064;"><span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(班排 ⬆️${s.diff})</span></div>`).join('');
         html += createCard('班级进步之星', '📈', '#17a2b8', classContent, 'progress_class');
     }
 
-    // 4. 均衡榜
-    const balContent = balancedStars.map(s => 
-        `<div class="honor-badge" style="background:#f3e5f5; border:1px solid #ce93d8; color:#4a148c;">
-            <span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(${s.totalScore})</span>
-        </div>`
-    ).join('');
+    // 4. 均衡
+    const balContent = balancedStars.map(s => `<div class="honor-badge" style="background:#f3e5f5; border:1px solid #ce93d8; color:#4a148c;"><span style="font-weight:bold;">${s.name}</span> <span style="font-size:0.8em;">(${s.totalScore})</span></div>`).join('');
     html += createCard('全能战士榜 (均衡)', '⚖️', '#9b59b6', balContent, 'balance');
 
     container.innerHTML = html + `<style>.honor-badge { padding: 6px 10px; border-radius: 4px; display:flex; align-items:center; gap:5px; font-size:0.9em; }</style>`;
 
-    // --- 更新数据联动 (全暴露给奖状生成器) ---
+
+    // =========================================
+    // 🔥🔥🔥 数据导出 (文案智能适配) 🔥🔥🔥
+    // =========================================
     window.G_Honor_List = [];
     
-    // ... (原有 push 逻辑) ...
-    topTotal.forEach((s, i) => window.G_Honor_List.push({ name: s.name, title: "巅峰领跑奖", desc: `在${examName}中以总分 ${s.totalScore} 分荣获年级第 ${i+1} 名。<br>特被评为：<span class="cert-highlight">巅峰领跑者</span>` }));
-    subjectKings.forEach(k => k.students.forEach(s => window.G_Honor_List.push({ name: s.name, title: `${k.subject}单科状元`, desc: `在${examName}中${k.subject}学科取得 ${k.score} 分的优异成绩。<br>特被评为：<span class="cert-highlight">${k.subject}单科状元</span>` })));
-    
-    // 🔥 拆分注入数据
+    // 1. 巅峰领跑
+    topTotal.forEach((s, i) => {
+        // 🔥 核心修改：根据筛选范围决定显示年排还是班排
+        let rankText = "";
+        if (filterVal === 'ALL') {
+            rankText = `年级第 ${i+1} 名`;
+        } else {
+            rankText = `班级第 ${i+1} 名 (年级第 ${s.gradeRank} 名)`;
+        }
+
+        window.G_Honor_List.push({ 
+            name: s.name, 
+            title: "巅峰领跑奖", 
+            desc: `在${examName}中以总分 ${s.totalScore} 分荣获${rankText}。<br>特被评为：<span class="cert-highlight">巅峰领跑者</span>` 
+        });
+    });
+
+    // 2. 单科状元
+    subjectKings.forEach(k => {
+        k.students.forEach(s => {
+            window.G_Honor_List.push({ 
+                name: s.name, 
+                title: `${k.subject}单科状元`, 
+                desc: `在${examName}中${k.subject}学科取得 ${k.score} 分的优异成绩。<br>特被评为：<span class="cert-highlight">${k.subject}单科状元</span>` 
+            });
+        });
+    });
+
+    // 3.1 年级进步 (文案本身就是强调年级，保持不变)
     gradeProgressStars.forEach(s => {
         window.G_Honor_List.push({ 
             name: s.name, 
@@ -18407,6 +18413,8 @@ function calculateAndRenderHonors() {
             desc: `在${examName}中年级排名显著提升 ${s.diff} 名，勤奋刻苦。<br>特被评为：<span class="cert-highlight">年级进步之星</span>` 
         });
     });
+
+    // 3.2 班级进步
     classProgressStars.forEach(s => {
         window.G_Honor_List.push({ 
             name: s.name, 
@@ -18415,8 +18423,14 @@ function calculateAndRenderHonors() {
         });
     });
 
-    balancedStars.forEach(s => window.G_Honor_List.push({ name: s.name, title: "全能战士奖", desc: `在${examName}中各科发展均衡，基础扎实。<br>特被评为：<span class="cert-highlight">全能战士</span>` }));
-
+    // 4. 全能战士
+    balancedStars.forEach(s => {
+        window.G_Honor_List.push({ 
+            name: s.name, 
+            title: "全能战士奖", 
+            desc: `在${examName}中各科发展均衡，基础扎实。<br>特被评为：<span class="cert-highlight">全能战士</span>` 
+        });
+    });
 
     // 🔥🔥🔥 核心修复：强制刷新奖状定制面板的列表 🔥🔥🔥
     if (typeof window.updateCertChecklist === 'function') {
@@ -18428,6 +18442,8 @@ function calculateAndRenderHonors() {
         if(btn) btn.innerText = `📦 生成 ZIP 压缩包 (${window.G_Honor_List.length})`;
     }
 }
+
+
 
 /**
  * [旗舰版] 24.3 生成喜报图片 (支持 Logo + 自定义标题 + 长图)
