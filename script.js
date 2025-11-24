@@ -3122,14 +3122,14 @@ function renderClassValueAddedChart(elementId, data, subjectName, subTitle = "")
                 // 判断象限
                 let type = "";
                 if (progress >= 0) {
-                    type = entryRank >= avgEntryRank ? "🌟 逆袭班级 (生源弱, 进步大)" : "💪 培优班级 (生源强, 进步大)";
+                    type = entryRank >= avgEntryRank ? "🌟 逆袭班级 (排名弱, 进步大)" : "💪 培优班级 (排名强, 进步大)";
                 } else {
-                    type = entryRank >= avgEntryRank ? "⚠️ 低效区 (生源弱, 且退步)" : "📉 警示区 (生源强, 但退步)";
+                    type = entryRank >= avgEntryRank ? "⚠️ 低效区 (排名弱, 且退步)" : "📉 警示区 (排名强, 但退步)";
                 }
 
                 // 返回详细的 HTML 结构
                 return `<strong>${d.name}</strong><br/>` +
-                       `入口生源: 年排 ${entryRankFixed}<br/>` +
+                       `上次排名: 年排 ${entryRankFixed}<br/>` +
                        `本次增值: <strong style="color:${progress>=0?'#28a745':'#dc3545'}">${progress>0?'+':''}${progressFixed} 名</strong><br/>` +
                        `参评人数: ${d.value[2]}<br/>` +
                        `<hr style="margin:5px 0;border-color:#eee"/>${type}`;
@@ -3137,7 +3137,7 @@ function renderClassValueAddedChart(elementId, data, subjectName, subTitle = "")
         },
         grid: { left: '8%', right: '12%', bottom: '10%', top: '18%', containLabel: true },
         xAxis: {
-            type: 'value', name: '入口生源 (排名越大越弱 →)', nameLocation: 'middle', nameGap: 30,
+            type: 'value', name: '上次排名 (排名越大越弱 →)', nameLocation: 'middle', nameGap: 30,
             min: minX, max: maxX, scale: true, splitLine: { show: false }, axisLine: { symbol: ['none', 'arrow'] }
         },
         yAxis: {
