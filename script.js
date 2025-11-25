@@ -10300,8 +10300,8 @@ function renderItemAnalysisCharts() {
 }
 
 /**
- * [新增] 13.22. 绘制试卷难度结构饼图
- * 统计：简单题(>=0.7)、中档题(0.4-0.7)、难题(<0.4) 的分值占比
+ * [修正版] 13.22. 绘制试卷难度结构饼图
+ * 修复：只统计小题 (Minor)，防止叠加“客观题总分”等大题导致分值溢出
  */
 function drawItemDifficultyPie() {
     const elementId = 'item-difficulty-pie-chart';
@@ -10323,30 +10323,49 @@ function drawItemDifficultyPie() {
         if (!statsObj) return;
         for (const qName in statsObj) {
             const stat = statsObj[qName];
+            // 优先使用手动配置的满分，或者是自动识别的最大分
             const full = stat.manualFullScore || stat.maxScore || 0;
-            const diff = stat.difficulty; // 得分率
+            
+            // 使用修正后的难度 (P值: 数值越小越难)
+            // 注意：这里我们统计的是“难度分布”，通常按得分率(difficulty)来划分
+            // >= 0.75 容易
+            // 0.45 - 0.75 中档
+            // < 0.45 困难
+            const diff = stat.difficulty; 
 
             if (full > 0) {
                 totalFullScore += full;
-                if (diff >= 0.75) scores.easy += full;      // 容易
+                if (diff >= 0.75) scores.easy += full;      // 容易 (得分率高)
                 else if (diff >= 0.45) scores.medium += full; // 中档
-                else scores.hard += full;                   // 困难
+                else scores.hard += full;                   // 困难 (得分率低)
             }
         }
     };
 
+    // ✅ 核心修复：只计算“小题”(Minor)，不计算“大题”(Major)
+    // 因为大题通常是小题的汇总（如“选择题总分”），一起算会导致总分翻倍。
     processStats(recalculatedStats.minorStats);
-    processStats(recalculatedStats.majorStats);
+    
+    // ❌ [已删除] processStats(recalculatedStats.majorStats); 
+    // 如果你的 Excel 里某些题没有小题号（比如只有“作文”没有题号），
+    // 可以在配置里把它改成小题，或者在这里加个判断逻辑。
+    // 但对于标准阅卷数据，只算 Minor 是最准确的。
 
     // 2. 准备数据
     const data = [
-        { value: scores.easy, name: '容易 (≥0.75)', itemStyle: { color: '#28a745' } },
-        { value: scores.medium, name: '中档 (0.45-0.75)', itemStyle: { color: '#007bff' } },
-        { value: scores.hard, name: '困难 (<0.45)', itemStyle: { color: '#dc3545' } }
+        { value: parseFloat(scores.easy.toFixed(1)), name: '容易 (≥0.75)', itemStyle: { color: '#28a745' } },
+        { value: parseFloat(scores.medium.toFixed(1)), name: '中档 (0.45-0.75)', itemStyle: { color: '#007bff' } },
+        { value: parseFloat(scores.hard.toFixed(1)), name: '困难 (<0.45)', itemStyle: { color: '#dc3545' } }
     ];
 
     // 3. 渲染
     const option = {
+        title: {
+            text: `总分: ${totalFullScore.toFixed(0)}分`, // 在标题里显示一下总分，方便核对
+            left: 'center',
+            top: 'center',
+            textStyle: { fontSize: 14, color: '#666' }
+        },
         tooltip: {
             trigger: 'item',
             formatter: (p) => {
@@ -10375,7 +10394,7 @@ function drawItemDifficultyPie() {
                         show: true,
                         fontSize: 14,
                         fontWeight: 'bold',
-                        formatter: '{b}\n{d}%'
+                        formatter: '{b}\n{c}分 ({d}%)'
                     }
                 },
                 data: data
@@ -10385,6 +10404,7 @@ function drawItemDifficultyPie() {
 
     myChart.setOption(option);
 }
+
 
 /**
  * 13.4. (ECharts) 渲染小题分析条形图 (带缩放)
