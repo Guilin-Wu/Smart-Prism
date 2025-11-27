@@ -19228,33 +19228,33 @@ let G_CertState = {
     bgImage: null,
     bgRect: { x: 0, y: 0, w: 800, h: 565 },
     sealImage: null,
-    seal: { x: 75, y: 75, w: 120, h: 120 }, // 统一使用 w, h
+    seal: { x: 75, y: 75, w: 120, h: 200 }, // 统一使用 w, h
     
     texts: {
-        title: '荣誉证书',
-        winner: '张三 同学',
+        title: 'HONORARY CERTIFICATE',
+        winner: '张三峰 同学',
         desc: '在本次期末考试中成绩优异。',
         award: '特被评为：<span class="cert-highlight">学习标兵</span>', 
         footer: '特发此状，以资鼓励', 
-        signature: '北京大学附属中学莆田学校', // 默认署名
-        date: '二〇二三年十一月'
+        signature: '颁发单位', // 默认署名
+        date: '二〇二五年十一月'
     },
     style: {
         fontFamily: '"KaiTi", "STKaiti", "楷体", serif', 
         color: '#333333',
         textAlign: 'center',
-        sizes: { title: 48, winner: 32, desc: 18, award: 24, footer: 18, signature: 16, date: 16 }
+        sizes: { title: 30, winner: 30, desc: 20, award: 24, footer: 20, signature: 16, date: 16 }
     },
     paper: { size: 'A4', orientation: 'L' },
     layoutMode: 'auto', 
     manualPos: { 
-        title: { x: 50, y: 15 }, 
-        winner: { x: 50, y: 35 }, 
-        desc: { x: 50, y: 48 }, 
-        award: { x: 50, y: 60 },
-        footer: { x: 80, y: 70 }, 
-        signature: { x: 80, y: 70 }, // 署名坐标
-        date: { x: 80, y: 75 } 
+        title: { x: 50, y: 28 }, 
+        winner: { x: 20, y: 40 }, 
+        desc: { x: 51, y: 49 }, 
+        award: { x: 50, y: 55 },
+        footer: { x: -23.0, y: 66 }, 
+        signature: { x: 74, y: 73 }, // 署名坐标
+        date: { x: 77, y: 78 } 
     }
 };
 
