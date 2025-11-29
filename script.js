@@ -3,10 +3,23 @@
 
 
 // 1. 全局配置与状态
-localforage.config({
-    name: 'SmartPrismDB',
-    storeName: 'app_data',
-    description: '存储学生成绩、小题分析及考试归档数据'
+document.addEventListener('DOMContentLoaded', () => {
+    // 检查 localforage 是否加载成功
+    if (typeof localforage === 'undefined') {
+        console.error('LocalForage 加载失败，可能是网络原因。');
+        alert('系统组件加载失败，请刷新页面或检查网络。');
+        return;
+    }
+
+    // 这里的配置代码移到里面来
+    localforage.config({
+        name: 'SmartPrismDB',
+        storeName: 'app_data',
+        description: '存储学生成绩、小题分析及考试归档数据'
+    });
+
+    // 这里可以放其他的初始化逻辑
+    console.log('系统初始化完成');
 });
 
 // ---------------------------------

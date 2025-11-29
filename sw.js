@@ -7,21 +7,23 @@ const ASSETS_TO_CACHE = [
     './script.js',
     './logo.png', // 如果有
     // 把你用到的 CDN 地址全部列在这里
-    'https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/echarts-datatool/2.0.1/dataTool.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/marked/12.0.0/marked.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.css',
-    'https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/katex.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/contrib/mhchem.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/localforage/1.10.0/localforage.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/jszip/3.10.1/jszip.min.js',
-    'https://cdn.bootcdn.net/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js',
-    // 字体文件
-    'https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/fonts/KaTeX_Main-Regular.woff2',
-    'https://cdn.bootcdn.net/ajax/libs/KaTeX/0.16.9/fonts/KaTeX_Math-Italic.woff2'
+    './lib/echarts.min.js',
+    './lib/xlsx.full.min.js',
+    './lib/dataTool.min.js',
+    './lib/marked.min.js',
+    './lib/katex.min.css',
+    './lib/katex.min.js',
+    './lib/auto-render.min.js',
+    './lib/mhchem.min.js',
+    './lib/localforage.min.js',
+    './lib/html2canvas.min.js',
+    './lib/jszip.min.js',
+    './lib/FileSaver.min.js',
+    
+    './lib/fonts/KaTeX_Main-Regular.woff2',
+    './lib/fonts/KaTeX_Math-Italic.woff2',
+    './lib/fonts/KaTeX_Main-Bold.woff2',
+    './lib/fonts/KaTeX_Size1-Regular.woff2'
 ];
 
 // 安装 SW
