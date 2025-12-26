@@ -14957,7 +14957,10 @@ async function renderGoalSetting(container, activeData, stats) {
             <div class="main-card-wrapper">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <h4>📋 学生规划档案 (当前列表内)</h4>
-                    <button id="goal-manage-refresh" class="sidebar-button" style="font-size:0.8em; padding:5px 10px;">🔄 刷  列表</button>
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="goal-manage-search" placeholder="🔍 搜索姓名/班级..." style="padding: 5px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 0.9em; width: 200px;">
+                        <button id="goal-manage-refresh" class="sidebar-button" style="font-size:0.8em; padding:5px 10px;">🔄 刷  列表</button>
+                    </div>
                 </div>
                 <div class="table-container" style="max-height: 600px; overflow-y: auto;">
                     <table id="goal-manage-table">
@@ -15243,6 +15246,11 @@ async function renderGoalSetting(container, activeData, stats) {
     tabManage.addEventListener('click', () => { document.getElementById('goal-tab-create').style.display = 'none'; document.getElementById('goal-tab-manage').style.display = 'block'; tabManage.classList.add('active'); tabManage.style.borderBottomColor = 'var(--primary-color)'; tabManage.style.color = 'var(--primary-color)'; tabCreate.classList.remove('active'); tabCreate.style.borderBottomColor = 'transparent'; tabCreate.style.color = '#666'; renderManageTable(); });
     tabCreate.addEventListener('click', () => { document.getElementById('goal-tab-create').style.display = 'block'; document.getElementById('goal-tab-manage').style.display = 'none'; tabCreate.classList.add('active'); tabCreate.style.borderBottomColor = 'var(--primary-color)'; tabCreate.style.color = 'var(--primary-color)'; tabManage.classList.remove('active'); tabManage.style.borderBottomColor = 'transparent'; tabManage.style.color = '#666'; });
     document.getElementById('goal-manage-refresh').addEventListener('click', renderManageTable);
+    // [新增] 搜索框监听
+    const searchInput = document.getElementById('goal-manage-search');
+    if (searchInput) {
+        searchInput.addEventListener('input', renderManageTable);
+    }
 
     // [升级版] 渲染管理大厅表格 (支持点击表头排序)
     async function renderManageTable() {
@@ -15303,7 +15311,7 @@ async function renderGoalSetting(container, activeData, stats) {
         // 4. 获取并整理数据
         allArchives = await localforage.getItem('G_Goal_Archives') || {};
         const tbody = document.getElementById('goal-manage-tbody');
-        const rows = [];
+        let rows = [];
 
         Object.keys(allArchives).forEach(sid => {
             if (Array.isArray(allArchives[sid])) {
@@ -15314,6 +15322,15 @@ async function renderGoalSetting(container, activeData, stats) {
                 });
             }
         });
+
+        // [新增] 搜索过滤
+        const searchKeyword = document.getElementById('goal-manage-search') ? document.getElementById('goal-manage-search').value.trim().toLowerCase() : '';
+        if (searchKeyword) {
+            rows = rows.filter(r => 
+                (r.studentName && r.studentName.toLowerCase().includes(searchKeyword)) ||
+                (r.className && r.className.toLowerCase().includes(searchKeyword))
+            );
+        }
 
         if (rows.length === 0) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px;">当前列表 [${sessionLabel.innerText}] 暂无记录</td></tr>`;
@@ -15473,7 +15490,8 @@ async function renderGoalSetting(container, activeData, stats) {
 
         modal.style.display = 'flex';
         setTimeout(() => {
-            if (st.mode === 'total') {
+            // 修复逻辑：只要包含多个科目详情，就视为全科模式，允许显示图表
+            if (st.mode === 'total' || (st.details && st.details.length > 1)) {
                 renderGoalWaterfall('goal-detail-waterfall-chart', baseTotal, st.targetScoreCalculated, st.details);
                 renderGoalRadarComparison('goal-detail-radar-chart', st.details, actualStudent);
             } else {
@@ -22756,3 +22774,28 @@ function renderSunburstChart(subjectName, className) {
 
     myChart.setOption(option);
 }
+// ---------------------------------
+// Author Info Modal Logic
+// ---------------------------------
+document.addEventListener('DOMContentLoaded', () => {
+    const authorBtn = document.getElementById('author-info-btn');
+    const authorModal = document.getElementById('author-info-modal');
+    const authorCloseBtn = document.getElementById('author-modal-close-btn');
+
+    if (authorBtn && authorModal && authorCloseBtn) {
+        authorBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            authorModal.style.display = 'flex';
+        });
+
+        authorCloseBtn.addEventListener('click', () => {
+            authorModal.style.display = 'none';
+        });
+
+        authorModal.addEventListener('click', (e) => {
+            if (e.target === authorModal) {
+                authorModal.style.display = 'none';
+            }
+        });
+    }
+});
