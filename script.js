@@ -5230,7 +5230,7 @@ function renderMultiExam(container) {
             renderMultiExamList(loadedData);
             initializeStudentSearch(loadedData);
             refreshBumpChartUI(loadedData);
-            populateBumpFilter(initialData);
+            populateBumpFilter(loadedData);
 
 
         } catch (err) {
@@ -15595,7 +15595,20 @@ async function renderGoalSetting(container, activeData, stats) {
 
     // [核心升级版] 复盘查看 (智能识别 排名/分数 目标)
     window.reviewPlanGlobal = async (sid, idx) => {
-        if (!G_GoalOutcomeData) { alert("⚠️ 请先在顶部右侧导入【达成成绩表】，系统才能进行对比复盘！"); return; }
+        // 1. 检查数据源
+        if (!G_GoalOutcomeData) {
+            const panel = document.getElementById('goal-review-panel');
+            panel.style.display = 'block';
+            document.getElementById('goal-review-content').innerHTML = `
+                <div style="padding:30px; text-align:center; background:#fff5f5; border:1px dashed #dc3545; border-radius:8px;">
+                    <h4 style="color:#dc3545; margin-top:0;">⚠️ 尚未导入复盘数据</h4>
+                    <p style="color:#666; font-size:0.9em;">请先在页面顶部右侧的【2. 达成成绩】区域导入考试数据，系统才能进行对比分析。</p>
+                    <button onclick="document.getElementById('goal-upload-outcome').click()" class="sidebar-button" style="background-color:#20c997; margin-top:10px;">📂 立即导入数据</button>
+                </div>
+            `;
+            panel.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
 
         let archives = await localforage.getItem('G_Goal_Archives');
         const plan = archives[sid][idx];
@@ -15611,7 +15624,7 @@ async function renderGoalSetting(container, activeData, stats) {
         }
 
         // ------------------------------------------------------
-        // 1. 核心目标达成判定 (新增逻辑)
+        // 2. 核心目标达成判定
         // ------------------------------------------------------
         const st = plan.strategy;
         const isRankGoal = st.targetType === 'rank';
@@ -15623,141 +15636,234 @@ async function renderGoalSetting(container, activeData, stats) {
 
         // 获取实际值
         let actualVal = 0;
-        if (isRankGoal) {
-            // 如果目标是排名，获取实际排名
-            if (isTotal) {
-                actualVal = actualStudent.gradeRank;
-            } else {
-                // 单科排名 (防御性检查)
-                actualVal = (actualStudent.gradeRanks && actualStudent.gradeRanks[subject]) ? actualStudent.gradeRanks[subject] : 9999;
-            }
+        
+        if (isTotal) {
+            actualVal = isRankGoal ? actualStudent.gradeRank : actualStudent.totalScore;
         } else {
-            // 如果目标是分数，获取实际分数
-            if (isTotal) {
-                actualVal = actualStudent.totalScore;
-            } else {
-                actualVal = actualStudent.scores[subject] || 0;
-            }
+            actualVal = isRankGoal ? 
+                ((actualStudent.gradeRanks && actualStudent.gradeRanks[subject]) ? actualStudent.gradeRanks[subject] : 9999) : 
+                (actualStudent.scores[subject] || 0);
         }
 
-        // 计算差距 (分数是高好，排名是低好)
+        // 计算差距
         let diff = 0;
         let isAchieved = false;
         let resultHtml = "";
+        let diffText = "";
+        let color = "";
+        let icon = "";
 
         if (isRankGoal) {
-            // 排名逻辑：目标 50，实际 40，diff = 50 - 40 = 10 (进步10名)
-            diff = targetVal - actualVal;
+            // 排名：越小越好
+            diff = targetVal - actualVal; // 正数表示进步 (目标50 - 实际40 = 10)
             isAchieved = actualVal <= targetVal;
+            color = isAchieved ? '#28a745' : '#dc3545';
+            icon = isAchieved ? '🎉 目标达成' : '⚠️ 未达成';
+            diffText = diff > 0 ? `前进 ${Math.abs(diff)} 名` : (diff < 0 ? `后退 ${Math.abs(diff)} 名` : `持平`);
+        } else {
+            // 分数：越大越好
+            diff = actualVal - targetVal; // 正数表示超分
+            isAchieved = actualVal >= targetVal;
+            color = isAchieved ? '#28a745' : '#dc3545';
+            icon = isAchieved ? '🎉 目标达成' : '⚠️ 未达成';
+            diffText = diff > 0 ? `超 ${Math.abs(diff).toFixed(1)} 分` : `差 ${Math.abs(diff).toFixed(1)} 分`;
+        }
 
-            const color = isAchieved ? '#28a745' : '#dc3545';
-            const icon = isAchieved ? '🎉 达成' : '⚠️ 未达成';
-            const diffText = diff > 0 ? `前进 ${Math.abs(diff)} 名` : (diff < 0 ? `后退 ${Math.abs(diff)} 名` : `持平`);
+        // 构建核心结果卡片
+        resultHtml = `
+            <div style="display:flex; gap:20px; margin-bottom:20px; flex-wrap:wrap;">
+                <div class="kpi-card" style="flex:2; background:#fff; border-left: 6px solid ${color}; padding:15px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                    <h4 style="margin:0 0 10px 0; color:#666; font-size:0.9em; text-transform:uppercase; letter-spacing:1px;">核心目标复盘 (${isTotal ? '总分' : subject})</h4>
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                        <div>
+                            <div style="font-size:2em; font-weight:bold; color:${color};">${icon}</div>
+                            <div style="font-size:1.1em; color:#555; margin-top:5px;">${diffText}</div>
+                        </div>
+                        <div style="text-align:right; border-left:1px solid #eee; padding-left:20px;">
+                            <div style="margin-bottom:5px;"><span style="color:#999; font-size:0.9em;">目标:</span> <strong style="font-size:1.2em;">${targetVal}</strong></div>
+                            <div><span style="color:#999; font-size:0.9em;">实际:</span> <strong style="font-size:1.2em; color:#333;">${actualVal}</strong></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="kpi-card" style="flex:1; background:#f8f9fa; border:1px solid #eee; padding:15px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+                    <div style="font-size:0.9em; color:#666; margin-bottom:5px;">本次复盘依据</div>
+                    <div style="font-weight:bold; color:#007bff; text-align:center; word-break:break-all;">${currentOutcomeSourceName}</div>
+                </div>
+            </div>
+        `;
 
-            resultHtml = `
-                <div class="kpi-card" style="background:#fff; border-left: 5px solid ${color}; width:100%; margin-bottom:20px;">
-                    <h3>核心目标 (${isTotal ? '总分' : subject}年排)</h3>
-                    <div style="display:flex; align-items:baseline; gap:15px;">
-                        <span style="font-size:1.2em; color:#666;">目标: <strong>${targetVal}</strong></span>
-                        <span style="font-size:1.2em; color:#333;">实际: <strong>${actualVal}</strong></span>
-                        <span style="font-size:1.4em; font-weight:bold; color:${color}; margin-left:auto;">${icon} <span style="font-size:0.6em;">(${diffText})</span></span>
+        // ------------------------------------------------------
+        // 3. 深度分析图表 (雷达图 + 柱状图)
+        // ------------------------------------------------------
+        let analysisHtml = "";
+        
+        if (isTotal) {
+            analysisHtml = `
+                <div class="dashboard-chart-grid-2x2" style="margin-bottom:20px;">
+                    <div class="main-card-wrapper">
+                        <h4 style="text-align:center; margin-bottom:10px;">🕸️ 全科能力雷达 (规划 vs 实际)</h4>
+                        <div id="review-radar-chart" style="height:350px;"></div>
+                    </div>
+                    <div class="main-card-wrapper">
+                        <h4 style="text-align:center; margin-bottom:10px;">📊 各科得分差距分析</h4>
+                        <div id="review-bar-chart" style="height:350px;"></div>
                     </div>
                 </div>
             `;
         } else {
-            // 分数逻辑：目标 600，实际 620，diff = 620 - 600 = 20 (进步20分)
-            diff = actualVal - targetVal;
-            isAchieved = actualVal >= targetVal;
-
-            const color = isAchieved ? '#28a745' : '#dc3545';
-            const icon = isAchieved ? '🎉 达成' : '⚠️ 未达成';
-            const diffText = diff > 0 ? `超 ${Math.abs(diff).toFixed(1)} 分` : `差 ${Math.abs(diff).toFixed(1)} 分`;
-
-            resultHtml = `
-                <div class="kpi-card" style="background:#fff; border-left: 5px solid ${color}; width:100%; margin-bottom:20px;">
-                    <h3>核心目标 (${isTotal ? '总分' : subject})</h3>
-                    <div style="display:flex; align-items:baseline; gap:15px;">
-                        <span style="font-size:1.2em; color:#666;">目标: <strong>${targetVal}</strong></span>
-                        <span style="font-size:1.2em; color:#333;">实际: <strong>${actualVal}</strong></span>
-                        <span style="font-size:1.4em; font-weight:bold; color:${color}; margin-left:auto;">${icon} <span style="font-size:0.6em;">(${diffText})</span></span>
-                    </div>
+            analysisHtml = `
+                <div class="main-card-wrapper" style="margin-bottom:20px;">
+                    <h4 style="text-align:center; margin-bottom:10px;">📊 单科得分分析</h4>
+                    <div id="review-bar-chart" style="height:300px;"></div>
                 </div>
             `;
         }
 
         // ------------------------------------------------------
-        // 2. 图表绘制逻辑 (保持分数达成率，作为努力程度参考)
+        // 4. 详细数据表格
         // ------------------------------------------------------
-        const radios = document.getElementsByName('goal-trend-mode');
-        const drawChart = () => {
-            let mode = 'student';
-            radios.forEach(r => { if (r.checked) mode = r.value; });
-            const trendX = [];
-            const trendY = [];
+        let tableHtml = `
+            <div class="main-card-wrapper">
+                <h4 style="margin:0 0 15px 0;">📋 科目详细复盘表</h4>
+                <table>
+                    <thead>
+                        <tr style="background:#f8f9fa;">
+                            <th>科目</th>
+                            <th>规划目标</th>
+                            <th>实际得分</th>
+                            <th>差值</th>
+                            <th>状态</th>
+                            <th>评价</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
 
-            // *注：趋势图依然使用【分数达成率】绘制，因为排名无法简单计算百分比 (排名1不是100%，排名500不是0%)
-            // 这里我们比较的是 "计算出的目标分" vs "实际分"
-            if (mode === 'student') {
-                const studentPlans = archives[sid] || [];
-                const sessionPlans = studentPlans.filter(p => p.sessionId === currentSessionId).sort((a, b) => a.id - b.id);
-                sessionPlans.forEach(p => {
-                    if (p.strategy.mode === 'total' && actualStudent) {
-                        const rate = (actualStudent.totalScore / p.strategy.targetScoreCalculated) * 100;
-                        trendX.push(p.name);
-                        trendY.push(parseFloat(rate.toFixed(1)));
-                    }
-                });
-                renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `得分达成率趋势 (当前学生: ${plan.studentName})`);
-            } else {
-                // ... 全列表平均逻辑 (保持原样) ...
-                const allSessionPlans = [];
-                Object.values(archives).forEach(userPlans => {
-                    userPlans.forEach(p => { if (p.sessionId === currentSessionId) allSessionPlans.push(p); });
-                });
-                const groups = {};
-                allSessionPlans.forEach(p => {
-                    if (p.strategy.mode === 'total') {
-                        if (!groups[p.name]) groups[p.name] = { sumRate: 0, count: 0, ts: p.id };
-                        const sData = G_GoalOutcomeData.find(s => String(s.id) === String(p.studentId));
-                        if (sData) {
-                            const rate = (sData.totalScore / p.strategy.targetScoreCalculated) * 100;
-                            groups[p.name].sumRate += rate;
-                            groups[p.name].count++;
-                        }
-                    }
-                });
-                const sortedGroups = Object.keys(groups).map(name => ({
-                    name: name, avgRate: groups[name].count > 0 ? (groups[name].sumRate / groups[name].count) : 0, ts: groups[name].ts
-                })).sort((a, b) => a.ts - b.ts);
-                sortedGroups.forEach(g => { trendX.push(g.name); trendY.push(parseFloat(g.avgRate.toFixed(1))); });
-                renderGoalTrendChart('goal-trend-line-chart', trendX, trendY, `得分达成率趋势 (全列表平均)`);
-            }
-        };
-        radios.forEach(r => r.onclick = drawChart);
-        radios[0].checked = true;
-        drawChart();
-
-        // ------------------------------------------------------
-        // 3. 渲染详情表格
-        // ------------------------------------------------------
-        let tableHtml = `<h4>${plan.studentName} - ${plan.name} (科目细分)</h4>`;
-        tableHtml += `<table><thead><tr><th>科目</th><th>规划分数目标</th><th>实际得分</th><th>状态</th></tr></thead><tbody>`;
+        const chartLabels = [];
+        const chartTargetData = [];
+        const chartActualData = [];
 
         st.details.forEach(d => {
             const actual = actualStudent.scores[d.subject] || 0;
             const diff = actual - d.target;
-            // 科目细分依然对比分数（因为单科排名很难精确拆解）
-            const status = diff >= 0 ? '✅' : `🔻 ${diff.toFixed(1)}`;
-            const color = diff >= 0 ? 'green' : 'red';
-            tableHtml += `<tr><td>${d.subject}</td><td>${d.target.toFixed(1)}</td><td style="font-weight:bold;">${actual}</td><td style="color:${color}">${status}</td></tr>`;
+            const isHit = diff >= 0;
+            
+            chartLabels.push(d.subject);
+            chartTargetData.push(d.target);
+            chartActualData.push(actual);
+
+            const statusBadge = isHit 
+                ? `<span class="badge badge-success" style="background:#28a745; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em;">达标</span>` 
+                : `<span class="badge badge-danger" style="background:#dc3545; color:white; padding:2px 6px; border-radius:4px; font-size:0.8em;">未达标</span>`;
+            
+            const diffColor = isHit ? '#28a745' : '#dc3545';
+            const diffSign = diff > 0 ? '+' : '';
+            
+            let comment = "";
+            if (diff > 10) comment = "🌟 优势拉分";
+            else if (diff >= 0) comment = "✅ 完成任务";
+            else if (diff > -5) comment = "⚠️ 惜败";
+            else comment = "🆘 需重点关注";
+
+            tableHtml += `
+                <tr>
+                    <td style="font-weight:bold;">${d.subject}</td>
+                    <td>${d.target.toFixed(1)}</td>
+                    <td style="font-weight:bold; color:#333;">${actual}</td>
+                    <td style="color:${diffColor}; font-weight:bold;">${diffSign}${diff.toFixed(1)}</td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size:0.9em; color:#666;">${comment}</td>
+                </tr>
+            `;
         });
-        tableHtml += `</tbody></table>`;
+        tableHtml += `</tbody></table></div>`;
 
-        // 组合内容
-        content.innerHTML = resultHtml + tableHtml;
-
+        // 隐藏旧的趋势图区域 (如果存在)
+        const oldTrend = document.getElementById('goal-trend-line-chart');
+        if(oldTrend && oldTrend.parentElement) oldTrend.parentElement.style.display = 'none';
+        
+        content.innerHTML = resultHtml + analysisHtml + tableHtml;
         panel.scrollIntoView({ behavior: 'smooth' });
+
+        // 渲染图表
+        setTimeout(() => {
+            if (isTotal) {
+                renderReviewRadar('review-radar-chart', st.details, actualStudent);
+            }
+            renderReviewBar('review-bar-chart', chartLabels, chartTargetData, chartActualData);
+        }, 100);
     };
+}
+
+// [新增] 复盘雷达图
+function renderReviewRadar(elemId, details, actualStudent) {
+    const dom = document.getElementById(elemId);
+    if (!dom) return;
+    if (echartsInstances[elemId]) echartsInstances[elemId].dispose();
+    
+    // 防御性检查：如果没有数据，不渲染或显示空状态
+    if (!details || details.length === 0) {
+        dom.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100%;color:#999;">暂无数据</div>';
+        return;
+    }
+
+    const myChart = echarts.init(dom);
+
+    const indicators = [];
+    const dataTarget = [];
+    const dataActual = [];
+
+    details.forEach(d => {
+        const maxVal = Math.max(d.target, actualStudent.scores[d.subject] || 0) * 1.2;
+        indicators.push({ name: d.subject, max: maxVal });
+        dataTarget.push(d.target);
+        dataActual.push(actualStudent.scores[d.subject] || 0);
+    });
+
+    const option = {
+        tooltip: { trigger: 'item' },
+        legend: { bottom: 0, data: ['规划目标', '实际成绩'] },
+        radar: { indicator: indicators, radius: '65%' },
+        series: [{
+            type: 'radar',
+            data: [
+                { value: dataTarget, name: '规划目标', itemStyle: { color: '#6f42c1' }, lineStyle: { type: 'dashed' } },
+                { value: dataActual, name: '实际成绩', itemStyle: { color: '#28a745' }, areaStyle: { opacity: 0.2, color: '#28a745' } }
+            ]
+        }]
+    };
+    myChart.setOption(option);
+    echartsInstances[elemId] = myChart;
+}
+
+// [新增] 复盘柱状图
+function renderReviewBar(elemId, labels, targetData, actualData) {
+    const dom = document.getElementById(elemId);
+    if (!dom) return;
+    if (echartsInstances[elemId]) echartsInstances[elemId].dispose();
+
+    // 防御性检查
+    if (!labels || labels.length === 0) {
+        dom.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100%;color:#999;">暂无数据</div>';
+        return;
+    }
+
+    const myChart = echarts.init(dom);
+
+    const option = {
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        legend: { bottom: 0 },
+        grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
+        xAxis: { type: 'category', data: labels },
+        yAxis: { type: 'value' },
+        series: [
+            { name: '规划目标', type: 'bar', data: targetData, itemStyle: { color: '#e9ecef' }, label: { show: true, position: 'top', color: '#999' } },
+            { name: '实际成绩', type: 'bar', data: actualData, itemStyle: { color: '#007bff' }, label: { show: true, position: 'top', color: '#fff' } }
+        ]
+    };
+    myChart.setOption(option);
+    echartsInstances[elemId] = myChart;
 }
 
 // 辅助: 渲染趋势图
@@ -15781,45 +15887,6 @@ function renderGoalTrendChart(elemId, xData, yData, titleText) {
     };
     myChart.setOption(option);
     echartsInstances[elemId] = myChart;
-}
-
-/* 辅助函数：智能分配算法 (保持不变，或直接引用之前的) */
-function calculateSmartAllocation(student, targetTotal, allStudents, stats) {
-    // ... (这里使用您之前已有的 calculateSmartAllocation 代码，无需更改) ...
-    // 为了代码完整性，如果您没有保留之前的代码，请告诉我，我再贴一遍。
-    // 简单起见，这里假设它已存在于 script.js 中。
-
-    // 以下是简化的复用逻辑，确保代码能跑：
-    const currentTotal = student.totalScore;
-    const totalDeficit = targetTotal - currentTotal;
-    const details = [];
-    let totalWeight = 0;
-    const items = [];
-
-    G_DynamicSubjectList.forEach(subject => {
-        const confFull = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].full : 100;
-        const cur = student.scores[subject] || 0;
-        const room = Math.max(0, confFull - cur);
-        const weight = room; // 简化权重
-        items.push({ subject, cur, room, weight });
-        totalWeight += weight;
-    });
-
-    items.forEach(item => {
-        let gain = 0;
-        if (totalDeficit > 0 && totalWeight > 0) gain = (item.weight / totalWeight) * totalDeficit;
-        if (gain > item.room) gain = item.room;
-
-        details.push({
-            subject: item.subject,
-            current: item.cur,
-            target: item.cur + gain,
-            gain: gain,
-            difficultyText: gain > 10 ? "重点突破" : "稳步提升"
-        });
-    });
-
-    return { totalDeficit, details };
 }
 
 /**
