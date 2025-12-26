@@ -15645,29 +15645,71 @@ async function renderGoalSetting(container, activeData, stats) {
                 (actualStudent.scores[subject] || 0);
         }
 
-        // 计算差距
-        let diff = 0;
-        let isAchieved = false;
-        let resultHtml = "";
-        let diffText = "";
-        let color = "";
-        let icon = "";
+        // [核心修改] 获取基准值 (用于计算进步/后退)
+        // 尝试从 G_GoalBaselineData 获取基准学生信息
+        const baselineStudent = G_GoalBaselineData ? G_GoalBaselineData.find(s => String(s.id) === String(sid)) : null;
+        let baselineVal = null;
 
         if (isRankGoal) {
-            // 排名：越小越好
-            diff = targetVal - actualVal; // 正数表示进步 (目标50 - 实际40 = 10)
-            isAchieved = actualVal <= targetVal;
-            color = isAchieved ? '#28a745' : '#dc3545';
-            icon = isAchieved ? '🎉 目标达成' : '⚠️ 未达成';
-            diffText = diff > 0 ? `前进 ${Math.abs(diff)} 名` : (diff < 0 ? `后退 ${Math.abs(diff)} 名` : `持平`);
+            // 排名模式：必须依赖基准数据源
+            if (baselineStudent) {
+                if (isTotal) baselineVal = baselineStudent.gradeRank;
+                else baselineVal = (baselineStudent.gradeRanks && baselineStudent.gradeRanks[subject]) ? baselineStudent.gradeRanks[subject] : null;
+            }
         } else {
-            // 分数：越大越好
-            diff = actualVal - targetVal; // 正数表示超分
-            isAchieved = actualVal >= targetVal;
-            color = isAchieved ? '#28a745' : '#dc3545';
-            icon = isAchieved ? '🎉 目标达成' : '⚠️ 未达成';
-            diffText = diff > 0 ? `超 ${Math.abs(diff).toFixed(1)} 分` : `差 ${Math.abs(diff).toFixed(1)} 分`;
+            // 分数模式：可以直接从规划详情中汇总基准分 (更准确，不依赖外部数据源)
+            if (isTotal) {
+                baselineVal = st.details.reduce((acc, cur) => acc + cur.current, 0);
+            } else {
+                const detail = st.details.find(d => d.subject === subject);
+                baselineVal = detail ? detail.current : 0;
+            }
         }
+
+        // 计算目标达成差距 (Gap)
+        let gap = 0;
+        let isAchieved = false;
+        let resultHtml = "";
+        
+        if (isRankGoal) {
+            gap = targetVal - actualVal; // 排名：目标50 - 实际40 = +10 (达成)
+            isAchieved = actualVal <= targetVal;
+        } else {
+            gap = actualVal - targetVal; // 分数：实际600 - 目标550 = +50 (达成)
+            isAchieved = actualVal >= targetVal;
+        }
+
+        // 计算基准进步幅度 (Progress)
+        let progress = 0;
+        let progressText = "无法对比基准";
+        let progressColor = "#999";
+
+        if (baselineVal !== null) {
+            if (isRankGoal) {
+                progress = baselineVal - actualVal; // 基准50 - 实际40 = +10 (进步10名)
+            } else {
+                progress = actualVal - baselineVal; // 实际600 - 基准550 = +50 (进步50分)
+            }
+
+            const absProgress = Math.abs(progress);
+            if (progress > 0) {
+                progressText = isRankGoal ? `较基准前进 ${absProgress} 名` : `较基准提分 ${absProgress.toFixed(1)} 分`;
+                progressColor = "#28a745"; // 绿色
+            } else if (progress < 0) {
+                progressText = isRankGoal ? `较基准后退 ${absProgress} 名` : `较基准退步 ${absProgress.toFixed(1)} 分`;
+                progressColor = "#dc3545"; // 红色
+            } else {
+                progressText = "较基准持平";
+                progressColor = "#666";
+            }
+        }
+
+        // 界面显示逻辑
+        const color = isAchieved ? '#28a745' : '#dc3545';
+        const icon = isAchieved ? '🎉 目标达成' : '⚠️ 未达成';
+        const gapText = isAchieved 
+            ? (isRankGoal ? `优于目标 ${Math.abs(gap)} 名` : `超目标 ${Math.abs(gap).toFixed(1)} 分`)
+            : (isRankGoal ? `差目标 ${Math.abs(gap)} 名` : `差目标 ${Math.abs(gap).toFixed(1)} 分`);
 
         // 构建核心结果卡片
         resultHtml = `
@@ -15677,11 +15719,15 @@ async function renderGoalSetting(container, activeData, stats) {
                     <div style="display:flex; align-items:center; justify-content:space-between;">
                         <div>
                             <div style="font-size:2em; font-weight:bold; color:${color};">${icon}</div>
-                            <div style="font-size:1.1em; color:#555; margin-top:5px;">${diffText}</div>
+                            <div style="font-size:1.1em; color:#555; margin-top:5px;">${gapText}</div>
+                            <div style="font-size:0.9em; color:${progressColor}; margin-top:5px; font-weight:bold; background:#f8f9fa; display:inline-block; padding:2px 8px; border-radius:4px;">
+                                ${progress > 0 ? '📈' : '📉'} ${progressText}
+                            </div>
                         </div>
                         <div style="text-align:right; border-left:1px solid #eee; padding-left:20px;">
                             <div style="margin-bottom:5px;"><span style="color:#999; font-size:0.9em;">目标:</span> <strong style="font-size:1.2em;">${targetVal}</strong></div>
-                            <div><span style="color:#999; font-size:0.9em;">实际:</span> <strong style="font-size:1.2em; color:#333;">${actualVal}</strong></div>
+                            <div style="margin-bottom:5px;"><span style="color:#999; font-size:0.9em;">实际:</span> <strong style="font-size:1.2em; color:#333;">${actualVal}</strong></div>
+                            ${baselineVal !== null ? `<div><span style="color:#999; font-size:0.9em;">基准:</span> <strong style="font-size:1.2em; color:#666;">${baselineVal}</strong></div>` : ''}
                         </div>
                     </div>
                 </div>
@@ -15852,14 +15898,46 @@ function renderReviewBar(elemId, labels, targetData, actualData) {
     const myChart = echarts.init(dom);
 
     const option = {
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        tooltip: { 
+            trigger: 'axis', 
+            axisPointer: { type: 'shadow' },
+            formatter: function(params) {
+                let res = params[0].name + '<br/>';
+                params.forEach(item => {
+                    res += item.marker + item.seriesName + ': ' + item.value.toFixed(1) + '<br/>';
+                });
+                return res;
+            }
+        },
         legend: { bottom: 0 },
         grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
         xAxis: { type: 'category', data: labels },
         yAxis: { type: 'value' },
         series: [
-            { name: '规划目标', type: 'bar', data: targetData, itemStyle: { color: '#e9ecef' }, label: { show: true, position: 'top', color: '#999' } },
-            { name: '实际成绩', type: 'bar', data: actualData, itemStyle: { color: '#007bff' }, label: { show: true, position: 'top', color: '#fff' } }
+            { 
+                name: '规划目标', 
+                type: 'bar', 
+                data: targetData, 
+                itemStyle: { color: '#e9ecef' }, 
+                label: { 
+                    show: true, 
+                    position: 'top', 
+                    color: '#999',
+                    formatter: (params) => params.value.toFixed(1) // 限制小数位
+                } 
+            },
+            { 
+                name: '实际成绩', 
+                type: 'bar', 
+                data: actualData, 
+                itemStyle: { color: '#007bff' }, 
+                label: { 
+                    show: true, 
+                    position: 'top', 
+                    color: '#007bff',
+                    formatter: (params) => params.value.toFixed(1) // 限制小数位
+                } 
+            }
         ]
     };
     myChart.setOption(option);
