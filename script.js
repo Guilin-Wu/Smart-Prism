@@ -15557,6 +15557,7 @@ async function renderGoalSetting(container, activeData, stats) {
         const dom = document.getElementById(elemId);
         if (!dom) return;
         if (echartsInstances[elemId]) echartsInstances[elemId].dispose();
+        dom.innerHTML = ''; // 清除可能存在的提示文字
         const myChart = echarts.init(dom);
 
         const indicators = [];
@@ -16137,7 +16138,17 @@ function renderGoalResults(student, targetRank, targetScore, strategy) {
  */
 function renderGoalWaterfall(elementId, currentTotal, targetTotal, details) {
     const dom = document.getElementById(elementId);
+    if (!dom) return;
+    
+    // 清理旧实例和内容
+    if (echartsInstances[elementId]) {
+        echartsInstances[elementId].dispose();
+        delete echartsInstances[elementId];
+    }
+    dom.innerHTML = ''; // 清除可能存在的提示文字
+
     const myChart = echarts.init(dom);
+    echartsInstances[elementId] = myChart;
 
     // 过滤掉提分为0的科目，避免图表太长
     const validDetails = details.filter(d => d.gain > 0.1);
