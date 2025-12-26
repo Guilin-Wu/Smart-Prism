@@ -20571,7 +20571,29 @@ function renderScoreCurve(elementId, students, subject, binSize, isClassCompare 
             });
         });
 
-        analysisText = `当前展示 <strong>${subject}</strong> 科目在 <strong>${classes.length}</strong> 个班级间的分布对比。您可以点击上方图例隐藏/显示特定班级。曲线越向右偏移，说明该班级高分段人数越多。`;
+        // [新增] 添加“全体年段”曲线
+        const allData = new Array(categories.length).fill(0);
+        allScores.forEach(score => {
+            let binIndex = Math.floor(score / binSize);
+            if (binIndex >= allData.length) binIndex = allData.length - 1;
+            allData[binIndex]++;
+        });
+
+        // 将全体年段加入 series (使用 unshift 放在图例最前，或者 push 放在最后)
+        series.push({
+            name: '全体年段',
+            type: 'line',
+            smooth: 0.4,
+            symbol: 'diamond', // 区别于班级的圆形
+            symbolSize: 8,
+            data: allData,
+            itemStyle: { color: '#2c3e50' }, // 深色
+            lineStyle: { width: 3, type: 'dashed' }, // 虚线加粗
+            areaStyle: { opacity: 0.05, color: '#2c3e50' },
+            z: 100 // 确保层级较高
+        });
+
+        analysisText = `当前展示 <strong>${subject}</strong> 科目在 <strong>${classes.length}</strong> 个班级间的分布对比。<br><strong>黑色虚线</strong>代表全体年段分布。您可以点击上方图例隐藏/显示特定班级。`;
     }
 
     // ============================================================
