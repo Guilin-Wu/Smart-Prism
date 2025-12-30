@@ -9090,6 +9090,9 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
                 <button id="multi-batch-print-btn" class="sidebar-button" style="font-size: 0.9em; padding: 6px 12px; background-color: var(--color-blue); margin-left: 10px;">
                     📑 批量打印 (全班/每人一页)
                 </button>
+                <button id="multi-batch-print-continuous-btn" class="sidebar-button" style="font-size: 0.9em; padding: 6px 12px; background-color: #6f42c1; margin-left: 10px; color: white;">
+                    📑 批量打印 (连续)
+                </button>
             </div>
         </div>
         <div class="table-container" id="multi-print-table-content" style="max-height: 400px;">
@@ -9187,6 +9190,102 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
             // 3. 调用打印
             if (typeof startMultiTablePrintJob === 'function') {
                 startMultiTablePrintJob(`${currentStudentClass}-批量成绩单`, fullHtml);
+            } else {
+                console.error("startMultiTablePrintJob 未定义");
+                alert("打印功能函数 startMultiTablePrintJob 缺失");
+            }
+        });
+    }
+
+    // 绑定事件：批量打印 (连续)
+    const batchPrintContinuousBtn = document.getElementById('multi-batch-print-continuous-btn');
+    if (batchPrintContinuousBtn) {
+        batchPrintContinuousBtn.addEventListener('click', () => {
+            if (!currentStudentClass) {
+                alert("无法识别当前学生的班级，无法进行批量打印。");
+                return;
+            }
+
+            if (!confirm(`即将生成 "${currentStudentClass}" 所有学生的成绩单。\n\n所有学生将连续打印，并用虚线分隔，是否继续？`)) return;
+
+            // 1. 找出同班同学
+            const classStudentsMap = new Map(); // 用 Map 去重
+            visibleExamData.forEach(exam => {
+                exam.students.forEach(s => {
+                    if (s.class === currentStudentClass) {
+                        if (!classStudentsMap.has(s.id)) {
+                            classStudentsMap.set(s.id, { id: s.id, name: s.name, class: s.class });
+                        }
+                    }
+                });
+            });
+
+            const classmates = Array.from(classStudentsMap.values()).sort((a, b) => a.id.localeCompare(b.id)); // 按学号排序
+
+            if (classmates.length === 0) {
+                alert("未找到同班同学数据。");
+                return;
+            }
+
+            // 2. 循环生成 HTML
+            let fullHtml = "";
+
+            classmates.forEach((mate, index) => {
+                // 为每个同学准备数据
+                const mRankData = { classRank: [], gradeRank: [] };
+                const mSubjectData = {};
+                const mSubjectRankData = {};
+                dynamicSubjects.forEach(sub => {
+                    mSubjectData[sub] = [];
+                    mSubjectRankData[sub] = { classRank: [], gradeRank: [] };
+                });
+
+                visibleExamData.forEach(exam => {
+                    const s = exam.students.find(st => String(st.id) === String(mate.id));
+                    if (s) {
+                        mRankData.classRank.push(s.rank || null);
+                        mRankData.gradeRank.push(s.gradeRank || null);
+                        dynamicSubjects.forEach(sub => {
+                            const score = s.scores[sub];
+                            mSubjectData[sub].push((score !== null && score !== undefined) ? score : null);
+                            let cRank = null, gRank = null;
+                            if (typeof score === 'number' && !isNaN(score)) {
+                                cRank = s.classRanks ? s.classRanks[sub] : null;
+                                gRank = s.gradeRanks ? s.gradeRanks[sub] : null;
+                            }
+                            mSubjectRankData[sub].classRank.push(cRank);
+                            mSubjectRankData[sub].gradeRank.push(gRank);
+                        });
+                    } else {
+                        // 缺考
+                        mRankData.classRank.push(null);
+                        mRankData.gradeRank.push(null);
+                        dynamicSubjects.forEach(sub => {
+                            mSubjectData[sub].push(null);
+                            mSubjectRankData[sub].classRank.push(null);
+                            mSubjectRankData[sub].gradeRank.push(null);
+                        });
+                    }
+                });
+
+                // 生成单个HTML
+                let singleHtml = generateSingleTableHTML(mate.name, mate.class, mate.id, mRankData, mSubjectData, mSubjectRankData);
+                
+                // 修改样式为连续打印 + 虚线分隔
+                // 替换 page-break-after: always 为 border-bottom: 1px dashed #000
+                const borderStyle = (index === classmates.length - 1) ? '' : 'border-bottom: 1px dashed #000; margin-bottom: 20px;';
+                
+                singleHtml = singleHtml.replace(
+                    'style="page-break-after: always; padding: 20px;"', 
+                    `style="padding: 20px; ${borderStyle}"`
+                );
+
+                fullHtml += singleHtml;
+            });
+
+            // 3. 调用打印
+            if (typeof startMultiTablePrintJob === 'function') {
+                startMultiTablePrintJob(`${currentStudentClass}-批量成绩单(连续)`, fullHtml);
             } else {
                 console.error("startMultiTablePrintJob 未定义");
                 alert("打印功能函数 startMultiTablePrintJob 缺失");
