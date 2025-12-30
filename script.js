@@ -5196,15 +5196,7 @@ function renderMultiExam(container) {
             <span id="multi-file-status" style="margin-top: 10px; color: var(--text-muted); display: block;"></span>
         </div>
 
-        <div class="main-card-wrapper" style="margin-bottom: 20px;">
-            <div class="controls-bar">
-                <label for="multi-student-search">搜索学生 (姓名/考号):</label>
-                <div class="search-combobox">
-                    <input type="text" id="multi-student-search" placeholder="输入姓名或考号..." autocomplete="off">
-                    <div class="search-results" id="multi-student-search-results"></div>
-                </div>
-            </div>
-        </div>
+
 
         <div class="main-card-wrapper" style="margin-bottom: 20px;">
             <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
@@ -5226,6 +5218,58 @@ function renderMultiExam(container) {
             </div>
             <p style="font-size:0.8em; color:#999; margin:5px 0;">* 仅展示未隐藏的考试数据。Y轴为“年级/班级排名”。</p>
             <div class="chart-container" id="bump-chart" style="height: 600px;"></div>
+        </div>
+
+        <!-- 新增：重点关注学生分析 -->
+        <div class="main-card-wrapper" style="margin-bottom: 20px; border-left: 5px solid #dc3545;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                <h4 style="margin:0;">🚨 重点关注名单 (波动分析)</h4>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <select id="focus-class-filter" class="sidebar-select" style="width:auto; padding: 4px 8px;">
+                        <option value="ALL">🏫 全校混合</option>
+                    </select>
+                    <button id="btn-analyze-focus" class="sidebar-button" style="background-color: #dc3545;">
+                        🔍 生成分析报告
+                    </button>
+                </div>
+            </div>
+            <p style="font-size:0.8em; color:#999; margin:5px 0;">
+                * 自动排除缺考 (0分) 数据。分析连续下降、剧烈波动及严重偏科的学生。
+            </p>
+            
+            <div id="focus-analysis-result" style="display: none; margin-top: 15px;">
+                <!-- 1. 概览图表 -->
+                <div class="dashboard-chart-grid-1x1">
+                    <div class="chart-container" id="focus-scatter-chart" style="height: 400px;"></div>
+                </div>
+
+                <!-- 2. 详细名单 -->
+                <h5 style="margin-top: 20px;">📋 需约谈/关注学生列表</h5>
+                <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                    <table class="data-table" id="focus-student-table">
+                        <thead>
+                            <tr>
+                                <th>姓名</th>
+                                <th>班级</th>
+                                <th>关注类型</th>
+                                <th>详情描述</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-card-wrapper" style="margin-bottom: 20px;">
+            <div class="controls-bar">
+                <label for="multi-student-search">搜索学生 (姓名/考号):</label>
+                <div class="search-combobox">
+                    <input type="text" id="multi-student-search" placeholder="输入姓名或考号..." autocomplete="off">
+                    <div class="search-results" id="multi-student-search-results"></div>
+                </div>
+            </div>
         </div>
 
         <div id="multi-student-report" style="display: none;">
@@ -5609,6 +5653,9 @@ function renderMultiExam(container) {
         // 监听筛选变化
         document.getElementById('multi-bump-class-filter')?.addEventListener('change', () => refreshBumpChartUI(initialData));
         document.getElementById('multi-bump-top-n')?.addEventListener('change', () => refreshBumpChartUI(initialData));
+
+        // [NEW] 初始化重点关注分析模块
+        initFocusAnalysisModule(initialData);
     });
 
     // ------------------------------------------------------------------
@@ -9090,10 +9137,18 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
 
     // 4. 复选框逻辑
     const checkboxContainer = document.getElementById('multi-subject-checkboxes');
-    if (checkboxContainer && forceRepopulateCheckboxes) {
-        checkboxContainer.innerHTML = dynamicSubjects.map(subject => `
-            <div><input type="checkbox" id="multi-cb-${subject}" value="${subject}" checked><label for="multi-cb-${subject}">${subject}</label></div>
-        `).join('');
+    
+    // [Fix] 如果容器为空，强制初始化，防止图表空白
+    const isContainerEmpty = checkboxContainer && checkboxContainer.children.length === 0;
+
+    if (checkboxContainer && (forceRepopulateCheckboxes || isContainerEmpty)) {
+        checkboxContainer.innerHTML = dynamicSubjects.map(subject => {
+            // [Fix] 根据学科配置决定是否默认选中
+            const config = G_SubjectConfigs[subject];
+            const isChecked = !config || config.isAnalyzed !== false;
+            
+            return `<div><input type="checkbox" id="multi-cb-${subject}" value="${subject}" ${isChecked ? 'checked' : ''}><label for="multi-cb-${subject}">${subject}</label></div>`;
+        }).join('');
     }
     const checkedSubjects = new Set();
     if (checkboxContainer) {
@@ -12980,6 +13035,21 @@ async function initAIModule() {
 
     // 独立的更新班级列表函数
     const updateClassList = () => {
+        const mode = document.getElementById('ai-mode-select').value;
+        
+        // 如果是质量分析报告模式，使用 G_StudentsData
+        if (mode === 'quality_report') {
+            const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
+            const currentClass = itemClassSelect.value;
+            let html = `<option value="ALL">-- 全体年段 --</option>`;
+            html += classes.map(c => `<option value="${c}">${c}</option>`).join('');
+            itemClassSelect.innerHTML = html;
+            if (currentClass && (classes.includes(currentClass) || currentClass === 'ALL')) {
+                itemClassSelect.value = currentClass;
+            }
+            return;
+        }
+
         const subject = itemSubjectSelect.value;
         if (!subject || !window.G_ItemAnalysisData || !window.G_ItemAnalysisData[subject]) {
             itemClassSelect.innerHTML = `<option value="ALL">-- 全体年段 --</option>`;
@@ -13004,44 +13074,63 @@ async function initAIModule() {
         if (qCountWrapper) qCountWrapper.style.display = (val === 'question') ? 'inline-flex' : 'none';
 
         // 控制按钮可用状态
-        if (val === 'teaching_guide') {
+        if (val === 'teaching_guide' || val === 'quality_report') {
             analyzeBtn.disabled = false;
         } else {
             if (searchInput.dataset.selectedId) analyzeBtn.disabled = false;
             else analyzeBtn.disabled = true;
         }
 
-        if (val === 'item_diagnosis' || val === 'teaching_guide') {
+        if (val === 'item_diagnosis' || val === 'teaching_guide' || val === 'quality_report') {
             itemSubjectWrapper.style.display = 'inline-flex';
 
-            // 尝试补载数据
-            if (!window.G_ItemAnalysisData || Object.keys(window.G_ItemAnalysisData).length === 0) {
-                try {
-                    itemSubjectSelect.innerHTML = `<option>⌛️ 加载中...</option>`;
-                    const storedData = await localforage.getItem('G_ItemAnalysisData');
-                    const storedConfig = await localforage.getItem('G_ItemAnalysisConfig');
-                    if (storedData) {
-                        window.G_ItemAnalysisData = storedData;
-                        window.G_ItemAnalysisConfig = storedConfig || {};
-                    }
-                } catch (e) { console.error(e); }
-            }
+            if (val === 'quality_report') {
+                // 质量分析报告：加载所有已分析科目
+                const subjects = getAnalyzedSubjects();
+                let html = `<option value="">-- 全科综合 --</option>`;
+                html += subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+                itemSubjectSelect.innerHTML = html;
+                
+                // 质量分析报告也需要显示班级选择框 (如果没选学生，则按班级分析)
+                itemClassWrapper.style.display = 'inline-flex';
+                studentSearchContainer.style.display = 'none'; // 隐藏学生搜索框
+                
+                // 填充班级列表
+                const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
+                let classHtml = `<option value="ALL">-- 全体年段 --</option>`;
+                classHtml += classes.map(c => `<option value="${c}">${c}</option>`).join('');
+                itemClassSelect.innerHTML = classHtml;
 
-            if (window.G_ItemAnalysisData && Object.keys(window.G_ItemAnalysisData).length > 0) {
-                const subjects = Object.keys(window.G_ItemAnalysisData);
-                const currentVal = itemSubjectSelect.value;
-                itemSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
-                if (!currentVal || !subjects.includes(currentVal)) itemSubjectSelect.value = subjects[0];
-                if (typeof updateClassList === 'function') updateClassList();
             } else {
-                itemSubjectSelect.innerHTML = `<option value="">请先导入数据</option>`;
-                itemClassSelect.innerHTML = `<option value="ALL">-- 全体年段 --</option>`;
+                // 尝试补载数据
+                if (!window.G_ItemAnalysisData || Object.keys(window.G_ItemAnalysisData).length === 0) {
+                    try {
+                        itemSubjectSelect.innerHTML = `<option>⌛️ 加载中...</option>`;
+                        const storedData = await localforage.getItem('G_ItemAnalysisData');
+                        const storedConfig = await localforage.getItem('G_ItemAnalysisConfig');
+                        if (storedData) {
+                            window.G_ItemAnalysisData = storedData;
+                            window.G_ItemAnalysisConfig = storedConfig || {};
+                        }
+                    } catch (e) { console.error(e); }
+                }
+
+                if (window.G_ItemAnalysisData && Object.keys(window.G_ItemAnalysisData).length > 0) {
+                    const subjects = Object.keys(window.G_ItemAnalysisData);
+                    const currentVal = itemSubjectSelect.value;
+                    itemSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+                    if (!currentVal || !subjects.includes(currentVal)) itemSubjectSelect.value = subjects[0];
+                    if (typeof updateClassList === 'function') updateClassList();
+                } else {
+                    itemSubjectSelect.innerHTML = `<option value="">请先导入数据</option>`;
+                    itemClassSelect.innerHTML = `<option value="ALL">-- 全体年段 --</option>`;
+                }
             }
 
             if (val === 'teaching_guide') {
                 studentSearchContainer.style.display = 'none';
                 itemClassWrapper.style.display = 'inline-flex';
-            } else {
+            } else if (val !== 'quality_report') { // quality_report 已经在上面处理了显示逻辑
                 studentSearchContainer.style.display = 'inline-block';
                 itemClassWrapper.style.display = 'none';
             }
@@ -13063,24 +13152,59 @@ async function initAIModule() {
     // ============================================================
     analyzeBtn.addEventListener('click', () => {
         const studentId = searchInput.dataset.selectedId || "";
-        const studentName = searchInput.dataset.selectedName || "全体同学";
+        // 如果没选学生，但选了班级，则 studentName 设为班级名
+        let studentName = searchInput.dataset.selectedName || "";
+        const targetClass = document.getElementById('ai-item-class').value || 'ALL';
+        
+        if (!studentName && targetClass !== 'ALL') {
+            studentName = `${targetClass}班全体`;
+        } else if (!studentName) {
+            studentName = "全体同学";
+        }
+
         const mode = document.getElementById('ai-mode-select').value;
         const model = document.getElementById('ai-model-select').value;
         const qCount = document.getElementById('ai-q-count').value;
         const grade = document.getElementById('ai-grade-select').value;
 
         let targetSubject = document.getElementById('ai-item-subject').value;
-        if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
-        const targetClass = document.getElementById('ai-item-class').value || 'ALL';
+        if (mode !== 'item_diagnosis' && mode !== 'teaching_guide' && mode !== 'quality_report') targetSubject = "";
         const apiKey = localStorage.getItem('G_DeepSeekKey');
 
         if (!apiKey) { alert('请先设置 DeepSeek API Key'); return; }
 
-        if (mode === 'teaching_guide' || mode === 'item_diagnosis') {
-            if (!targetSubject) { alert("请选择一个科目！"); return; }
-            if (!window.G_ItemAnalysisData) { alert("无法读取数据，请先去模块13导入！"); return; }
-            if (!window.G_ItemAnalysisData[targetSubject]) { alert(`找不到科目【${targetSubject}】的数据。`); return; }
+        if (mode === 'teaching_guide' || mode === 'item_diagnosis' || mode === 'quality_report') {
+            if (mode !== 'quality_report') {
+                if (!targetSubject) { alert("请选择一个科目！"); return; }
+                if (!window.G_ItemAnalysisData) { alert("无法读取数据，请先去模块13导入！"); return; }
+                if (!window.G_ItemAnalysisData[targetSubject]) { alert(`找不到科目【${targetSubject}】的数据。`); return; }
+            }
             if (mode === 'item_diagnosis' && !studentId) { alert('请先选择一名学生'); return; }
+            // quality_report 模式下，如果没选学生，则默认为班级/年级分析（暂未实现，先放行，prompt里处理）
+            // 但用户反馈说“选完之后点击没反应”，可能是因为这里被拦截了。
+            // 检查逻辑：如果 mode 是 quality_report，且 studentId 为空，是否应该允许？
+            // 用户的需求是“全科和单科都可以选择班级”，说明可能是针对班级的分析。
+            // 但目前的 generateAIPrompt 逻辑里，quality_report 主要是针对 studentId 的。
+            // 如果用户想做班级质量分析，我们需要修改 generateAIPrompt。
+            
+            // 暂时先强制要求选学生，除非我们实现了班级维度的质量分析。
+            // 可是用户说“选完之后...没反应”，说明可能 studentId 为空。
+            // 让我们看看 generateAIPrompt 对 quality_report 的处理。
+            
+            if (mode === 'quality_report' && !studentId) { 
+                 // 如果没选学生，我们假设是班级分析，但目前 prompt 还没写班级分析逻辑。
+                 // 为了响应用户“没反应”的问题，我们先检查是否是因为这里 return 了。
+                 // 如果 studentId 为空，这里确实会 alert 并 return。
+                 // 用户说“选完之后...没反应”，可能是因为 alert 没弹出来？或者逻辑没走到这？
+                 // 不，用户说“选完之后...没反应”，通常意味着点击了按钮，但是什么都没发生。
+                 // 如果是 alert，用户会说“提示请选择学生”。
+                 // 如果没反应，可能是 analyzeBtn.disabled = true。
+                 
+                 // 上面我们已经修改了 modeSelect 的 change 事件，确保 quality_report 模式下按钮不禁用。
+                 // 所以现在点击按钮应该会触发这个监听器。
+                 
+                 // 如果用户想做班级分析，我们需要在这里放行，并在 generateAIPrompt 里处理 !studentId 的情况。
+            }
         } else {
             if (!studentId) { alert('请先选择一名学生'); return; }
         }
@@ -13213,7 +13337,140 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
     }
 
     // ============================================================
-    // 场景 C: 综合趋势 / 偏科 / 出题 (通用数据)
+    // 场景 C: 质量分析报告 (单科/全科)
+    // ============================================================
+    else if (mode === 'quality_report') {
+        // 1. 获取历史数据
+        const multiData = (await loadMultiExamData()).filter(e => !e.isHidden);
+        
+        // 判断是个人分析还是班级分析
+        if (studentId) {
+            // --- 个人分析 ---
+            const currentStudent = G_StudentsData.find(s => String(s.id) === String(studentId));
+            if (!currentStudent) return { system: template.system, user: "错误：未找到该学生数据。" };
+
+            if (targetSubject && targetSubject !== "") {
+                // --- 个人单科 ---
+                dataContextStr += `【分析模式】：个人单科质量分析 (${targetSubject})\n`;
+                dataContextStr += `【本次考试】：${targetSubject}得分 ${currentStudent.scores[targetSubject] || 0}\n`;
+                
+                dataContextStr += `【历史轨迹】：\n`;
+                if (multiData.length === 0) {
+                    dataContextStr += `(暂无历史数据)\n`;
+                } else {
+                    multiData.forEach(exam => {
+                        const s = exam.students.find(st => String(st.id) === String(studentId));
+                        if (s && s.scores[targetSubject] !== undefined) {
+                            dataContextStr += `- ${exam.label}: ${targetSubject} ${s.scores[targetSubject]}分\n`;
+                        }
+                    });
+                }
+            } else {
+                // --- 个人全科 ---
+                dataContextStr += `【分析模式】：个人全科综合质量分析\n`;
+                dataContextStr += `【本次考试】：总分 ${currentStudent.totalScore} (班排 ${currentStudent.rank}, 年排 ${currentStudent.gradeRank || '-'});\n`;
+                dataContextStr += `各科详情: `;
+                const subScores = [];
+                getAnalyzedSubjects().forEach(sub => {
+                    if (currentStudent.scores[sub] !== undefined) {
+                        subScores.push(`${sub}: ${currentStudent.scores[sub]}`);
+                    }
+                });
+                dataContextStr += subScores.join(', ') + "\n";
+
+                dataContextStr += `【历史轨迹】：\n`;
+                if (multiData.length === 0) {
+                    dataContextStr += `(暂无历史数据)\n`;
+                } else {
+                    multiData.forEach(exam => {
+                        const s = exam.students.find(st => String(st.id) === String(studentId));
+                        if (s) {
+                            dataContextStr += `- ${exam.label}: 总分 ${s.totalScore} (班排 ${s.rank}, 年排 ${s.gradeRank || '-'});\n`;
+                        }
+                    });
+                }
+            }
+        } else {
+            // --- 班级分析 (当 studentId 为空时) ---
+            // 此时 targetClass 应该有值 (或者为 ALL)
+            let scopeName = targetClass === 'ALL' ? "全年段" : `${targetClass}班`;
+            let targetStudents = G_StudentsData;
+            if (targetClass !== 'ALL') {
+                targetStudents = G_StudentsData.filter(s => s.class === targetClass);
+            }
+
+            if (targetSubject && targetSubject !== "") {
+                // --- 班级单科 ---
+                dataContextStr += `【分析模式】：${scopeName}单科质量分析 (${targetSubject})\n`;
+                
+                // 计算本次考试该科目的统计数据
+                const scores = targetStudents.map(s => s.scores[targetSubject]).filter(v => typeof v === 'number');
+                if (scores.length > 0) {
+                    const avg = (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2);
+                    const max = Math.max(...scores);
+                    const min = Math.min(...scores);
+                    // 优秀率 (假设85%为优秀，这里简单按分数段统计，或者需要配置满分)
+                    // 由于没有满分配置，这里只提供统计值
+                    dataContextStr += `【本次考试统计】：平均分 ${avg}, 最高分 ${max}, 最低分 ${min} (参考人数: ${scores.length})\n`;
+                } else {
+                    dataContextStr += `【本次考试统计】：无有效数据\n`;
+                }
+
+                // 历史对比 (班级均分)
+                dataContextStr += `【历史均分轨迹】：\n`;
+                if (multiData.length === 0) {
+                    dataContextStr += `(暂无历史数据)\n`;
+                } else {
+                    multiData.forEach(exam => {
+                        let examStudents = exam.students;
+                        if (targetClass !== 'ALL') {
+                            examStudents = exam.students.filter(s => s.class === targetClass);
+                        }
+                        const examScores = examStudents.map(s => s.scores[targetSubject]).filter(v => typeof v === 'number');
+                        if (examScores.length > 0) {
+                            const examAvg = (examScores.reduce((a, b) => a + b, 0) / examScores.length).toFixed(2);
+                            dataContextStr += `- ${exam.label}: 平均分 ${examAvg}\n`;
+                        }
+                    });
+                }
+
+            } else {
+                // --- 班级全科 ---
+                dataContextStr += `【分析模式】：${scopeName}全科综合质量分析\n`;
+                
+                // 本次各科均分
+                dataContextStr += `【本次各科均分】：\n`;
+                getAnalyzedSubjects().forEach(sub => {
+                    const scores = targetStudents.map(s => s.scores[sub]).filter(v => typeof v === 'number');
+                    if (scores.length > 0) {
+                        const avg = (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2);
+                        dataContextStr += `- ${sub}: ${avg}\n`;
+                    }
+                });
+
+                // 历史总分均分对比
+                dataContextStr += `【历史总分均分轨迹】：\n`;
+                if (multiData.length === 0) {
+                    dataContextStr += `(暂无历史数据)\n`;
+                } else {
+                    multiData.forEach(exam => {
+                        let examStudents = exam.students;
+                        if (targetClass !== 'ALL') {
+                            examStudents = exam.students.filter(s => s.class === targetClass);
+                        }
+                        const examScores = examStudents.map(s => s.totalScore).filter(v => typeof v === 'number');
+                        if (examScores.length > 0) {
+                            const examAvg = (examScores.reduce((a, b) => a + b, 0) / examScores.length).toFixed(2);
+                            dataContextStr += `- ${exam.label}: 总分均分 ${examAvg}\n`;
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    // ============================================================
+    // 场景 D: 综合趋势 / 偏科 / 出题 (通用数据)
     // ============================================================
     else {
         // 1. 获取历史数据
@@ -22084,7 +22341,7 @@ async function runBatchAnalysis() {
     const qCount = document.getElementById('ai-q-count').value;
 
     let targetSubject = document.getElementById('ai-item-subject').value;
-    if (mode !== 'item_diagnosis' && mode !== 'teaching_guide') targetSubject = "";
+    if (mode !== 'item_diagnosis' && mode !== 'teaching_guide' && mode !== 'quality_report') targetSubject = "";
 
     const checkboxes = document.querySelectorAll('.ai-batch-cb:checked');
     const selectedIds = Array.from(checkboxes).map(cb => cb.value);
@@ -23013,3 +23270,359 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// ------------------------------------------------------------------
+// [新增] 重点关注学生分析模块 (波动/偏科/连续退步)
+// ------------------------------------------------------------------
+
+/**
+ * 初始化重点关注分析模块
+ */
+function initFocusAnalysisModule(examList) {
+    const btn = document.getElementById('btn-analyze-focus');
+    const classSelect = document.getElementById('focus-class-filter'); // 新增
+    if (!btn) return;
+
+    // 填充班级下拉框
+    if (classSelect && examList.length > 0) {
+        const lastExam = examList[examList.length - 1];
+        const classSet = new Set();
+        lastExam.students.forEach(s => classSet.add(s.class));
+        const classes = Array.from(classSet).sort();
+        
+        let html = `<option value="ALL">🏫 全校混合</option>`;
+        classes.forEach(c => {
+            html += `<option value="${c}">${c}</option>`;
+        });
+        classSelect.innerHTML = html;
+    }
+
+    // 移除旧的监听器
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+
+    newBtn.addEventListener('click', () => {
+        const targetClass = classSelect ? classSelect.value : 'ALL';
+        const result = analyzeFocusStudents(examList, targetClass);
+        renderFocusAnalysis(result, examList);
+    });
+
+    // 绑定下拉框变化
+    if (classSelect) {
+        classSelect.addEventListener('change', () => {
+             if (document.getElementById('focus-analysis-result').style.display !== 'none') {
+                 newBtn.click();
+             }
+        });
+    }
+}
+
+/**
+ * 辅助：计算一组数据的统计量 (平均分, 标准差)
+ */
+function getArrayStats(numbers) {
+    if (!numbers || numbers.length === 0) return { avg: 0, stdev: 1, count: 0 };
+    const sum = numbers.reduce((a, b) => a + b, 0);
+    const avg = sum / numbers.length;
+    const squareSum = numbers.reduce((a, b) => a + (b - avg) ** 2, 0);
+    const stdev = Math.sqrt(squareSum / numbers.length) || 1; // 防止除0
+    return { avg, stdev, count: numbers.length };
+}
+
+/**
+ * 辅助：计算 T 分
+ */
+function calculateTScore(score, stats) {
+    if (!stats || stats.stdev === 0) return 50;
+    const z = (score - stats.avg) / stats.stdev;
+    return 50 + 10 * z;
+}
+
+/**
+ * 分析学生波动情况 (V2 权威版 - 基于 T 分和相对位置)
+ */
+function analyzeFocusStudents(examList, targetClass = 'ALL') {
+    // 1. 过滤掉隐藏的考试
+    const activeExams = examList.filter(e => !e.isHidden);
+
+    if (!activeExams || activeExams.length < 2) {
+        alert("至少需要 2 次可见的考试数据才能进行波动分析。");
+        return [];
+    }
+
+    const sortedExams = [...activeExams]; 
+    
+    // --- 预计算阶段 ---
+    // 为了权威性，我们需要计算每次考试的总分统计量，以及最后一次考试的各科统计量
+    const examStatsMap = new Map(); // 存总分统计 { avg, stdev, count }
+    
+    sortedExams.forEach(exam => {
+        const validScores = exam.students.map(s => s.totalScore).filter(s => s > 0);
+        examStatsMap.set(exam.id, getArrayStats(validScores));
+    });
+
+    const latestExam = sortedExams[sortedExams.length - 1];
+    const prevExam = sortedExams[sortedExams.length - 2];
+    
+    const latestStats = examStatsMap.get(latestExam.id);
+    const prevStats = examStatsMap.get(prevExam.id);
+
+    // 预计算最后一次考试的【各科】统计量，用于精准偏科分析
+    const latestSubjectStats = {};
+    if (G_DynamicSubjectList && G_DynamicSubjectList.length > 0) {
+        G_DynamicSubjectList.forEach(sub => {
+            const subScores = latestExam.students
+                .map(s => s.scores ? s.scores[sub] : 0)
+                .filter(v => typeof v === 'number' && v > 0); // 过滤缺考
+            latestSubjectStats[sub] = getArrayStats(subScores);
+        });
+    }
+
+    const focusList = [];
+
+    latestExam.students.forEach(student => {
+        // 班级过滤
+        if (targetClass !== 'ALL' && student.class !== targetClass) return;
+
+        const studentId = String(student.id);
+        const name = student.name;
+        const clazz = student.class;
+        const currentScore = student.totalScore;
+        
+        if (currentScore === 0) return; // 缺考不分析
+
+        // 计算本次核心指标
+        const currentT = calculateTScore(currentScore, latestStats);
+        const currentRank = student.gradeRank || student.rank;
+        const currentPct = currentRank / latestStats.count; // 排名百分比 (0.1 = Top 10%)
+
+        // ------------------------------------------------------
+        // 1. 📉 剧烈下滑 (Slump) - 混合判定
+        // ------------------------------------------------------
+        const prevStudent = prevExam.students.find(s => String(s.id) === studentId);
+        if (prevStudent && prevStudent.totalScore > 0) {
+            const prevScore = prevStudent.totalScore;
+            const prevT = calculateTScore(prevScore, prevStats);
+            const prevRank = prevStudent.gradeRank || prevStudent.rank;
+            const prevPct = prevRank / prevStats.count;
+
+            const deltaT = currentT - prevT; // 负数代表退步
+            const deltaPct = currentPct - prevPct; // 正数代表退步
+
+            // 规则 A: T分下降 > 7 (约 0.7 个标准差，显著退步)
+            // 规则 B: 排名百分比下降 > 15% (针对排名波动)
+            // 规则 C: 跌破均分线 (上次 T > 52, 本次 T < 45)
+            
+            let slumpType = null;
+            let slumpDesc = '';
+            let slumpVal = 0;
+
+            if (deltaT < -7) {
+                slumpType = '📉 剧烈下滑';
+                slumpDesc = `T分下降 ${Math.abs(deltaT).toFixed(1)} (排名 ${prevRank} -> ${currentRank})`;
+                slumpVal = Math.abs(deltaT) * 2; // 权重放大
+            } else if (deltaPct > 0.15) {
+                slumpType = '📉 剧烈下滑';
+                slumpDesc = `排名下滑前 ${Math.round(deltaPct*100)}% (排名 ${prevRank} -> ${currentRank})`;
+                slumpVal = deltaPct * 100;
+            } else if (prevT > 52 && currentT < 45) {
+                slumpType = '📉 跌破均分';
+                slumpDesc = `从优良区跌落至均分线下 (T分 ${prevT.toFixed(0)} -> ${currentT.toFixed(0)})`;
+                slumpVal = 40;
+            }
+
+            if (slumpType) {
+                focusList.push({
+                    id: studentId, name, class: clazz,
+                    type: slumpType,
+                    desc: slumpDesc,
+                    value: slumpVal
+                });
+            }
+        }
+
+        // ------------------------------------------------------
+        // 2. 🥀 连续退步 (Continuous Decline)
+        // ------------------------------------------------------
+        if (sortedExams.length >= 3) {
+            const prev2Exam = sortedExams[sortedExams.length - 3];
+            const prev2Stats = examStatsMap.get(prev2Exam.id);
+            const prev2Student = prev2Exam.students.find(s => String(s.id) === studentId);
+            
+            if (prevStudent && prev2Student && prevStudent.totalScore > 0 && prev2Student.totalScore > 0) {
+                const t1 = calculateTScore(prev2Student.totalScore, prev2Stats);
+                const t2 = calculateTScore(prevStudent.totalScore, prevStats);
+                const t3 = currentT;
+
+                // 趋势判断：T分三连降
+                if (t3 < t2 && t2 < t1) {
+                    const totalDrop = t1 - t3;
+                    // 累计下降超过 8 分才算实质性退步，避免微小波动
+                    if (totalDrop > 8) {
+                         // 避免与剧烈下滑重复 (如果已经有了剧烈下滑，这里可以不加，或者标记为更严重)
+                         const existing = focusList.find(item => item.id === studentId);
+                         if (!existing || existing.type !== '📉 剧烈下滑') {
+                            focusList.push({
+                                id: studentId, name, class: clazz,
+                                type: '🥀 连续退步',
+                                desc: `T分三连降: ${t1.toFixed(0)} -> ${t2.toFixed(0)} -> ${t3.toFixed(0)}`,
+                                value: totalDrop * 1.5
+                            });
+                         }
+                    }
+                }
+            }
+        }
+
+        // ------------------------------------------------------
+        // 3. ⚖️ 严重偏科 (Imbalance) - 权威版
+        // ------------------------------------------------------
+        // 仅关注总分前 30% 的学生 (尖子生偏科才最可惜)
+        if (currentPct <= 0.30) { 
+            if (student.scores) {
+                Object.entries(student.scores).forEach(([subject, score]) => {
+                    const subStats = latestSubjectStats[subject];
+                    if (!subStats) return;
+
+                    const subT = calculateTScore(score, subStats);
+                    
+                    // 判定逻辑：
+                    // 1. 单科 T 分 < 40 (不及格水平) -> 绝对偏科
+                    // 2. (总分 T 分 - 单科 T 分) > 12 -> 相对偏科 (该科严重拖后腿)
+                    
+                    const tDiff = currentT - subT;
+                    
+                    if (subT < 40) {
+                         focusList.push({
+                            id: studentId, name, class: clazz,
+                            type: '⚖️ 严重偏科',
+                            desc: `总分优异(T:${currentT.toFixed(0)}), 但[${subject}] T分仅 ${subT.toFixed(0)} (后16%)`,
+                            value: 90 
+                        });
+                    } else if (tDiff > 12) {
+                        // 避免重复添加同一人的多个科目 (可选，这里先都列出来)
+                        // 只有当该科确实比较低 (比如 < 50) 时才报警，避免 70 vs 58 这种“凡尔赛”偏科
+                        if (subT < 50) {
+                            focusList.push({
+                                id: studentId, name, class: clazz,
+                                type: '⚖️ 相对偏科',
+                                desc: `[${subject}] 拖后腿: 单科T分比总分T分低 ${tDiff.toFixed(0)} 分`,
+                                value: tDiff * 2
+                            });
+                        }
+                    }
+                });
+            }
+        }
+    });
+
+    return focusList;
+}
+
+/**
+ * 渲染分析结果
+ */
+function renderFocusAnalysis(focusList, examList) {
+    const container = document.getElementById('focus-analysis-result');
+    const tableBody = document.querySelector('#focus-student-table tbody');
+    const chartDom = document.getElementById('focus-scatter-chart');
+
+    if (!container || !tableBody || !chartDom) return;
+
+    container.style.display = 'block';
+    tableBody.innerHTML = '';
+
+    if (focusList.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">🎉 暂无需要特别关注的异常波动学生。</td></tr>';
+        chartDom.innerHTML = '';
+        return;
+    }
+
+    focusList.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${item.name}</td>
+            <td>${item.class}</td>
+            <td><span class="badge" style="padding: 4px 8px; border-radius: 4px; color: white; background-color: ${item.type.includes('下滑') || item.type.includes('退步') ? '#dc3545' : '#ffc107'};">${item.type}</span></td>
+            <td>${item.desc}</td>
+            <td>
+                <button class="sidebar-button" style="padding:2px 8px; font-size:0.8em;" onclick="showFocusStudentDetail('${item.id}')">
+                    查看详情
+                </button>
+            </td>
+        `;
+        tableBody.appendChild(tr);
+    });
+
+    if (echarts.getInstanceByDom(chartDom)) {
+        echarts.dispose(chartDom);
+    }
+    const myChart = echarts.init(chartDom);
+
+    const categories = ['📉 剧烈下滑', '🥀 连续退步', '⚖️ 严重偏科'];
+    const seriesData = focusList.map(item => {
+        return {
+            name: item.name,
+            studentId: item.id, // [NEW] 绑定 ID
+            value: [
+                categories.indexOf(item.type), 
+                item.value, 
+                item.desc,  
+                item.class
+            ],
+            itemStyle: {
+                color: item.type.includes('下滑') || item.type.includes('退步') ? '#dc3545' : '#ffc107'
+            }
+        };
+    });
+
+    const option = {
+        title: { text: '关注学生分布图', left: 'center' },
+        tooltip: {
+            formatter: function (params) {
+                return `<b>${params.name}</b> (${params.value[3]})<br/>
+                        ${categories[params.value[0]]}<br/>
+                        ${params.value[2]}`;
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: categories,
+            splitLine: { show: true }
+        },
+        yAxis: {
+            type: 'value',
+            name: '波动幅度/严重程度',
+            scale: true
+        },
+        series: [{
+            type: 'scatter',
+            symbolSize: 20,
+            data: seriesData,
+            label: {
+                show: true,
+                formatter: '{b}',
+                position: 'right'
+            }
+        }]
+    };
+
+    myChart.setOption(option);
+    
+    // [NEW] 绑定点击事件
+    myChart.on('click', function (params) {
+        if (params.data && params.data.studentId) {
+            window.showFocusStudentDetail(params.data.studentId);
+        }
+    });
+    
+    window.showFocusStudentDetail = async (studentId) => {
+        const reportContainer = document.getElementById('multi-student-report');
+        if(reportContainer) {
+            reportContainer.style.display = 'block';
+            reportContainer.scrollIntoView({ behavior: 'smooth' });
+            // [Fix] 强制刷新复选框 (true)，确保图表有数据
+            drawMultiExamChartsAndTable(studentId, examList, true);
+        }
+    };
+}

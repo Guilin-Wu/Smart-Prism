@@ -207,12 +207,16 @@
                     <div class="controls-bar"
                         style="background: transparent; box-shadow: none; padding: 0; flex-wrap: wrap;">
 
-                        <div class="search-combobox">
-                            <input type="text" id="ai-student-search" placeholder="输入姓名或考号..." autocomplete="off">
-                            <div class="search-results" id="ai-student-search-results"></div>
-                        </div>
+                        <select id="ai-mode-select" class="sidebar-select" style="margin-right: 10px; min-width: 240px;">
+                            <option value="trend">📈 综合趋势点评 & 学习建议</option>
+                            <option value="quality_report">📊 质量分析报告</option>
+                            <option value="weakness">📉 弱科诊断 & 提分策略</option>
+                            <option value="question">📝 针对弱项生成练习题</option>
+                            <option value="item_diagnosis">🔬 小题深度诊断 (学生视角)</option>
+                            <option value="teaching_guide">🍎 教师教学指导 (班级视角)</option>
+                        </select>
 
-                        <select id="ai-grade-select" class="sidebar-select" style="margin-left: 10px; width: auto;">
+                        <select id="ai-grade-select" class="sidebar-select" style="margin-right: 10px; width: 100px;">
                             <option value="一年级">一年级</option>
                             <option value="二年级">二年级</option>
                             <option value="三年级">三年级</option>
@@ -229,13 +233,10 @@
                             <option value="高三">高三</option>
                         </select>
 
-                        <select id="ai-mode-select" class="sidebar-select" style="margin-left: 15px;">
-                            <option value="trend">📈 综合趋势点评 & 学习建议</option>
-                            <option value="weakness">📉 弱科诊断 & 提分策略</option>
-                            <option value="question">📝 针对弱项生成练习题</option>
-                            <option value="item_diagnosis">🔬 小题深度诊断 (学生视角)</option>
-                            <option value="teaching_guide">🍎 教师教学指导 (班级视角)</option>
-                        </select>
+                        <div class="search-combobox">
+                            <input type="text" id="ai-student-search" placeholder="输入姓名或考号..." autocomplete="off" style="width: 220px; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                            <div class="search-results" id="ai-student-search-results"></div>
+                        </div>
 
                         <span id="ai-item-subject-wrapper"
                             style="display: none; margin-left: 10px; align-items: center;">
@@ -722,15 +723,28 @@
         </div>
     </div>
     <script>
+        // 🛡️ [系统] 智能环境检测：仅在支持的环境下注册 ServiceWorker
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(registration => {
-                        console.log('ServiceWorker registration successful');
-                    }, err => {
-                        console.log('ServiceWorker registration failed: ', err);
-                    });
-            });
+            const isLocalhost = Boolean(
+                window.location.hostname === 'localhost' ||
+                window.location.hostname === '[::1]' ||
+                window.location.hostname.match(/^127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$/)
+            );
+
+            const isHttps = window.location.protocol === 'https:';
+
+            if (isLocalhost || isHttps) {
+                window.addEventListener('load', () => {
+                    navigator.serviceWorker.register('./sw.js')
+                        .then(registration => {
+                            console.log('✅ ServiceWorker 注册成功');
+                        }, err => {
+                            console.warn('⚠️ ServiceWorker 注册失败 (非致命错误): ', err);
+                        });
+                });
+            } else {
+                console.log('ℹ️ 当前环境 (file:// 或非 HTTPS) 不支持 ServiceWorker，已自动跳过注册。');
+            }
         }
     </script>
 </body>
