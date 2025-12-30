@@ -1239,8 +1239,19 @@ function initializeSubjectConfigs() {
             good: isY_S_W ? 105 : 75,
             pass: isY_S_W ? 90 : 60,
             low: isY_S_W ? 45 : 30,
-            isAssigned: false //            默认为不赋分
+            isAssigned: false, //            默认为不赋分
+            isAnalyzed: true   // [新增] 默认为参与分析
         };
+    });
+}
+
+/**
+ * [新增] 获取参与分析的科目列表
+ */
+function getAnalyzedSubjects() {
+    return G_DynamicSubjectList.filter(subject => {
+        const config = G_SubjectConfigs[subject];
+        return !config || config.isAnalyzed !== false;
     });
 }
 
@@ -1263,10 +1274,15 @@ function populateSubjectConfigModal() {
 
         //            读取是否赋分 (默认 false)
         const isAssigned = config.isAssigned === true;
+        // [新增] 读取是否参与分析 (默认 true)
+        const isAnalyzed = config.isAnalyzed !== false;
 
         html += `
             <tr>
                 <td><strong>${subject}</strong></td>
+                <td style="text-align:center;">
+                    <input type="checkbox" data-subject="${subject}" data-type="isAnalyzed" ${isAnalyzed ? 'checked' : ''} style="width:auto;">
+                </td>
                 <td style="text-align:center;">
                     <input type="checkbox" data-subject="${subject}" data-type="isAssigned" ${isAssigned ? 'checked' : ''} style="width:auto;">
                 </td>
@@ -1284,6 +1300,7 @@ function populateSubjectConfigModal() {
     tableHead.innerHTML = `
         <tr>
             <th>科目</th>
+            <th>分析?</th>
             <th>赋分?</th> <th>满分</th>
             <th style="color:#6f42c1">特优线</th>
             <th>优秀线</th>
@@ -1351,7 +1368,7 @@ function renderDashboard(container, stats, activeData) {
     const missingCount = totalStudentCount - participantCount;
 
     // [动态表格状态]
-    let currentSelectedSubjects = [...G_DynamicSubjectList];
+    let currentSelectedSubjects = [...getAnalyzedSubjects()];
 
     // 2. 构建 HTML 结构
     container.innerHTML = `
@@ -1380,7 +1397,7 @@ function renderDashboard(container, stats, activeData) {
                     <select id="curve-subject-select" class="sidebar-select" style="width:auto; min-width:100px;">
                         <option value="totalScore">总分</option>
                         <option value="ALL_SUBJECTS" style="color:#6f42c1; font-weight:bold;">📌 全科对比 (All)</option>
-                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                        ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
                     </select>
                     
                     <div style="display:flex; align-items:center; margin-left:15px;">
@@ -1412,7 +1429,7 @@ function renderDashboard(container, stats, activeData) {
                             <td>${stats.totalScore.count}</td><td>${stats.totalScore.average}</td><td>${stats.totalScore.max}</td><td>${stats.totalScore.median}</td>
                             <td>${stats.totalScore.excellentRate}</td><td>${stats.totalScore.goodRate || 0}</td><td>${stats.totalScore.passRate}</td><td>${stats.totalScore.stdDev || 0}</td>
                         </tr>
-                        ${G_DynamicSubjectList.map(subject => stats[subject]).filter(s => s).map(s => `
+                        ${getAnalyzedSubjects().map(subject => stats[subject]).filter(s => s).map(s => `
                             <tr>
                                 <td><strong>${s.name}</strong></td>
                                 <td>${s.count}</td><td>${s.average}</td><td>${s.max}</td><td>${s.median}</td>
@@ -1426,12 +1443,12 @@ function renderDashboard(container, stats, activeData) {
 
         <div class="dashboard-chart-grid-2x2">
             <div class="main-card-wrapper"><div class="controls-bar chart-controls"><h4 style="margin:0;">全科分数分布箱形图</h4></div><div class="chart-container" id="subject-boxplot-chart" style="height: 350px;"></div></div>
-            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>科目:</label><select id="class-compare-subject" class="sidebar-select" style="min-width: 100px;"><option value="totalScore">总分</option>${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}</select><label>指标:</label><select id="class-compare-metric" class="sidebar-select" style="min-width: 120px;"><option value="average">平均分</option><option value="passRate">及格率 (%)</option><option value="stdDev">标准差</option><option value="max">最高分</option><option value="median">中位数</option></select></div><div class="chart-container" id="class-compare-chart" style="height: 350px;"></div></div>
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>科目:</label><select id="class-compare-subject" class="sidebar-select" style="min-width: 100px;"><option value="totalScore">总分</option>${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}</select><label>指标:</label><select id="class-compare-metric" class="sidebar-select" style="min-width: 120px;"><option value="average">平均分</option><option value="passRate">及格率 (%)</option><option value="stdDev">标准差</option><option value="max">最高分</option><option value="median">中位数</option></select></div><div class="chart-container" id="class-compare-chart" style="height: 350px;"></div></div>
             <div class="main-card-wrapper"><div class="chart-container" id="radar-chart" style="height: 400px;"></div></div>
             
             <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>分段:</label><input type="number" id="histogram-bin-size" value="30" style="width: 60px;"><button id="histogram-redraw-btn" class="sidebar-button" style="width: auto;">重绘</button></div><div class="chart-container" id="histogram-chart" style="height: 350px;"></div></div>
             
-            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>X轴:</label><select id="scatter-x-subject" class="sidebar-select">${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}</select><label>Y轴:</label><select id="scatter-y-subject" class="sidebar-select">${G_DynamicSubjectList.map((s, i) => `<option value="${s}" ${i === 1 ? 'selected' : ''}>${s}</option>`).join('')}</select></div><div class="chart-container" id="correlation-scatter-chart" style="height: 350px;"></div></div>
+            <div class="main-card-wrapper"><div class="controls-bar chart-controls"><label>X轴:</label><select id="scatter-x-subject" class="sidebar-select">${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}</select><label>Y轴:</label><select id="scatter-y-subject" class="sidebar-select">${getAnalyzedSubjects().map((s, i) => `<option value="${s}" ${i === 1 ? 'selected' : ''}>${s}</option>`).join('')}</select></div><div class="chart-container" id="correlation-scatter-chart" style="height: 350px;"></div></div>
             <div class="main-card-wrapper"><div class="controls-bar chart-controls"><h4 style="margin:0;">各科 A/B/C/D 构成</h4></div><div class="chart-container" id="stacked-bar-chart" style="height: 350px;"></div></div>
             <div class="main-card-wrapper" style="grid-column: span 2;"><div class="controls-bar chart-controls"><h4 style="margin:0;">贡献度分析</h4></div><div class="chart-container" id="contribution-chart" style="height: 400px;"></div></div>
         </div>
@@ -1494,7 +1511,7 @@ function renderDashboard(container, stats, activeData) {
     // (1) 直方图函数
     const drawHistogram = () => {
         if (totalStats.scores && totalStats.scores.length > 0) {
-            const fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
+            const fullScore = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
             const binSize = parseInt(document.getElementById('histogram-bin-size').value) || 30;
             if (typeof renderHistogram === 'function') {
                 renderHistogram('histogram-chart', activeData, 'totalScore', fullScore, `总分分数段直方图 (分段=${binSize})`, binSize);
@@ -1551,7 +1568,7 @@ function renderDashboard(container, stats, activeData) {
             return;
         }
         const globalStats = calculateAllStatistics(G_StudentsData);
-        const subjects = G_DynamicSubjectList;
+        const subjects = getAnalyzedSubjects();
         const contributionData = subjects.map(sub => {
             const classAvg = stats[sub] ? stats[sub].average : 0;
             const gradeAvg = globalStats[sub] ? globalStats[sub].average : 0;
@@ -2033,7 +2050,7 @@ function renderStudent(container, students, stats) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${G_DynamicSubjectList.map(subject => {
+                        ${getAnalyzedSubjects().map(subject => {
             let subjectScoreDiff = 'N/A';
             let subjectClassRankDiff = 'N/A';
             let subjectGradeRankDiff = 'N/A';
@@ -2184,7 +2201,7 @@ function renderPaper(container, stats, activeData) {
                     <label for="subject-select">选择科目:</label>
                     <select id="subject-select" class="sidebar-select" style="margin-right:15px;">
                         <option value="totalScore">总分</option>
-                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                        ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
                     </select>
                     
                     <div style="display:flex; align-items:center; margin-right:15px;">
@@ -2256,7 +2273,7 @@ function renderPaper(container, stats, activeData) {
 
         let fullScore;
         if (subjectName === 'totalScore') {
-            fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
+            fullScore = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
         } else {
             fullScore = G_SubjectConfigs[subjectName]?.full || 100;
         }
@@ -2307,7 +2324,7 @@ function renderSingleSubject(container, activeData, stats) {
             <div class="controls-bar chart-controls">
                 <label for="ss-subject-select">选择科目:</label>
                 <select id="ss-subject-select" class="sidebar-select">
-                    ${G_DynamicSubjectList.map((s, i) => `<option value="${s}" ${i === 0 ? 'selected' : ''}>${s}</option>`).join('')}
+                    ${getAnalyzedSubjects().map((s, i) => `<option value="${s}" ${i === 0 ? 'selected' : ''}>${s}</option>`).join('')}
                 </select>
             </div>
         </div>
@@ -2794,7 +2811,7 @@ function renderTrend(container, currentData, compareData) {
             <label for="trend-subject-select" style="font-weight:bold;">分析对象:</label>
             <select id="trend-subject-select" class="sidebar-select" style="min-width: 120px; margin-right: 15px; color: #6f42c1; font-weight: bold;">
                 <option value="totalScore">总分</option>
-                ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
             </select>
 
             <label for="trend-class-filter">班级:</label>
@@ -3234,7 +3251,7 @@ function renderGroups(container, students) {
                 <label for="group-subject">筛选科目:</label>
                 <select id="group-subject" class="sidebar-select">
                     <option value="totalScore">总分</option>
-                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
                 </select>
                 <input type="number" id="group-min" placeholder="最低分" value="0">
                 <label for="group-max"> <= 分数 <= </label>
@@ -3288,10 +3305,10 @@ function renderGroups(container, students) {
             let min = 0, max = 0;
 
             if (subject === 'totalScore') {
-                const full = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
-                const excel = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.excel || 0), 0);
-                const good = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.good || 0), 0);
-                const pass = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.pass || 0), 0);
+                const full = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
+                const excel = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.excel || 0), 0);
+                const good = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.good || 0), 0);
+                const pass = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.pass || 0), 0);
                 config = { full: full, excel: excel, good: good, pass: pass };
             } else {
                 config = G_SubjectConfigs[subject];
@@ -3469,12 +3486,12 @@ function renderGroupRadarChart(elementId, filteredStudents, totalStats) {
     // 2. 准备雷达图指示器
     // 为了消除各科满分不同的影响，我们统一使用“得分率/难度系数” (Score / FullScore)
     // 如果没有配置难度系数，可以用 Average / Full 计算
-    const indicators = G_DynamicSubjectList.map(subject => {
+    const indicators = getAnalyzedSubjects().map(subject => {
         return { name: subject, max: 1.0 }; // 满分率均为 1.0
     });
 
     // 3. 获取 "筛选群体" 的得分率
-    const groupData = G_DynamicSubjectList.map(subject => {
+    const groupData = getAnalyzedSubjects().map(subject => {
         const stats = groupStats[subject];
         // 难度 = 平均分 / 满分。如果 groupStats 里没有 difficulty 属性，我们手动算
         if (stats && stats.difficulty !== undefined) return stats.difficulty;
@@ -3483,7 +3500,7 @@ function renderGroupRadarChart(elementId, filteredStudents, totalStats) {
     });
 
     // 4. 获取 "全体平均" 的得分率
-    const totalData = G_DynamicSubjectList.map(subject => {
+    const totalData = getAnalyzedSubjects().map(subject => {
         const stats = totalStats[subject];
         if (stats && stats.difficulty !== undefined) return stats.difficulty;
         if (stats && G_SubjectConfigs[subject]) return stats.average / G_SubjectConfigs[subject].full;
@@ -3567,7 +3584,7 @@ function renderCorrelation(container, activeData) {
     `;
 
     // 2. [核心] 统一计算矩阵数据
-    const subjects = G_DynamicSubjectList;
+    const subjects = getAnalyzedSubjects();
     const n = subjects.length;
 
     // 准备数据结构
@@ -3887,7 +3904,7 @@ function renderBoundary(container, activeData, stats) {
                 <label>科目:</label>
                 <select id="boundary-subject" class="sidebar-select">
                     <option value="totalScore">总分</option>
-                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                    ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
                 </select>
                 <label>分数线:</label>
                 <select id="boundary-line-type" class="sidebar-select">
@@ -4028,7 +4045,7 @@ function renderBoundary(container, activeData, stats) {
         } else {
             // (原有逻辑: 从 G_SubjectConfigs 中累加)
             if (subject === 'totalScore') {
-                threshold = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key] ? G_SubjectConfigs[key][lineType] : 0), 0);
+                threshold = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key] ? G_SubjectConfigs[key][lineType] : 0), 0);
             } else {
                 threshold = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject][lineType] : 0;
             }
@@ -4055,7 +4072,7 @@ function renderBoundary(container, activeData, stats) {
 
     // (辅助函数) 获取总分线
     const getTotalLine = (lineType) => {
-        return G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key] ? G_SubjectConfigs[key][lineType] : 0), 0);
+        return getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key] ? G_SubjectConfigs[key][lineType] : 0), 0);
     };
 
     // 4. 事件：预设筛选
@@ -4071,7 +4088,7 @@ function renderBoundary(container, activeData, stats) {
             if (preset === 'holistic_pass') {
                 title = '全科及格生';
                 filteredStudents = activeData.filter(s => {
-                    return G_DynamicSubjectList.every(subject => {
+                    return getAnalyzedSubjects().every(subject => {
                         const passLine = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].pass : 0;
                         return (s.scores[subject] || 0) >= passLine;
                     });
@@ -4084,7 +4101,7 @@ function renderBoundary(container, activeData, stats) {
                     if (s.totalScore < minTotal) return false;
 
                     let failCount = 0;
-                    G_DynamicSubjectList.forEach(subject => {
+                    getAnalyzedSubjects().forEach(subject => {
                         const passLine = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].pass : 0;
                         if ((s.scores[subject] || 0) < passLine) {
                             failCount++;
@@ -4095,7 +4112,7 @@ function renderBoundary(container, activeData, stats) {
             } else if (preset === 'holistic_excel') {
                 title = '全科优秀生';
                 filteredStudents = activeData.filter(s => {
-                    return G_DynamicSubjectList.every(subject => {
+                    return getAnalyzedSubjects().every(subject => {
                         const excelLine = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].excel : 0;
                         return (s.scores[subject] || 0) >= excelLine;
                     });
@@ -4106,7 +4123,7 @@ function renderBoundary(container, activeData, stats) {
                 title = '多科不及格生 (>=3科)';
                 filteredStudents = activeData.filter(s => {
                     let failCount = 0;
-                    G_DynamicSubjectList.forEach(subject => {
+                    getAnalyzedSubjects().forEach(subject => {
                         const passLine = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].pass : 0;
                         if ((s.scores[subject] === null || s.scores[subject] === undefined) || s.scores[subject] < passLine) {
                             failCount++;
@@ -4161,13 +4178,13 @@ function renderBoundaryBottleneckChart(elementId, students) {
 
     // 1. 准备数据容器：{ '语文': {count: 0, students: []}, ... }
     const bottleneckMap = {};
-    G_DynamicSubjectList.forEach(sub => {
+    getAnalyzedSubjects().forEach(sub => {
         bottleneckMap[sub] = { count: 0, students: [] };
     });
 
     // 2. 遍历统计
     students.forEach(s => {
-        G_DynamicSubjectList.forEach(sub => {
+        getAnalyzedSubjects().forEach(sub => {
             const score = s.scores[sub];
             const config = G_SubjectConfigs[sub] || { pass: 60 };
 
@@ -4256,7 +4273,7 @@ function renderBoundaryGapChart(elementId, students, lineTypeLabel) {
     // 如果 lineTypeLabel 是 "优秀线"，则对比 excel，否则对比 pass
     const configKey = lineTypeLabel.includes('优秀') ? 'excel' : 'pass';
 
-    G_DynamicSubjectList.forEach((sub, idx) => {
+    getAnalyzedSubjects().forEach((sub, idx) => {
         const config = G_SubjectConfigs[sub] || {};
         const targetLine = config[configKey] || 60;
 
@@ -4272,7 +4289,7 @@ function renderBoundaryGapChart(elementId, students, lineTypeLabel) {
     });
 
     // X轴标签
-    const categories = G_DynamicSubjectList;
+    const categories = getAnalyzedSubjects();
 
     const option = {
         tooltip: {
@@ -4377,7 +4394,7 @@ function renderHolisticBalance(container, activeData, stats) {
 
     activeData.forEach(student => {
         let count = 0;
-        G_DynamicSubjectList.forEach(subject => {
+        getAnalyzedSubjects().forEach(subject => {
             const passLine = G_SubjectConfigs[subject] ? G_SubjectConfigs[subject].pass : 0;
             if ((student.scores[subject] === null || student.scores[subject] === undefined) || student.scores[subject] < passLine) {
                 count++; // (缺考也算不及格)
@@ -4455,7 +4472,7 @@ function renderHolisticShortestPlankChart(elementId, students) {
 
     // 1. 准备数据容器：{ '语文': {count:0, students:[]}, ... }
     const plankMap = {};
-    G_DynamicSubjectList.forEach(sub => {
+    getAnalyzedSubjects().forEach(sub => {
         plankMap[sub] = { count: 0, students: [] };
     });
 
@@ -4464,7 +4481,7 @@ function renderHolisticShortestPlankChart(elementId, students) {
         let minRate = 2.0; // 得分率不可能超过 1.0
         let worstSub = null;
 
-        G_DynamicSubjectList.forEach(sub => {
+        getAnalyzedSubjects().forEach(sub => {
             const score = s.scores[sub];
             const config = G_SubjectConfigs[sub];
             const full = config ? config.full : 100;
@@ -4575,7 +4592,7 @@ function renderHolisticScatterChart(elementId, students, totalStats) {
 
         // 收集该生所有科目的“得分率”
         const rates = [];
-        G_DynamicSubjectList.forEach(sub => {
+        getAnalyzedSubjects().forEach(sub => {
             const score = s.scores[sub];
             const config = G_SubjectConfigs[sub];
             if (typeof score === 'number' && config && config.full > 0) {
@@ -4700,7 +4717,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                     <label for="dist-subject-select">选择科目:</label>
                     <select id="dist-subject-select" class="sidebar-select" style="min-width: 120px;">
                         <option value="totalScore">总分</option>
-                        ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                        ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
                     </select>
                 </div>
 
@@ -4746,7 +4763,7 @@ function renderTrendDistribution(container, currentData, compareData, currentSta
                 <label>分析对象:</label>
                 <select id="dist-sankey-subject-select" class="sidebar-select" style="width: auto;">
                     <option value="totalScore">总分排名</option>
-                    ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}排名</option>`).join('')}
+                    ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}排名</option>`).join('')}
                 </select>
             </div>
             <div class="chart-container" id="dist-sankey-chart" style="height: 600px;"></div>
@@ -5969,12 +5986,12 @@ function renderAverageRadar(elementId, stats) {
     }
     echartsInstances[elementId] = echarts.init(chartDom);
 
-    const indicators = G_DynamicSubjectList.map(subject => {
+    const indicators = getAnalyzedSubjects().map(subject => {
         const full = G_SubjectConfigs[subject]?.full || 100;
         return { name: subject, max: full }; // (    ) max 动态读取配置
     });
 
-    const averageData = G_DynamicSubjectList.map(subject => {
+    const averageData = getAnalyzedSubjects().map(subject => {
         return stats[subject] ? stats[subject].average : 0;
     });
 
@@ -6009,7 +6026,7 @@ function renderSubjectComparisonBarChart(elementId, stats, metric) {
     echartsInstances[elementId] = echarts.init(chartDom);
 
     // 1. 提取数据
-    const data = G_DynamicSubjectList.map(subject => {
+    const data = getAnalyzedSubjects().map(subject => {
         return {
             name: subject,
             value: (stats[subject] && stats[subject][metric] !== undefined) ? stats[subject][metric] : 0
@@ -6205,7 +6222,7 @@ function renderSubjectBoxPlot(elementId, stats, activeData) {
 
     const boxData = [];    // 存储箱体数据
     const scatterData = []; // 存储异常值数据 (带姓名)
-    const labels = G_DynamicSubjectList;
+    const labels = getAnalyzedSubjects();
 
     // 2.      遍历所有科目
     labels.forEach((subject, subjectIndex) => {
@@ -6447,7 +6464,7 @@ function renderStackedBar(elementId, stats, configs) {
     if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
     echartsInstances[elementId] = echarts.init(chartDom);
 
-    const categories = G_DynamicSubjectList;
+    const categories = getAnalyzedSubjects();
 
     let aData = []; // A (优秀)
     let bData = []; // B (良好)
@@ -6586,12 +6603,12 @@ function renderStudentRadar(elementId, student, stats) {
     echartsInstances[elementId] = echarts.init(chartDom);
 
     // 1. 准备雷达图指示器 (max 设为 100, 因为我们用得分率)
-    const indicators = G_DynamicSubjectList.map(subject => {
+    const indicators = getAnalyzedSubjects().map(subject => {
         return { name: subject, max: 100 };
     });
 
     // 2. 计算 "学生得分率"
-    const studentData = G_DynamicSubjectList.map(subject => {
+    const studentData = getAnalyzedSubjects().map(subject => {
         const score = student.scores[subject] || 0;
         const full = G_SubjectConfigs[subject]?.full;
         if (!full || full === 0) return 0; // 避免除以零
@@ -6599,7 +6616,7 @@ function renderStudentRadar(elementId, student, stats) {
     });
 
     // 3. 计算 "年级平均得分率"
-    const averageData = G_DynamicSubjectList.map(subject => {
+    const averageData = getAnalyzedSubjects().map(subject => {
         const avgScore = stats[subject]?.average || 0;
         const full = G_SubjectConfigs[subject]?.full;
         if (!full || full === 0) return 0; // 避免除以零
@@ -6719,7 +6736,7 @@ function renderDifficultyScatter(elementId, stats) {
     echartsInstances[elementId] = echarts.init(chartDom);
 
     // 1. 准备数据
-    const scatterData = G_DynamicSubjectList.map(subject => {
+    const scatterData = getAnalyzedSubjects().map(subject => {
         const s = stats[subject];
         if (!s) return null;
 
@@ -7284,7 +7301,7 @@ function calculateWeaknessData(students, stats) {
         const zScores = [];
         const validSubjects = [];
 
-        G_DynamicSubjectList.forEach(subject => {
+        getAnalyzedSubjects().forEach(subject => {
             const subjectStat = stats[subject];
             const score = student.scores[subject];
 
@@ -7814,7 +7831,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
         const avg = sum / scores.length;
         let fullScore = 100;
         if (subjectName === 'totalScore') {
-            fullScore = G_DynamicSubjectList.reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
+            fullScore = getAnalyzedSubjects().reduce((sum, key) => sum + (G_SubjectConfigs[key]?.full || 0), 0);
         } else {
             fullScore = G_SubjectConfigs[subjectName]?.full || 100;
         }
@@ -7986,7 +8003,7 @@ function renderOverlappingHistogram(elementId, currentData, compareData, subject
 function renderBoundaryStudentDetail(containerElement, student) {
 
     // (从 G_DynamicSubjectList 构建科目数据)
-    const subjectData = G_DynamicSubjectList.map(subject => {
+    const subjectData = getAnalyzedSubjects().map(subject => {
 
         const score = student.scores[subject];
         const config = G_SubjectConfigs[subject];
@@ -8116,7 +8133,7 @@ function renderGroupRadarChart(elementId, filteredStudents, totalStats) {
     const groupStats = calculateAllStatistics(filteredStudents);
 
     // 2. 准备雷达图指示器 (max 设为 1, 因为我们用难度/得分率)
-    const indicators = G_DynamicSubjectList.map(subject => {
+    const indicators = getAnalyzedSubjects().map(subject => {
         // (动态获取最大值, 0.8 左右是比较好的最大值)
         const max = Math.max(
             totalStats[subject]?.difficulty || 0,
@@ -8126,12 +8143,12 @@ function renderGroupRadarChart(elementId, filteredStudents, totalStats) {
     });
 
     // 3. (    ) 获取 "筛选群体" 的得分率 (即难度)
-    const groupData = G_DynamicSubjectList.map(subject => {
+    const groupData = getAnalyzedSubjects().map(subject => {
         return groupStats[subject]?.difficulty || 0;
     });
 
     // 4. (    ) 获取 "全体平均" 的得分率 (即难度)
-    const totalData = G_DynamicSubjectList.map(subject => {
+    const totalData = getAnalyzedSubjects().map(subject => {
         return totalStats[subject]?.difficulty || 0;
     });
 
@@ -9634,7 +9651,14 @@ function renderItemAnalysis(container) {
 
     // 3. 辅助函数来填充UI (不变)
     const populateItemAnalysisUI = (itemData) => {
-        const subjects = Object.keys(itemData);
+        let subjects = Object.keys(itemData);
+
+        // [新增] 过滤掉在全局配置中标记为不分析的科目
+        subjects = subjects.filter(s => {
+            const config = G_SubjectConfigs[s];
+            return !config || config.isAnalyzed !== false;
+        });
+
         if (subjects.length === 0) {
             document.getElementById('item-analysis-results').style.display = 'none';
             configBtn.style.display = 'none';
@@ -12253,7 +12277,7 @@ function generateStudentReportHTML(student) {
     `;
 
     // 3. 生成表格行 HTML
-    const tableRowsHtml = G_DynamicSubjectList.map(subject => {
+    const tableRowsHtml = getAnalyzedSubjects().map(subject => {
         let subjectScoreDiff = 'N/A';
         let subjectClassRankDiff = 'N/A';
         let subjectGradeRankDiff = 'N/A';
@@ -13147,7 +13171,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
             dataContextStr += `总分: ${currentStudent.totalScore}, 班排: ${currentStudent.rank}\n`;
             dataContextStr += `各科明细 (科目: 分数 | 班排 | 年排 | T分):\n`;
 
-            G_DynamicSubjectList.forEach(sub => {
+            getAnalyzedSubjects().forEach(sub => {
                 const score = currentStudent.scores[sub];
                 if (score !== undefined) {
                     const cr = currentStudent.classRanks ? currentStudent.classRanks[sub] : '-';
@@ -14939,7 +14963,7 @@ async function renderGoalSetting(container, activeData, stats) {
     let currentStudent = null;
     let G_EditingPlanState = null;
     let currentPlanMode = 'total';
-    let currentSubject = G_DynamicSubjectList[0];
+    let currentSubject = getAnalyzedSubjects()[0];
     let currentStrategy = null;
     let currentTargetData = { val: 0, type: 'score' };
 
@@ -15012,7 +15036,7 @@ async function renderGoalSetting(container, activeData, stats) {
                     </div>
                     <div id="goal-single-subject-select-wrapper" style="display:none;">
                         <select id="goal-single-subject-select" class="sidebar-select" style="width:auto;">
-                            ${G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('')}
+                            ${getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('')}
                         </select>
                     </div>
                 </div>
@@ -16119,7 +16143,7 @@ function calculateSmartAllocation(student, targetTotal, allStudents, stats) {
     let totalWeight = 0;
     const subjectWeights = [];
 
-    G_DynamicSubjectList.forEach(subject => {
+    getAnalyzedSubjects().forEach(subject => {
         const sStat = stats[subject];
         const currentScore = student.scores[subject] || 0;
 
@@ -16352,7 +16376,7 @@ function renderGoalRadar(elementId, student, details) {
     const detailMap = {};
     details.forEach(d => detailMap[d.subject] = d);
 
-    G_DynamicSubjectList.forEach(subject => {
+    getAnalyzedSubjects().forEach(subject => {
         const config = G_SubjectConfigs[subject] || { full: 100 };
         indicators.push({ name: subject, max: config.full });
 
@@ -17310,7 +17334,7 @@ function exportExamToExcel(rooms) {
  */
 function renderStudyGroups(container) {
     const classes = [...new Set(G_StudentsData.map(s => s.class))].sort();
-    const subjectOptions = G_DynamicSubjectList.map(s => `<option value="${s}">${s}</option>`).join('');
+    const subjectOptions = getAnalyzedSubjects().map(s => `<option value="${s}">${s}</option>`).join('');
 
     container.innerHTML = `
         <h2>🧩 模块十六：智能互助分组 & AI 座位编排</h2>
@@ -19231,7 +19255,7 @@ function calculateAndRenderHonors() {
 
     // 2. 🥇 单科状元 (各科 Top 1)
     const subjectKings = [];
-    G_DynamicSubjectList.forEach(sub => {
+    getAnalyzedSubjects().forEach(sub => {
         let maxScore = -Infinity;
         activeData.forEach(s => { if ((s.scores[sub] || 0) > maxScore) maxScore = s.scores[sub]; });
         if (maxScore > 0) {
@@ -19265,7 +19289,7 @@ function calculateAndRenderHonors() {
     const highScorers = [...activeData].sort((a, b) => b.totalScore - a.totalScore).slice(0, top30PercentCount);
     const balancedStars = highScorers.map(s => {
         const rates = [];
-        G_DynamicSubjectList.forEach(sub => {
+        getAnalyzedSubjects().forEach(sub => {
             const config = G_SubjectConfigs[sub];
             if (config && config.full > 0 && typeof s.scores[sub] === 'number') {
                 rates.push(s.scores[sub] / config.full);
@@ -19498,7 +19522,7 @@ window.generatePoster = async function (type, titleStr) {
         const pool = [...activeData].sort((a, b) => b.totalScore - a.totalScore).slice(0, top30);
         const data = pool.map(s => {
             let arr = [];
-            G_DynamicSubjectList.forEach(sub => {
+            getAnalyzedSubjects().forEach(sub => {
                 const cfg = G_SubjectConfigs[sub];
                 if (typeof s.scores[sub] == 'number' && cfg && cfg.full) arr.push(s.scores[sub] / cfg.full);
             });
@@ -19518,7 +19542,7 @@ window.generatePoster = async function (type, titleStr) {
     else if (type === 'subject') {
         mainColor = "#2980b9"; titleStr = "单科状元榜";
         let rows = [];
-        G_DynamicSubjectList.forEach(sub => {
+        getAnalyzedSubjects().forEach(sub => {
             let max = -Infinity;
             activeData.forEach(s => { if (s.scores[sub] > max) max = s.scores[sub]; });
             if (max > 0) {
@@ -20538,7 +20562,7 @@ function renderTrendCompositionChart(elementId, currentData, compareData, mode =
     if (echartsInstances[elementId]) echartsInstances[elementId].dispose();
     echartsInstances[elementId] = echarts.init(chartDom);
 
-    const subjects = G_DynamicSubjectList;
+    const subjects = getAnalyzedSubjects();
     const dataMap = { curr: { A: [], B: [], C: [], D: [] }, comp: { A: [], B: [], C: [], D: [] } };
 
     // 内部辅助：获取单科统计
@@ -20773,7 +20797,7 @@ function renderScoreCurve(elementId, students, subject, binSize, isClassCompare 
 
         // 1. 确定全局最大分
         let globalMax = 0;
-        G_DynamicSubjectList.forEach(sub => {
+        getAnalyzedSubjects().forEach(sub => {
             const subScores = students.map(s => s.scores[sub]).filter(v => typeof v === 'number');
             if (subScores.length > 0) globalMax = Math.max(globalMax, Math.max(...subScores));
         });
@@ -20783,7 +20807,7 @@ function renderScoreCurve(elementId, students, subject, binSize, isClassCompare 
             categories.push(`[${i},${i + binSize})`);
         }
 
-        G_DynamicSubjectList.forEach((sub, idx) => {
+        getAnalyzedSubjects().forEach((sub, idx) => {
             const subScores = students.map(s => s.scores[sub]).filter(v => typeof v === 'number');
             const data = new Array(categories.length).fill(0);
             subScores.forEach(score => {
