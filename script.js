@@ -9083,7 +9083,11 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
     let interfaceHtml = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-top: 20px; border-top: 1px solid var(--border-color); flex-wrap: wrap; gap: 10px;">
             <h4 style="margin: 0;">成绩详情表</h4>
-            <div>
+            <div style="display: flex; align-items: center;">
+                <select id="multi-print-layout-select" style="padding: 6px; border-radius: 4px; border: 1px solid #ccc; margin-right: 10px; font-size: 0.9em;">
+                    <option value="landscape">横向布局</option>
+                    <option value="portrait">纵向布局</option>
+                </select>
                 <button id="multi-print-table-btn" class="sidebar-button" style="font-size: 0.9em; padding: 6px 12px; background-color: var(--color-gray);">
                     🖨️ 打印当前
                 </button>
@@ -9104,8 +9108,9 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
     const printBtn = document.getElementById('multi-print-table-btn');
     if (printBtn) {
         printBtn.addEventListener('click', () => {
+            const layout = document.getElementById('multi-print-layout-select') ? document.getElementById('multi-print-layout-select').value : 'landscape';
             if (typeof startMultiTablePrintJob === 'function') {
-                startMultiTablePrintJob(currentStudentName, currentStudentHtml);
+                startMultiTablePrintJob(currentStudentName, currentStudentHtml, layout);
             } else {
                 console.error("startMultiTablePrintJob 未定义");
             }
@@ -9122,6 +9127,8 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
             }
 
             if (!confirm(`即将生成 "${currentStudentClass}" 所有学生的成绩单。\n\n每位学生将占据一页，是否继续？`)) return;
+
+            const layout = document.getElementById('multi-print-layout-select') ? document.getElementById('multi-print-layout-select').value : 'landscape';
 
             // 1. 找出同班同学
             const classStudentsMap = new Map(); // 用 Map 去重
@@ -9189,7 +9196,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
 
             // 3. 调用打印
             if (typeof startMultiTablePrintJob === 'function') {
-                startMultiTablePrintJob(`${currentStudentClass}-批量成绩单`, fullHtml);
+                startMultiTablePrintJob(`${currentStudentClass}-批量成绩单`, fullHtml, layout);
             } else {
                 console.error("startMultiTablePrintJob 未定义");
                 alert("打印功能函数 startMultiTablePrintJob 缺失");
@@ -9207,6 +9214,8 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
             }
 
             if (!confirm(`即将生成 "${currentStudentClass}" 所有学生的成绩单。\n\n所有学生将连续打印，并用虚线分隔，是否继续？`)) return;
+
+            const layout = document.getElementById('multi-print-layout-select') ? document.getElementById('multi-print-layout-select').value : 'landscape';
 
             // 1. 找出同班同学
             const classStudentsMap = new Map(); // 用 Map 去重
@@ -9285,7 +9294,7 @@ function drawMultiExamChartsAndTable(studentId, multiExamData, forceRepopulateCh
 
             // 3. 调用打印
             if (typeof startMultiTablePrintJob === 'function') {
-                startMultiTablePrintJob(`${currentStudentClass}-批量成绩单(连续)`, fullHtml);
+                startMultiTablePrintJob(`${currentStudentClass}-批量成绩单(连续)`, fullHtml, layout);
             } else {
                 console.error("startMultiTablePrintJob 未定义");
                 alert("打印功能函数 startMultiTablePrintJob 缺失");
@@ -12624,7 +12633,7 @@ function generateItemDetailReportHTML(student, studentLayer, subjectName, questi
 /**
  * 11.8.    启动“多次考试-成绩详情表”的打印作业
  */
-function startMultiTablePrintJob(studentName, tableHtml) {
+function startMultiTablePrintJob(studentName, tableHtml, layout = 'landscape') {
     const html = `
         <html>
         <head>
@@ -12647,7 +12656,7 @@ function startMultiTablePrintJob(studentName, tableHtml) {
                 
                 /* 打印设置 */
                 @media print {
-                    @page { size: A4 landscape; } /* 横向打印，因为列很多 */
+                    @page { size: A4 ${layout}; } /* 动态设置打印布局 */
                     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 }
             </style>
