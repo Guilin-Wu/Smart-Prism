@@ -395,8 +395,8 @@ document.addEventListener('DOMContentLoaded', () => {
     modalCloseBtn.addEventListener('click', () => {
         modal.style.display = 'none';
     });
-    modalSaveBtn.addEventListener('click', () => {
-        saveSubjectConfigsFromModal();
+    modalSaveBtn.addEventListener('click', async () => {
+        await saveSubjectConfigsFromModal();
         modal.style.display = 'none';
         runAnalysisAndRender();
     });
@@ -832,11 +832,13 @@ function calculateAllStatistics(studentsData) {
         );
         stats[subjectName].name = subjectName;
 
-        // 累加总分配置
-        totalFull += config.full;
-        totalPass += config.pass;
-        totalExcel += config.excel;
-        totalGood += config.good; //    (    )
+        // 累加总分配置 (仅当该科目参与分析时)
+        if (config.isAnalyzed !== false) {
+            totalFull += config.full;
+            totalPass += config.pass;
+            totalExcel += config.excel;
+            totalGood += config.good; //    (    )
+        }
     });
 
     // 2. 统计 '总分' (totalScore)
@@ -1314,10 +1316,76 @@ function populateSubjectConfigModal() {
 }
 
 /**
+ * [新增] 根据当前“是否分析”的配置，重新计算学生总分和排名
+ */
+function recalculateStudentScores(students) {
+    if (!students || students.length === 0) return students;
+    
+    const analyzedSubjects = getAnalyzedSubjects();
+    
+    students.forEach(s => {
+        let total = 0;
+        let hasValid = false;
+        analyzedSubjects.forEach(sub => {
+            const val = s.scores[sub];
+            if (typeof val === 'number') {
+                total += val;
+                hasValid = true;
+            }
+        });
+        s.totalScore = hasValid ? parseFloat(total.toFixed(2)) : null;
+        
+        // 清除旧排名，强制重新计算
+        s.gradeRank = null;
+        s.rank = null;
+    });
+    
+    // 调用现有的排名计算函数
+    return addSubjectRanksToData(students);
+}
+
+/**
+ * [新增] 将配置应用到所有数据（包括当前内存数据和存储的历史数据）
+ */
+async function applyConfigToAllData() {
+    // 1. 更新当前内存中的数据
+    if (G_StudentsData && G_StudentsData.length > 0) {
+        G_StudentsData = recalculateStudentScores(G_StudentsData);
+    }
+    
+    // 2. 更新 Data Management Center 中的历史数据
+    try {
+        const collections = await getCollections();
+        if (collections && collections[G_CurrentCollectionId]) {
+            const exams = collections[G_CurrentCollectionId].exams;
+            if (exams && exams.length > 0) {
+                exams.forEach(exam => {
+                    if (exam.students) {
+                        exam.students = recalculateStudentScores(exam.students);
+                    }
+                });
+                await saveCollections(collections);
+                
+                // 如果当前在 Data Management Center，刷新列表和图表
+                const currentModuleLink = document.querySelector('.nav-link.active');
+                if (currentModuleLink && currentModuleLink.dataset.module === 'multi-exam') {
+                     // 重新加载数据并刷新
+                     const loadedData = await loadMultiExamData();
+                     renderMultiExamList(loadedData);
+                     refreshBumpChartUI(loadedData);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("更新历史数据失败:", e);
+    }
+}
+
+/**
  * (    ) 8.3. 从模态窗口保存配置
  *    终极修复版    专门处理 Checkbox 的保存逻辑
  */
-function saveSubjectConfigsFromModal() {
+async function saveSubjectConfigsFromModal() {
     // 获取表格里所有的 input 标签
     const inputs = subjectConfigTableBody.querySelectorAll('input');
 
@@ -1342,10 +1410,13 @@ function saveSubjectConfigsFromModal() {
     });
 
     // 保存到数据库
-    localforage.setItem('G_SubjectConfigs', G_SubjectConfigs).then(() => {
-        console.log("配置已成功保存至 IndexedDB");
-        alert("配置已保存！"); // [提示] 加个弹窗确认保存成功
-    });
+    await localforage.setItem('G_SubjectConfigs', G_SubjectConfigs);
+    
+    // [新增] 应用配置到所有数据
+    await applyConfigToAllData();
+    
+    console.log("配置已成功保存至 IndexedDB 并更新了数据");
+    alert("配置已保存，所有相关成绩已重新计算！");
 }
 
 
