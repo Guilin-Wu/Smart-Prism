@@ -10792,15 +10792,17 @@ function renderItemAnalysisBarChart(elementId, title, qNames, data, yAxisRange) 
 
     //    修正    (Bug 1)
     if (!qNames || qNames.length === 0) {
-        chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">本科目无此类题目数据。</p>`;
         if (echartsInstances[elementId]) {
-            echartsInstances[elementId].dispose();
+            try { echartsInstances[elementId].dispose(); } catch (e) { console.warn(e); }
+            echartsInstances[elementId] = null;
         }
+        chartDom.innerHTML = `<p style="text-align: center; color: var(--text-muted); padding-top: 50px;">本科目无此类题目数据。</p>`;
         return;
     }
 
     if (echartsInstances[elementId]) {
-        echartsInstances[elementId].dispose();
+        try { echartsInstances[elementId].dispose(); } catch (e) { console.warn(e); }
+        echartsInstances[elementId] = null;
     }
     echartsInstances[elementId] = echarts.init(chartDom);
 
