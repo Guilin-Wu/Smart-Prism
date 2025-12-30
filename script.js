@@ -22970,12 +22970,13 @@ function renderBumpChart(examList, topN = 10, targetClass = 'ALL') {
     if (echarts.getInstanceByDom(chartDom)) {
         echarts.dispose(chartDom);
     }
-    const myChart = echarts.init(chartDom);
 
     if (!examList || examList.length < 2) {
         chartDom.innerHTML = `<div style="display:flex;justify-content:center;align-items:center;height:100%;color:#999;">数据不足 (至少需要2次考试)</div>`;
         return;
     }
+
+    const myChart = echarts.init(chartDom);
 
     const examNames = examList.map(e => e.label);
     
