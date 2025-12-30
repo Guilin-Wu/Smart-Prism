@@ -2457,7 +2457,7 @@ function renderSingleSubject(container, activeData, stats) {
                             <th>${rankHeader}</th>
                             <th>姓名</th>
                             <th>分数</th>
-                            <th>班排(总分)</th> <th>年排(单科)</th> </tr>
+                            <th>班排</th> <th>年排</th> </tr>
                     </thead>
                     <tbody>
                         ${data.map((s, index) => `
@@ -2465,7 +2465,7 @@ function renderSingleSubject(container, activeData, stats) {
                                 <td>${index + 1}</td>
                                 <td>${s.name}</td>
                                 <td><strong>${s.scores[subjectName]}</strong></td>
-                                <td>${s.rank || '-'}</td>
+                                <td>${(s.classRanks && s.classRanks[subjectName]) ? s.classRanks[subjectName] : '-'}</td>
                                 <td>${(s.gradeRanks && s.gradeRanks[subjectName]) ? s.gradeRanks[subjectName] : '-'}</td>
                             </tr>
                         `).join('')}
