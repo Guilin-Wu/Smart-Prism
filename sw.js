@@ -1,5 +1,5 @@
 // sw.js
-const CACHE_NAME = 'smart-prism-v3.5';
+const CACHE_NAME = 'smart-prism-v3.5.1';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',

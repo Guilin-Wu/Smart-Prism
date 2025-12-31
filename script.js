@@ -217,13 +217,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         good: isY_S_W ? 105 : 75,
                         pass: isY_S_W ? 90 : 60,
                         low: isY_S_W ? 45 : 30,
-                        isAssigned: false
+                        assignmentRule: 'none' // [修改] 默认为不赋分
                     };
                 }
             });
 
             // (C) 保存到 IndexedDB (localforage)
             console.log("正在将导入数据写入 IndexedDB...");
+            
+            // [新增] 确保 rawScores 存在并应用赋分
+            // 因为从存储加载的数据可能没有 rawScores (如果是旧数据)，或者我们需要重新计算
+            G_StudentsData = recalculateStudentScores(G_StudentsData);
+
             await localforage.setItem('G_StudentsData', G_StudentsData);
             await localforage.setItem('G_MainFileName', selectedExam.label);
             await localforage.setItem('G_SubjectConfigs', G_SubjectConfigs); // 保存更  后的配置
@@ -477,7 +482,29 @@ async function handleFileData(event, type) {
             // 保存配置
             await localforage.setItem('G_SubjectConfigs', G_SubjectConfigs);
         }
-        const rankedData = addSubjectRanksToData(processedData);
+        
+        // [新增] 确保 rawScores 存在 (对于新导入的数据，scores 就是 rawScores)
+        processedData.forEach(s => {
+            if (!s.rawScores) {
+                s.rawScores = JSON.parse(JSON.stringify(s.scores));
+            }
+        });
+
+        // [新增] 立即应用当前的赋分规则 (如果有的话，虽然新导入通常是默认配置，但为了健壮性)
+        // 注意：如果是 main 类型，initializeSubjectConfigs 已经重置了配置，所以这里实际上不会赋分。
+        // 但如果是 compare 类型，或者未来逻辑变化，这一步是安全的。
+        let finalData = processedData;
+        if (type === 'main') {
+             // 对于主数据，我们调用 recalculateStudentScores 来处理可能的逻辑（虽然现在配置是空的）
+             // 并且它会负责 addSubjectRanksToData
+             finalData = recalculateStudentScores(processedData);
+        } else {
+             // 对于对比数据，我们通常不应用赋分（或者应用同样的赋分？目前对比数据主要用于展示）
+             // 暂时保持原样，只加排名
+             finalData = addSubjectRanksToData(processedData);
+        }
+
+        const rankedData = finalData;
 
         // 3. 保存到 IndexedDB
         const key = (type === 'main') ? 'G_StudentsData' : 'G_CompareData';
@@ -909,68 +936,93 @@ function calculateAssignedScore(rank, totalCount) {
 }
 
 /**
- * [    ] 福建省  高考赋分算法 (3+1+2模式 - 再选科目)
+ * [优化] 福建省高考赋分算法 (3+1+2模式 - 再选科目)
  * 规则：
  * A等级: 15%, 100-86
  * B等级: 35%, 85-71
  * C等级: 35%, 70-56
  * D等级: 13%, 55-41
  * E等级: 2%,  40-30
- * 公式: (Y2-Y)/(Y-Y1) = (T2-X)/(X-T1)  =>  X = ( (Y-Y1)/(Y2-Y1) ) * (T2-T1) + T1
+ * 
+ * 优化点：
+ * 1. 严格按照同分同等级处理 (同分考生优先归入高等级)
+ * 2. 动态计算每个等级的原始分区间 (Y1, Y2)
  */
 function calculateFujianAssignedScore(studentScore, allScores) {
+    if (typeof studentScore !== 'number' || isNaN(studentScore)) return 'N/A';
+    
     // 1. 数据清洗与排序 (从高到低)
     const validScores = allScores.filter(s => typeof s === 'number' && !isNaN(s)).sort((a, b) => b - a);
     const total = validScores.length;
+    if (total === 0) return 'N/A';
 
-    if (total === 0 || typeof studentScore !== 'number') return 'N/A';
+    // 2. 确定等级划分比例与截止人数
+    // A: 15%, B: 35%, C: 35%, D: 13%, E: 2%
+    // 累计: A:15%, B:50%, C:85%, D:98%, E:100%
+    const cutA = Math.round(total * 0.15) || 1; // 至少1人
+    const cutB = Math.round(total * 0.50) || (cutA + 1);
+    const cutC = Math.round(total * 0.85) || (cutB + 1);
+    const cutD = Math.round(total * 0.98) || (cutC + 1);
+    
+    const grades = [
+        { name: 'A', T2: 100, T1: 86 },
+        { name: 'B', T2: 85, T1: 71 },
+        { name: 'C', T2: 70, T1: 56 },
+        { name: 'D', T2: 55, T1: 41 },
+        { name: 'E', T2: 40, T1: 30 }
+    ];
 
-    // 2. 确定各个等级的人数截止位次 (向下取整)
-    // 注意：这里简化处理，严格场景下如同分需扩展区间
-    const idxA = Math.floor(total * 0.15);          // A等级截止索引
-    const idxB = Math.floor(total * (0.15 + 0.35)); // B等级截止索引 (50%)
-    const idxC = Math.floor(total * (0.50 + 0.35)); // C等级截止索引 (85%)
-    const idxD = Math.floor(total * (0.85 + 0.13)); // D等级截止索引 (98%)
-    // 剩余为 E等级
+    // 3. 确定当前分数属于哪个等级
+    // 逻辑：同分考生的排名相同（取最高排名），若该排名在截止范围内，则归入该等级
+    const myRank = validScores.indexOf(studentScore) + 1; 
+    
+    let gradeIdx = 0;
+    if (myRank <= cutA) gradeIdx = 0; // A
+    else if (myRank <= cutB) gradeIdx = 1; // B
+    else if (myRank <= cutC) gradeIdx = 2; // C
+    else if (myRank <= cutD) gradeIdx = 3; // D
+    else gradeIdx = 4; // E
+    
+    const myGrade = grades[gradeIdx];
 
-    // 3. 确定考生所在的等级区间
-    const myRankIdx = validScores.indexOf(studentScore); // 获取该分数的最高排名索引
+    // 4. 确定该等级的 Y1 (最低原始分) 和 Y2 (最高原始分)
+    // 我们需要找到所有被归入该等级的分数
+    // 也就是：所有 rank 满足该等级条件的分数
+    
+    // 辅助函数：判断某个分数的等级索引
+    const getGradeIdx = (score) => {
+        const r = validScores.indexOf(score) + 1;
+        if (r <= cutA) return 0;
+        if (r <= cutB) return 1;
+        if (r <= cutC) return 2;
+        if (r <= cutD) return 3;
+        return 4;
+    };
 
-    let T1, T2, Y1, Y2;
-    let subset = [];
-
-    if (myRankIdx < idxA) {
-        // A等级
-        T2 = 100; T1 = 86;
-        subset = validScores.slice(0, idxA);
-    } else if (myRankIdx < idxB) {
-        // B等级
-        T2 = 85; T1 = 71;
-        subset = validScores.slice(idxA, idxB);
-    } else if (myRankIdx < idxC) {
-        // C等级
-        T2 = 70; T1 = 56;
-        subset = validScores.slice(idxB, idxC);
-    } else if (myRankIdx < idxD) {
-        // D等级
-        T2 = 55; T1 = 41;
-        subset = validScores.slice(idxC, idxD);
-    } else {
-        // E等级
-        T2 = 40; T1 = 30;
-        subset = validScores.slice(idxD);
-    }
-
-    // 4. 获取该等级原始分的最高值(Y2)和最低值(Y1)
-    if (subset.length === 0) return studentScore; // 异常保护
-    Y2 = subset[0]; // 区间最高原始分
-    Y1 = subset[subset.length - 1]; // 区间最低原始分
+    // 找出所有属于当前等级的分数
+    // 优化：不需要遍历所有分数，只需要遍历去重后的分数
+    const uniqueScores = [...new Set(validScores)];
+    const scoresInGrade = uniqueScores.filter(s => getGradeIdx(s) === gradeIdx);
+    
+    if (scoresInGrade.length === 0) return studentScore; // 异常保护
+    
+    const Y2 = Math.max(...scoresInGrade); // 区间最高原始分
+    const Y1 = Math.min(...scoresInGrade); // 区间最低原始分
+    
+    const T2 = myGrade.T2;
+    const T1 = myGrade.T1;
 
     // 5. 代入公式计算
-    // 特殊情况：如果该区间只有一个分数(Y1=Y2)，直接给满分或平均分？通常给 T2
-    if (Y2 === Y1) return T2;
+    // 公式: (Y2 - Y) / (Y - Y1) = (T2 - T) / (T - T1)
+    // 推导: T = ((Y - Y1) / (Y2 - Y1)) * (T2 - T1) + T1
+    
+    if (Y2 === Y1) {
+        // 特殊情况：该等级只有一个分数，或者所有分数都相同
+        // 通常直接给该等级的最高赋分 T2，或者中间分？
+        // 按照“高分高赋”原则，通常给 T2 (例如 A等全是100分，则赋100)
+        return T2;
+    }
 
-    // 线性插值公式
     const assignedScore = ((studentScore - Y1) / (Y2 - Y1)) * (T2 - T1) + T1;
 
     return Math.round(assignedScore); // 四舍五入取整
@@ -1241,7 +1293,7 @@ function initializeSubjectConfigs() {
             good: isY_S_W ? 105 : 75,
             pass: isY_S_W ? 90 : 60,
             low: isY_S_W ? 45 : 30,
-            isAssigned: false, //            默认为不赋分
+            assignmentRule: 'none', // [修改] 默认为不赋分
             isAnalyzed: true   // [新增] 默认为参与分析
         };
     });
@@ -1274,8 +1326,12 @@ function populateSubjectConfigModal() {
         const valSuper = config.superExcel !== undefined ? config.superExcel : (config.full * 0.9);
         const valLow = config.low !== undefined ? config.low : (config.full * 0.3);
 
-        //            读取是否赋分 (默认 false)
-        const isAssigned = config.isAssigned === true;
+        // [修改] 读取赋分规则 (兼容旧数据)
+        let assignmentRule = config.assignmentRule || 'none';
+        if (config.isAssigned === true && assignmentRule === 'none') {
+             assignmentRule = 'fujian'; // 迁移旧配置
+        }
+
         // [新增] 读取是否参与分析 (默认 true)
         const isAnalyzed = config.isAnalyzed !== false;
 
@@ -1286,7 +1342,10 @@ function populateSubjectConfigModal() {
                     <input type="checkbox" data-subject="${subject}" data-type="isAnalyzed" ${isAnalyzed ? 'checked' : ''} style="width:auto;">
                 </td>
                 <td style="text-align:center;">
-                    <input type="checkbox" data-subject="${subject}" data-type="isAssigned" ${isAssigned ? 'checked' : ''} style="width:auto;">
+                    <select data-subject="${subject}" data-type="assignmentRule" style="width:90px; font-size:0.9em;">
+                        <option value="none" ${assignmentRule === 'none' ? 'selected' : ''}>不赋分</option>
+                        <option value="fujian" ${assignmentRule === 'fujian' ? 'selected' : ''}>福建赋分</option>
+                    </select>
                 </td>
                 <td><input type="number" data-subject="${subject}" data-type="full" value="${config.full}" style="width:50px"></td>
                 <td><input type="number" data-subject="${subject}" data-type="superExcel" value="${valSuper}" style="width:50px; color:#6f42c1; font-weight:bold;"></td>
@@ -1303,7 +1362,7 @@ function populateSubjectConfigModal() {
         <tr>
             <th>科目</th>
             <th>分析?</th>
-            <th>赋分?</th> <th>满分</th>
+            <th>赋分规则</th> <th>满分</th>
             <th style="color:#6f42c1">特优线</th>
             <th>优秀线</th>
             <th>良好线</th>
@@ -1321,15 +1380,61 @@ function populateSubjectConfigModal() {
 function recalculateStudentScores(students) {
     if (!students || students.length === 0) return students;
     
+    // 1. 确保所有学生都有 rawScores (原始分备份)
+    students.forEach(s => {
+        if (!s.rawScores) {
+            // 如果没有备份，说明 scores 里存的是原始分，进行备份
+            // 注意：这里假设首次运行时 scores 是原始分。
+            // 如果是从存储加载且之前已经赋分过，必须确保 rawScores 也被存储了。
+            s.rawScores = JSON.parse(JSON.stringify(s.scores)); 
+        }
+    });
+
     const analyzedSubjects = getAnalyzedSubjects();
+    
+    // [优化] 预计算赋分映射表，避免在循环中重复排序和计算
+    const assignedScoreMaps = {};
+    analyzedSubjects.forEach(sub => {
+        const config = G_SubjectConfigs[sub];
+        const rule = config.assignmentRule || (config.isAssigned ? 'fujian' : 'none');
+        
+        if (rule === 'fujian') {
+            // [关键] 使用 rawScores (原始分) 来计算总体分布
+            const allRawScores = students.map(s => s.rawScores[sub]);
+            const validRawScores = allRawScores.filter(s => typeof s === 'number' && !isNaN(s));
+            
+            const uniqueScores = [...new Set(validRawScores)];
+            const map = {};
+            uniqueScores.forEach(raw => {
+                map[raw] = calculateFujianAssignedScore(raw, validRawScores);
+            });
+            assignedScoreMaps[sub] = map;
+        }
+    });
     
     students.forEach(s => {
         let total = 0;
         let hasValid = false;
         analyzedSubjects.forEach(sub => {
-            const val = s.scores[sub];
-            if (typeof val === 'number') {
-                total += val;
+            // [关键] 始终从 rawScores 获取原始分
+            const rawVal = s.rawScores[sub];
+            
+            if (typeof rawVal === 'number') {
+                let scoreToUse = rawVal;
+                
+                // 如果该科目开启了赋分，则查找映射表
+                if (assignedScoreMaps[sub] && assignedScoreMaps[sub][rawVal] !== undefined) {
+                    const assigned = assignedScoreMaps[sub][rawVal];
+                    if (assigned !== 'N/A') {
+                        scoreToUse = assigned;
+                    }
+                }
+
+                // [关键] 更新 scores 为“有效成绩” (可能是原始分，也可能是赋分)
+                // 这样所有的图表和表格读取 s.scores 时都能自动使用赋分后的成绩
+                s.scores[sub] = scoreToUse;
+
+                total += scoreToUse;
                 hasValid = true;
             }
         });
@@ -1386,8 +1491,8 @@ async function applyConfigToAllData() {
  *    终极修复版    专门处理 Checkbox 的保存逻辑
  */
 async function saveSubjectConfigsFromModal() {
-    // 获取表格里所有的 input 标签
-    const inputs = subjectConfigTableBody.querySelectorAll('input');
+    // 获取表格里所有的 input 和 select 标签
+    const inputs = subjectConfigTableBody.querySelectorAll('input, select');
 
     inputs.forEach(input => {
         const subject = input.dataset.subject;
@@ -1403,6 +1508,12 @@ async function saveSubjectConfigsFromModal() {
 
             G_SubjectConfigs[subject][type] = input.checked;
             console.log(`更   ${subject} 的赋分状态: ${input.checked}`); // 调试日志
+        } else if (input.tagName.toLowerCase() === 'select') {
+             G_SubjectConfigs[subject][type] = input.value;
+             // 清理旧字段
+             if (type === 'assignmentRule') {
+                 delete G_SubjectConfigs[subject].isAssigned;
+             }
         } else {
             // 如果是数字框，我们要存的是数字 (value属性)
             G_SubjectConfigs[subject][type] = parseFloat(input.value);
@@ -1449,9 +1560,9 @@ function renderDashboard(container, stats, activeData) {
             <div class="kpi-card"><h3>总人数</h3><div class="value">${totalStudentCount}</div></div>
             <div class="kpi-card"><h3>考试人数</h3><div class="value">${participantCount}</div></div>
             <div class="kpi-card"><h3>缺考人数</h3><div class="value">${missingCount}</div></div>
-            <div class="kpi-card"><h3>原始总分均分</h3><div class="value">${totalStats.average || 0}</div></div>
-            <div class="kpi-card"><h3>原始总分最高</h3><div class="value">${totalStats.max || 0}</div></div>
-            <div class="kpi-card"><h3>原始总分最低</h3><div class="value">${totalStats.min || 0}</div></div>
+            <div class="kpi-card"><h3>总分均分</h3><div class="value">${totalStats.average || 0}</div></div>
+            <div class="kpi-card"><h3>总分最高</h3><div class="value">${totalStats.max || 0}</div></div>
+            <div class="kpi-card"><h3>总分最低</h3><div class="value">${totalStats.min || 0}</div></div>
             <div class="kpi-card"><h3>总分中位数</h3><div class="value">${totalStats.median || 0}</div></div>
             <div class="kpi-card"><h3>总分优秀率 (%)</h3><div class="value">${totalStats.excellentRate || 0}</div></div>
             <div class="kpi-card"><h3>总分良好率 (%)</h3><div class="value">${totalStats.goodRate || 0}</div></div>
@@ -2149,12 +2260,15 @@ function renderStudent(container, students, stats) {
             }
 
             const config = G_SubjectConfigs[subject] || {};
-            const isAssignedSubject = config.isAssigned === true;
+            // [修改] 检查 assignmentRule
+            const rule = config.assignmentRule || (config.isAssigned ? 'fujian' : 'none');
             let rankBasedScoreDisplay = '';
-            if (isAssignedSubject) {
-                const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
-                const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
-                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
+
+            if (rule === 'fujian') {
+                // 如果开启了赋分，s.scores[subject] 已经是赋分后的成绩
+                // 我们这里显示原始分作为参考
+                const rawScore = (student.rawScores && student.rawScores[subject] !== undefined) ? student.rawScores[subject] : 'N/A';
+                rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#666; margin-top:4px;">原始分: ${rawScore}</div>`;
             } else {
                 rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
             }
@@ -12448,13 +12562,15 @@ function generateStudentReportHTML(student) {
         }
 
         const config = G_SubjectConfigs[subject] || {};
-        const isAssignedSubject = config.isAssigned === true;
+        // [修改] 检查 assignmentRule
+        const rule = config.assignmentRule || (config.isAssigned ? 'fujian' : 'none');
         let rankBasedScoreDisplay = '';
 
-        if (isAssignedSubject) {
-            const allScoresForSubject = G_StudentsData.map(s => s.scores[subject]);
-            const fujianScore = calculateFujianAssignedScore(student.scores[subject], allScoresForSubject);
-            rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#6f42c1; margin-top:4px; font-weight:bold;">赋分: ${fujianScore}</div>`;
+        if (rule === 'fujian') {
+            // 如果开启了赋分，s.scores[subject] 已经是赋分后的成绩
+            // 我们这里显示原始分作为参考
+            const rawScore = (student.rawScores && student.rawScores[subject] !== undefined) ? student.rawScores[subject] : 'N/A';
+            rankBasedScoreDisplay = `<div style="font-size:0.85em; color:#666; margin-top:4px;">原始分: ${rawScore}</div>`;
         } else {
             rankBasedScoreDisplay = `<div style="font-size:0.8em; color:#aaa; margin-top:4px;">(原始分)</div>`;
         }
