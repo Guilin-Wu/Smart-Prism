@@ -5228,8 +5228,17 @@ function renderMultiExam(container) {
                     <select id="focus-class-filter" class="sidebar-select" style="width:auto; padding: 4px 8px;">
                         <option value="ALL">🏫 全校混合</option>
                     </select>
+                    <select id="focus-subject-filter" class="sidebar-select" style="width:auto; padding: 4px 8px;">
+                        <option value="TOTAL">📊 总分分析</option>
+                    </select>
                     <button id="btn-analyze-focus" class="sidebar-button" style="background-color: #dc3545;">
-                        🔍 生成分析报告
+                        🔍 筛选分析对象
+                    </button>
+                    <button id="btn-filter-focus-ai" class="sidebar-button" style="background-color: #fd7e14; display:none;">
+                        🧹 AI 智能筛选
+                    </button>
+                    <button id="btn-analyze-focus-ai" class="sidebar-button" style="background-color: #6f42c1; display:none;">
+                        🤖 AI 智能分析
                     </button>
                 </div>
             </div>
@@ -13545,7 +13554,7 @@ async function generateAIPrompt(studentId, studentName, mode, qCount = 3, grade 
  * - 包含智能滚屏 (Smart Auto-scroll)
  * - 包含底部固定输入框状态管理
  */
-async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount, grade, targetSubject, targetClass) {
+async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount, grade, targetSubject, targetClass, customPrompt = null) {
     const resultContainer = document.getElementById('ai-result-container');
     const loadingDiv = document.getElementById('ai-loading');
     const contentDiv = document.getElementById('ai-content');
@@ -13623,6 +13632,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
                 const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
                 let historyTitle = `${studentName} - ${modeText}`;
                 if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
+                if (mode === 'focus_analysis') historyTitle = `重点关注分析 - ${targetClass === 'ALL' ? '全校' : targetClass + '班'}`;
 
                 // 保存未完成的记录
                 saveToAIHistory(historyTitle, `${grade} | ${targetSubject} (未完成)`, G_CurrentHistoryId);
@@ -13635,8 +13645,12 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
 
     try {
         // 2. 生成 Prompt (使用模板)
-        // 注意：generateAIPrompt 现在返回对象 { system: "...", user: "..." }
-        const promptData = await generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
+        let promptData;
+        if (customPrompt) {
+            promptData = customPrompt;
+        } else {
+            promptData = await generateAIPrompt(studentId, studentName, mode, qCount, grade, targetSubject, targetClass);
+        }
 
         // 检查 Prompt 生成是否报错 (字符串形式的错误)
         if (promptData.user && (promptData.user.startsWith('错误：') || promptData.user.startsWith('系统错误：'))) {
@@ -13748,6 +13762,7 @@ async function runAIAnalysis(apiKey, studentId, studentName, mode, model, qCount
         const modeText = modeEl ? modeEl.selectedOptions[0].text : "AI分析";
         let historyTitle = `${studentName} - ${modeText}`;
         if (mode === 'teaching_guide') historyTitle = `教学指导 - ${targetSubject}`;
+        if (mode === 'focus_analysis') historyTitle = `重点关注分析 - ${targetClass === 'ALL' ? '全校' : targetClass + '班'}`;
 
         // 传入 G_CurrentHistoryId (此时为 null)，返回  生成的 ID
         const newId = saveToAIHistory(historyTitle, `${grade} | ${targetSubject}`, G_CurrentHistoryId);
@@ -23283,41 +23298,194 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 function initFocusAnalysisModule(examList) {
     const btn = document.getElementById('btn-analyze-focus');
-    const classSelect = document.getElementById('focus-class-filter'); // 新增
+    const aiBtn = document.getElementById('btn-analyze-focus-ai');
+    
+    // 隐藏原有的工具栏下拉框
+    const oldClassSelect = document.getElementById('focus-class-filter');
+    const oldSubjectSelect = document.getElementById('focus-subject-filter');
+    if (oldClassSelect) oldClassSelect.style.display = 'none';
+    if (oldSubjectSelect) oldSubjectSelect.style.display = 'none';
+
     if (!btn) return;
 
-    // 填充班级下拉框
-    if (classSelect && examList.length > 0) {
-        const lastExam = examList[examList.length - 1];
-        const classSet = new Set();
-        lastExam.students.forEach(s => classSet.add(s.class));
-        const classes = Array.from(classSet).sort();
-        
-        let html = `<option value="ALL">🏫 全校混合</option>`;
-        classes.forEach(c => {
-            html += `<option value="${c}">${c}</option>`;
-        });
-        classSelect.innerHTML = html;
+    // 1. 强制移除旧的模态框，确保结构最新 (解决缓存导致的 ID 缺失问题)
+    const existingModal = document.getElementById('focus-filter-modal');
+    if (existingModal) {
+        existingModal.remove();
     }
 
-    // 移除旧的监听器
+    // 2. 注入筛选模式选择模态框 (包含班级和科目选择)
+    const modalHtml = `
+        <div id="focus-filter-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); z-index:10000; justify-content:center; align-items:center;">
+            <div class="modal-content" style="background:white; width: 500px; max-width: 90%; border-radius: 12px; padding: 30px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); position: relative;">
+                <span class="close-btn" onclick="document.getElementById('focus-filter-modal').style.display='none'" style="position:absolute; top:15px; right:20px; font-size: 24px; cursor:pointer; color:#999;">&times;</span>
+                
+                <h3 style="margin-top:0; margin-bottom: 20px; color: #333; font-weight: 600; text-align: center;">🔍 重点关注对象筛选</h3>
+                
+                <!-- 1. 筛选条件区域 -->
+                <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
+                    <div style="margin-bottom: 15px;">
+                        <label style="display:block; font-weight:bold; margin-bottom:8px; color:#555;">1. 选择分析范围 (班级)</label>
+                        <select id="modal-focus-class" class="sidebar-select" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px;"></select>
+                    </div>
+                    <div>
+                        <label style="display:block; font-weight:bold; margin-bottom:8px; color:#555;">2. 选择分析科目</label>
+                        <select id="modal-focus-subject" class="sidebar-select" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px;"></select>
+                    </div>
+                </div>
+
+                <p style="color: #666; margin-bottom: 20px; font-size: 0.95em; text-align: center;">请选择筛选模式：</p>
+                
+                <!-- 2. 模式选择按钮 -->
+                <div style="display: flex; gap: 15px; justify-content: center;">
+                    <button id="btn-mode-normal" class="action-button" style="flex:1; padding: 12px; font-size: 1.1em; border-radius: 8px; background-color: #fff; border: 1px solid #ccc; color: #333; cursor: pointer; transition: all 0.2s;">
+                        📊 普通筛选
+                        <div style="font-size: 0.75em; opacity: 0.7; margin-top: 4px;">基于规则 (排名/偏科)</div>
+                    </button>
+                    <button id="btn-mode-ai" class="action-button" style="flex:1; padding: 12px; font-size: 1.1em; border-radius: 8px; background-color: #6f42c1; border: none; color: white; cursor: pointer; transition: all 0.2s;">
+                        🤖 AI 智能筛选
+                        <div style="font-size: 0.75em; opacity: 0.9; margin-top: 4px;">规则 + AI 二次审核</div>
+                    </button>
+                </div>
+
+                <div id="focus-filter-loading" style="display:none; margin-top:25px; color:#6f42c1; font-weight: 500; text-align: center;">
+                    <span class="spinner-border" style="width: 1.2rem; height: 1.2rem; border-width: 2px;"></span> 
+                    正在请求 AI 进行深度筛选，请稍候...
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // 3. 获取 DOM 元素 (必须在注入之后)
+    const focusModal = document.getElementById('focus-filter-modal');
+    const modalClassSelect = document.getElementById('modal-focus-class');
+    const modalSubjectSelect = document.getElementById('modal-focus-subject');
+    const btnNormal = document.getElementById('btn-mode-normal');
+    const btnAI = document.getElementById('btn-mode-ai');
+    const loadingIndicator = document.getElementById('focus-filter-loading');
+
+    // 4. 填充模态框内的下拉框
+    const populateModalDropdowns = () => {
+        if (examList.length > 0) {
+            // 班级
+            const lastExam = examList[examList.length - 1];
+            const classSet = new Set();
+            lastExam.students.forEach(s => classSet.add(s.class));
+            const classes = Array.from(classSet).sort();
+            let classHtml = `<option value="ALL">🏫 全校混合</option>`;
+            classes.forEach(c => classHtml += `<option value="${c}">${c}</option>`);
+            modalClassSelect.innerHTML = classHtml;
+
+            // 科目
+            const subjectSet = new Set();
+            if (lastExam && lastExam.students) {
+                lastExam.students.forEach(s => {
+                    if (s.scores) Object.keys(s.scores).forEach(sub => subjectSet.add(sub));
+                });
+            }
+            const subjects = Array.from(subjectSet);
+            let subHtml = `<option value="TOTAL">📊 总分分析</option>`;
+            subjects.forEach(sub => subHtml += `<option value="${sub}">${sub}</option>`);
+            modalSubjectSelect.innerHTML = subHtml;
+        }
+    };
+
+    // 5. 绑定主分析按钮 -> 显示模态框
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
 
     newBtn.addEventListener('click', () => {
-        const targetClass = classSelect ? classSelect.value : 'ALL';
-        const result = analyzeFocusStudents(examList, targetClass);
-        renderFocusAnalysis(result, examList);
+        populateModalDropdowns(); // 每次打开时刷新，确保数据最新
+        focusModal.style.display = 'flex'; // 使用 flex 配合 justify-content: center 实现居中
+        loadingIndicator.style.display = 'none';
+        btnNormal.disabled = false;
+        btnAI.disabled = false;
+        btnNormal.style.opacity = '1';
+        btnAI.style.opacity = '1';
     });
 
-    // 绑定下拉框变化
-    if (classSelect) {
-        classSelect.addEventListener('change', () => {
-             if (document.getElementById('focus-analysis-result').style.display !== 'none') {
-                 newBtn.click();
-             }
+    // 6. 核心执行逻辑
+    const executeAnalysis = async (useAI) => {
+        const targetClass = modalClassSelect.value;
+        const targetSubject = modalSubjectSelect.value;
+        
+        // 1. 基础规则筛选
+        let result = analyzeFocusStudents(examList, targetClass, targetSubject);
+        
+        // 2. AI 二次筛选
+        if (useAI) {
+            if (result.length === 0) {
+                alert("基础规则未筛选出任何学生，无需 AI 介入。");
+                focusModal.style.display = 'none';
+                return;
+            }
+            
+            // UI Loading
+            loadingIndicator.style.display = 'block';
+            btnNormal.disabled = true;
+            btnAI.disabled = true;
+            btnNormal.style.opacity = '0.5';
+            btnAI.style.opacity = '0.5';
+
+            try {
+                const filtered = await runFocusAIFilter(result, targetClass, targetSubject);
+                if (filtered) {
+                    result = filtered;
+                }
+            } catch (e) {
+                console.error(e);
+                alert("AI 筛选出错，将展示普通筛选结果: " + e.message);
+            }
+        }
+
+        // 3. 渲染结果
+        renderFocusAnalysis(result, examList);
+        
+        // 4. 更新全局状态
+        window.G_LastFocusResult = result;
+        window.G_LastFocusContext = { targetClass, targetSubject };
+
+        // 5. 控制按钮显示
+        const currentAiBtn = document.getElementById('btn-analyze-focus-ai');
+        
+        // 移除旧的筛选按钮逻辑，确保它不显示
+        const currentAiFilterBtn = document.getElementById('btn-filter-focus-ai');
+        if (currentAiFilterBtn) currentAiFilterBtn.style.display = 'none';
+        
+        if (result.length > 0) {
+            if (currentAiBtn) currentAiBtn.style.display = 'inline-block';
+        } else {
+            if (currentAiBtn) currentAiBtn.style.display = 'none';
+        }
+
+        // 6. 关闭模态框
+        focusModal.style.display = 'none';
+    };
+
+    // 绑定模态框按钮事件
+    btnNormal.onclick = () => executeAnalysis(false);
+    btnAI.onclick = () => executeAnalysis(true);
+
+
+    // 6. 绑定 AI 分析按钮 (生成报告)
+    if (aiBtn) {
+        const newAiBtn = aiBtn.cloneNode(true);
+        aiBtn.parentNode.replaceChild(newAiBtn, aiBtn);
+        
+        newAiBtn.addEventListener('click', () => {
+            if (window.G_LastFocusResult) {
+                runFocusAIAnalysis(window.G_LastFocusResult, window.G_LastFocusContext.targetClass, window.G_LastFocusContext.targetSubject);
+            }
         });
     }
+
+    // 7. 移除旧的 AI 筛选按钮绑定逻辑 (不再需要)
+    const aiFilterBtn = document.getElementById('btn-filter-focus-ai');
+    if (aiFilterBtn) {
+        aiFilterBtn.style.display = 'none'; // 默认隐藏
+    }
+
 }
 
 /**
@@ -23342,9 +23510,10 @@ function calculateTScore(score, stats) {
 }
 
 /**
- * 分析学生波动情况 (V2 权威版 - 基于 T 分和相对位置)
+ * 分析学生波动情况 (V3 排名版 - 基于排名变化)
+ * 支持按科目分析 (targetSubject)
  */
-function analyzeFocusStudents(examList, targetClass = 'ALL') {
+function analyzeFocusStudents(examList, targetClass = 'ALL', targetSubject = 'TOTAL') {
     // 1. 过滤掉隐藏的考试
     const activeExams = examList.filter(e => !e.isHidden);
 
@@ -23356,11 +23525,16 @@ function analyzeFocusStudents(examList, targetClass = 'ALL') {
     const sortedExams = [...activeExams]; 
     
     // --- 预计算阶段 ---
-    // 为了权威性，我们需要计算每次考试的总分统计量，以及最后一次考试的各科统计量
-    const examStatsMap = new Map(); // 存总分统计 { avg, stdev, count }
+    // 计算每次考试的统计量 (总分或单科)
+    const examStatsMap = new Map(); // { avg, stdev, count }
     
     sortedExams.forEach(exam => {
-        const validScores = exam.students.map(s => s.totalScore).filter(s => s > 0);
+        let validScores;
+        if (targetSubject === 'TOTAL') {
+            validScores = exam.students.map(s => s.totalScore).filter(s => s > 0);
+        } else {
+            validScores = exam.students.map(s => s.scores ? s.scores[targetSubject] : 0).filter(v => typeof v === 'number' && v > 0);
+        }
         examStatsMap.set(exam.id, getArrayStats(validScores));
     });
 
@@ -23370,9 +23544,9 @@ function analyzeFocusStudents(examList, targetClass = 'ALL') {
     const latestStats = examStatsMap.get(latestExam.id);
     const prevStats = examStatsMap.get(prevExam.id);
 
-    // 预计算最后一次考试的【各科】统计量，用于精准偏科分析
+    // 预计算最后一次考试的【各科】统计量 (仅用于 TOTAL 模式下的偏科分析)
     const latestSubjectStats = {};
-    if (G_DynamicSubjectList && G_DynamicSubjectList.length > 0) {
+    if (targetSubject === 'TOTAL' && G_DynamicSubjectList && G_DynamicSubjectList.length > 0) {
         G_DynamicSubjectList.forEach(sub => {
             const subScores = latestExam.students
                 .map(s => s.scores ? s.scores[sub] : 0)
@@ -23390,136 +23564,169 @@ function analyzeFocusStudents(examList, targetClass = 'ALL') {
         const studentId = String(student.id);
         const name = student.name;
         const clazz = student.class;
-        const currentScore = student.totalScore;
         
-        if (currentScore === 0) return; // 缺考不分析
+        // 获取当前分数
+        let currentScore;
+        if (targetSubject === 'TOTAL') {
+            currentScore = student.totalScore;
+        } else {
+            currentScore = student.scores ? student.scores[targetSubject] : 0;
+        }
+        
+        if (!currentScore || currentScore === 0) return; // 缺考不分析
 
-        // 计算本次核心指标
-        const currentT = calculateTScore(currentScore, latestStats);
-        const currentRank = student.gradeRank || student.rank;
-        const currentPct = currentRank / latestStats.count; // 排名百分比 (0.1 = Top 10%)
-
-        // ------------------------------------------------------
-        // 1. 📉 剧烈下滑 (Slump) - 混合判定
-        // ------------------------------------------------------
-        const prevStudent = prevExam.students.find(s => String(s.id) === studentId);
-        if (prevStudent && prevStudent.totalScore > 0) {
-            const prevScore = prevStudent.totalScore;
-            const prevT = calculateTScore(prevScore, prevStats);
-            const prevRank = prevStudent.gradeRank || prevStudent.rank;
-            const prevPct = prevRank / prevStats.count;
-
-            const deltaT = currentT - prevT; // 负数代表退步
-            const deltaPct = currentPct - prevPct; // 正数代表退步
-
-            // 规则 A: T分下降 > 7 (约 0.7 个标准差，显著退步)
-            // 规则 B: 排名百分比下降 > 15% (针对排名波动)
-            // 规则 C: 跌破均分线 (上次 T > 52, 本次 T < 45)
-            
-            let slumpType = null;
-            let slumpDesc = '';
-            let slumpVal = 0;
-
-            if (deltaT < -7) {
-                slumpType = '📉 剧烈下滑';
-                slumpDesc = `T分下降 ${Math.abs(deltaT).toFixed(1)} (排名 ${prevRank} -> ${currentRank})`;
-                slumpVal = Math.abs(deltaT) * 2; // 权重放大
-            } else if (deltaPct > 0.15) {
-                slumpType = '📉 剧烈下滑';
-                slumpDesc = `排名下滑前 ${Math.round(deltaPct*100)}% (排名 ${prevRank} -> ${currentRank})`;
-                slumpVal = deltaPct * 100;
-            } else if (prevT > 52 && currentT < 45) {
-                slumpType = '📉 跌破均分';
-                slumpDesc = `从优良区跌落至均分线下 (T分 ${prevT.toFixed(0)} -> ${currentT.toFixed(0)})`;
-                slumpVal = 40;
-            }
-
-            if (slumpType) {
-                focusList.push({
-                    id: studentId, name, class: clazz,
-                    type: slumpType,
-                    desc: slumpDesc,
-                    value: slumpVal
-                });
-            }
+        // 获取当前排名 (优先使用 gradeRank/gradeRanks)
+        let currentRank = null;
+        if (targetSubject === 'TOTAL') {
+            currentRank = student.gradeRank || student.rank;
+        } else {
+            currentRank = student.gradeRanks ? student.gradeRanks[targetSubject] : null;
         }
 
-        // ------------------------------------------------------
-        // 2. 🥀 连续退步 (Continuous Decline)
-        // ------------------------------------------------------
-        if (sortedExams.length >= 3) {
-            const prev2Exam = sortedExams[sortedExams.length - 3];
-            const prev2Stats = examStatsMap.get(prev2Exam.id);
-            const prev2Student = prev2Exam.students.find(s => String(s.id) === studentId);
-            
-            if (prevStudent && prev2Student && prevStudent.totalScore > 0 && prev2Student.totalScore > 0) {
-                const t1 = calculateTScore(prev2Student.totalScore, prev2Stats);
-                const t2 = calculateTScore(prevStudent.totalScore, prevStats);
-                const t3 = currentT;
+        // 如果没有预计算的排名，尝试现场计算 (降级处理)
+        if (currentRank === null || currentRank === undefined) {
+             // 简单的现场排名计算 (仅针对当前筛选的群体，可能不准，但好过没有)
+             // 注意：这里最好是基于全校数据算，但 activeExams 里的数据应该已经包含全校
+             // 暂时跳过，假设数据源里有排名
+        }
 
-                // 趋势判断：T分三连降
-                if (t3 < t2 && t2 < t1) {
-                    const totalDrop = t1 - t3;
-                    // 累计下降超过 8 分才算实质性退步，避免微小波动
-                    if (totalDrop > 8) {
-                         // 避免与剧烈下滑重复 (如果已经有了剧烈下滑，这里可以不加，或者标记为更严重)
-                         const existing = focusList.find(item => item.id === studentId);
-                         if (!existing || existing.type !== '📉 剧烈下滑') {
-                            focusList.push({
-                                id: studentId, name, class: clazz,
-                                type: '🥀 连续退步',
-                                desc: `T分三连降: ${t1.toFixed(0)} -> ${t2.toFixed(0)} -> ${t3.toFixed(0)}`,
-                                value: totalDrop * 1.5
-                            });
-                         }
-                    }
+        // 计算本次核心指标 (保留 T 分用于偏科计算)
+        const currentT = calculateTScore(currentScore, latestStats);
+
+        // ------------------------------------------------------
+        // 1. 📉 剧烈下滑 (Slump) - 纯排名判定
+        // ------------------------------------------------------
+        const prevStudent = prevExam.students.find(s => String(s.id) === studentId);
+        if (prevStudent && currentRank !== null) {
+            let prevRank = null;
+            if (targetSubject === 'TOTAL') {
+                prevRank = prevStudent.gradeRank || prevStudent.rank;
+            } else {
+                prevRank = prevStudent.gradeRanks ? prevStudent.gradeRanks[targetSubject] : null;
+            }
+
+            if (prevRank !== null) {
+                const deltaRank = currentRank - prevRank; // 正数代表退步 (排名变大)
+                const totalStudents = latestStats.count;
+                
+                // 阈值设定：
+                // 1. 排名下降超过总人数的 15% (例如 1000人下降 150名)
+                // 2. 或者对于尖子生 (前100)，下降超过 30 名
+                // 3. 或者绝对值下降超过 100 名 (保底)
+                
+                let isSlump = false;
+                let slumpDesc = '';
+                
+                if (deltaRank > totalStudents * 0.15) {
+                    isSlump = true;
+                    slumpDesc = `排名下滑 ${deltaRank} 名 (前 ${Math.round((prevRank/totalStudents)*100)}% -> ${Math.round((currentRank/totalStudents)*100)}%)`;
+                } else if (prevRank <= 100 && deltaRank > 30) {
+                    isSlump = true;
+                    slumpDesc = `尖子生滑坡: 排名下滑 ${deltaRank} 名 (${prevRank} -> ${currentRank})`;
+                } else if (deltaRank > 100) { // 硬保底
+                    isSlump = true;
+                    slumpDesc = `排名大幅下滑 ${deltaRank} 名 (${prevRank} -> ${currentRank})`;
+                }
+
+                if (isSlump) {
+                    focusList.push({
+                        id: studentId, name, class: clazz,
+                        type: '📉 剧烈下滑',
+                        desc: slumpDesc,
+                        value: deltaRank // 排序权重
+                    });
                 }
             }
         }
 
         // ------------------------------------------------------
-        // 3. ⚖️ 严重偏科 (Imbalance) - 权威版
+        // 2. 🥀 连续退步 (Continuous Decline) - 排名版
         // ------------------------------------------------------
-        // 仅关注总分前 30% 的学生 (尖子生偏科才最可惜)
-        if (currentPct <= 0.30) { 
-            if (student.scores) {
-                Object.entries(student.scores).forEach(([subject, score]) => {
-                    const subStats = latestSubjectStats[subject];
-                    if (!subStats) return;
+        if (sortedExams.length >= 3 && currentRank !== null) {
+            let isContinuousDecline = true;
+            let totalDropRank = 0;
+            let lastRank = currentRank;
 
-                    const subT = calculateTScore(score, subStats);
+            // 检查最近3次 (包括本次)
+            // 倒序遍历: [本次, 上次, 上上次]
+            for (let i = sortedExams.length - 2; i >= sortedExams.length - 3; i--) {
+                const ex = sortedExams[i];
+                const st = ex.students.find(s => String(s.id) === studentId);
+                
+                let r = null;
+                if (st) {
+                    if (targetSubject === 'TOTAL') r = st.gradeRank || st.rank;
+                    else r = st.gradeRanks ? st.gradeRanks[targetSubject] : null;
+                }
+
+                if (r === null) {
+                    isContinuousDecline = false; break;
+                }
+                
+                // 如果某次排名比后一次好(小)或持平，则不是连续退步
+                // 注意：lastRank 是较晚的考试，r 是较早的考试
+                // 退步意味着 lastRank > r
+                if (lastRank <= r) { 
+                    isContinuousDecline = false; break;
+                }
+                totalDropRank += (lastRank - r);
+                lastRank = r;
+            }
+
+            if (isContinuousDecline && totalDropRank > 20) { // 累计退步至少20名
+                // 避免与剧烈下滑重复 (如果已经在列表里，取权重高的)
+                const existing = focusList.find(x => x.id === studentId);
+                if (!existing) {
+                    focusList.push({
+                        id: studentId, name, class: clazz,
+                        type: '🥀 连续退步',
+                        desc: `连续3次排名下滑，累计下降 ${totalDropRank} 名`,
+                        value: totalDropRank * 0.8
+                    });
+                }
+            }
+        }
+
+        // ------------------------------------------------------
+        // 3. ⚖️ 严重偏科 (Severe Bias) - 仅限总分模式 (保持 T 分逻辑，因为排名难以比较科目间差异)
+        // ------------------------------------------------------
+        if (targetSubject === 'TOTAL' && currentT > 45) { // 总分尚可才谈偏科
+            // 遍历各科，寻找 T 分极低的科目
+            let maxBiasVal = 0;
+            let biasDesc = '';
+
+            for (const sub in latestSubjectStats) {
+                const subScore = student.scores ? student.scores[sub] : 0;
+                if (subScore > 0) {
+                    const subStats = latestSubjectStats[sub];
+                    const subT = calculateTScore(subScore, subStats);
                     
-                    // 判定逻辑：
-                    // 1. 单科 T 分 < 40 (不及格水平) -> 绝对偏科
-                    // 2. (总分 T 分 - 单科 T 分) > 12 -> 相对偏科 (该科严重拖后腿)
-                    
-                    const tDiff = currentT - subT;
-                    
-                    if (subT < 40) {
-                         focusList.push({
-                            id: studentId, name, class: clazz,
-                            type: '⚖️ 严重偏科',
-                            desc: `总分优异(T:${currentT.toFixed(0)}), 但[${subject}] T分仅 ${subT.toFixed(0)} (后16%)`,
-                            value: 90 
-                        });
-                    } else if (tDiff > 12) {
-                        // 避免重复添加同一人的多个科目 (可选，这里先都列出来)
-                        // 只有当该科确实比较低 (比如 < 50) 时才报警，避免 70 vs 58 这种“凡尔赛”偏科
-                        if (subT < 50) {
-                            focusList.push({
-                                id: studentId, name, class: clazz,
-                                type: '⚖️ 相对偏科',
-                                desc: `[${subject}] 拖后腿: 单科T分比总分T分低 ${tDiff.toFixed(0)} 分`,
-                                value: tDiff * 2
-                            });
+                    // 判定：单科 T 分比 总分 T 分低 12 分以上，且单科 T 分 < 40 (不及格边缘)
+                    if (currentT - subT > 12 && subT < 40) {
+                        const diff = currentT - subT;
+                        if (diff > maxBiasVal) {
+                            maxBiasVal = diff;
+                            biasDesc = `总分T${currentT.toFixed(0)}，但${sub}仅T${subT.toFixed(0)} (偏差${diff.toFixed(0)})`;
                         }
                     }
-                });
+                }
+            }
+
+            if (maxBiasVal > 0) {
+                const existing = focusList.find(x => x.id === studentId);
+                if (!existing) {
+                    focusList.push({
+                        id: studentId, name, class: clazz,
+                        type: '⚖️ 严重偏科',
+                        desc: biasDesc,
+                        value: maxBiasVal
+                    });
+                }
             }
         }
     });
-
-    return focusList;
+    
+    return focusList.sort((a, b) => b.value - a.value);
 }
 
 /**
@@ -23623,9 +23830,381 @@ function renderFocusAnalysis(focusList, examList) {
         const reportContainer = document.getElementById('multi-student-report');
         if(reportContainer) {
             reportContainer.style.display = 'block';
+            // [Fix] 存储当前学生ID，以便复选框筛选生效
+            reportContainer.dataset.studentId = studentId;
             reportContainer.scrollIntoView({ behavior: 'smooth' });
             // [Fix] 强制刷新复选框 (true)，确保图表有数据
             drawMultiExamChartsAndTable(studentId, examList, true);
         }
     };
+}
+
+/**
+ * 启动重点关注名单的 AI 分析 (In-Place Rendering)
+ */
+// 全局变量：存储 AI 对话上下文
+window.G_FocusAIChat = {
+    messages: [],
+    controller: null,
+    isGenerating: false
+};
+window.G_FocusAIHistoryId = null; // 存储当前会话在历史记录中的 ID
+
+async function runFocusAIAnalysis(focusList, targetClass, targetSubject) {
+    const apiKey = localStorage.getItem('G_DeepSeekKey');
+    if (!apiKey) { alert('请先设置 DeepSeek API Key'); return; }
+    
+    if (!focusList || focusList.length === 0) {
+        alert("当前列表为空，无法进行 AI 分析。");
+        return;
+    }
+
+    // 1. 重置对话状态
+    window.G_FocusAIChat = {
+        messages: [],
+        controller: null,
+        isGenerating: false
+    };
+    window.G_FocusAIHistoryId = null; // 重置历史 ID
+
+    // 2. 准备容器
+    if (typeof marked === 'undefined') { alert("错误：marked.js 未加载！"); return; }
+
+    const resultContainer = document.getElementById('focus-analysis-result');
+    let reportBox = document.getElementById('focus-ai-report-box');
+    
+    if (!reportBox) {
+        reportBox = document.createElement('div');
+        reportBox.id = 'focus-ai-report-box';
+        reportBox.className = 'main-card-wrapper';
+        reportBox.style.marginTop = '20px';
+        reportBox.style.borderLeft = '5px solid #6f42c1';
+        reportBox.style.backgroundColor = '#f8f9fa';
+        resultContainer.appendChild(reportBox);
+    }
+    
+    reportBox.style.display = 'block';
+    reportBox.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h4 style="color: #6f42c1; margin: 0;">🤖 AI 智能分析报告</h4>
+            <button id="btn-stop-focus-ai" style="display:none; padding: 5px 12px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;">
+                ⏹ 停止生成
+            </button>
+        </div>
+        
+        <div id="focus-ai-chat-container" style="min-height: 100px;">
+            <!-- 初始报告容器 -->
+            <div id="focus-ai-initial-report" class="markdown-body"></div>
+        </div>
+
+        <div id="focus-ai-loading" style="color: #666; font-style: italic; margin-top: 10px;">
+            <span class="spinner-border" style="width: 1rem; height: 1rem; border-width: 2px;"></span> 
+            正在生成分析报告，请稍候...
+        </div>
+
+        <!-- 连续对话输入区 -->
+        <div id="focus-ai-input-area" style="display:none; margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
+            <div style="display:flex; gap:10px;">
+                <textarea id="focus-ai-input" placeholder="针对报告内容继续提问，例如：'如何帮助排名下滑最严重的同学？'" style="flex:1; padding:10px; border:1px solid #ddd; border-radius:6px; min-height:60px; resize:vertical;"></textarea>
+                <button id="btn-send-focus-ai" style="padding: 0 20px; background-color: #6f42c1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold;">发送</button>
+            </div>
+        </div>
+    `;
+    
+    // 绑定事件
+    document.getElementById('btn-stop-focus-ai').onclick = () => {
+        if (window.G_FocusAIChat.controller) {
+            window.G_FocusAIChat.controller.abort();
+            window.G_FocusAIChat.controller = null;
+        }
+    };
+
+    document.getElementById('btn-send-focus-ai').onclick = handleFocusAIChatSend;
+
+    // 绑定 Ctrl+Enter 发送
+    const input = document.getElementById('focus-ai-input');
+    input.onkeydown = (e) => {
+        if (e.ctrlKey && e.key === 'Enter') {
+            handleFocusAIChatSend();
+        }
+    };
+
+    // 3. 构建 Prompt
+    let prompt = `请作为一位资深的班主任或年段长，对以下【重点关注学生名单】进行深度分析。
+    
+分析背景：
+- 分析范围：${targetClass === 'ALL' ? '全校' : targetClass + '班'}
+- 分析科目：${targetSubject === 'TOTAL' ? '全科总分' : targetSubject}
+- 名单来源：基于成绩波动（剧烈下滑、连续退步）及严重偏科筛选。
+
+学生名单数据：
+`;
+
+    // 限制名单长度，防止 token 溢出 (取前 30 名)
+    const topList = focusList.slice(0, 30);
+    topList.forEach((s, index) => {
+        prompt += `${index + 1}. ${s.name} (${s.class}班): [${s.type}] ${s.desc}\n`;
+    });
+
+    if (focusList.length > 30) {
+        prompt += `... (共 ${focusList.length} 人，仅展示前 30 名)\n`;
+    }
+
+    prompt += `
+请输出一份分析报告，包含以下内容：
+1. **整体态势分析**：概括本次重点关注名单的分布特点（如哪个班级人数多、主要问题类型是什么）。
+2. **典型案例诊断**：挑选 2-3 个具有代表性的学生（如剧烈下滑或严重偏科），推测可能的原因（如学习态度、方法、心理等）。
+3. **分层干预建议**：
+   - 针对“剧烈下滑”的学生，建议如何谈话和跟进？
+   - 针对“连续退步”的学生，建议如何排查原因？
+   - 针对“严重偏科”的学生，建议如何平衡学科？
+4. **后续管理建议**：给班主任或备课组长的具体行动建议。
+
+请保持语气专业、客观、关怀，富有教育智慧。`;
+
+    // 初始化消息历史
+    window.G_FocusAIChat.messages = [
+        { "role": "system", "content": "你是一位经验丰富的高中班主任和教育专家，擅长通过数据分析发现学生问题并提供针对性建议。" },
+        { "role": "user", "content": prompt }
+    ];
+
+    // 4. 开始生成初始报告
+    const initialReportDiv = document.getElementById('focus-ai-initial-report');
+    await streamFocusAIResponse(initialReportDiv);
+}
+
+/**
+ * 处理 AI 对话发送
+ */
+async function handleFocusAIChatSend() {
+    const input = document.getElementById('focus-ai-input');
+    const text = input.value.trim();
+    if (!text) return;
+    
+    if (window.G_FocusAIChat.isGenerating) return;
+
+    // 1. 清空输入框
+    input.value = '';
+
+    // 2. 添加用户消息到 UI
+    const chatContainer = document.getElementById('focus-ai-chat-container');
+    const userMsgDiv = document.createElement('div');
+    userMsgDiv.style.cssText = "background-color: #e9ecef; padding: 10px 15px; border-radius: 10px; margin: 15px 0 15px auto; max-width: 80%; color: #333; align-self: flex-end;";
+    userMsgDiv.textContent = text;
+    chatContainer.appendChild(userMsgDiv);
+
+    // 3. 添加到历史记录
+    window.G_FocusAIChat.messages.push({ "role": "user", "content": text });
+
+    // 4. 创建 AI 回复容器
+    const aiMsgDiv = document.createElement('div');
+    aiMsgDiv.className = 'markdown-body';
+    aiMsgDiv.style.cssText = "margin-top: 15px; padding-bottom: 15px; border-bottom: 1px dashed #eee;";
+    chatContainer.appendChild(aiMsgDiv);
+
+    // 5. 请求 AI 回复
+    await streamFocusAIResponse(aiMsgDiv);
+}
+
+/**
+ * 流式请求 AI 回复并更新 UI
+ */
+async function streamFocusAIResponse(outputDiv) {
+    const apiKey = localStorage.getItem('G_DeepSeekKey');
+    const model = document.getElementById('ai-model-select').value || 'deepseek-chat';
+    
+    // UI 控件
+    const stopBtn = document.getElementById('btn-stop-focus-ai');
+    const loadingDiv = document.getElementById('focus-ai-loading');
+    const inputArea = document.getElementById('focus-ai-input-area');
+    const sendBtn = document.getElementById('btn-send-focus-ai');
+
+    // 状态更新
+    window.G_FocusAIChat.isGenerating = true;
+    window.G_FocusAIChat.controller = new AbortController();
+    
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (loadingDiv) loadingDiv.style.display = 'block';
+    if (sendBtn) sendBtn.disabled = true;
+    if (sendBtn) sendBtn.style.opacity = '0.6';
+
+    let fullContent = "";
+
+    try {
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ 
+                model: model, 
+                messages: window.G_FocusAIChat.messages, 
+                temperature: 0.7, 
+                stream: true 
+            }),
+            signal: window.G_FocusAIChat.controller.signal
+        });
+
+        if (!response.ok) throw new Error("API 请求失败");
+
+        loadingDiv.style.display = 'none'; // 开始接收数据后隐藏 loading
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const jsonStr = line.slice(6);
+                    if (jsonStr === '[DONE]') break;
+                    try {
+                        const json = JSON.parse(jsonStr);
+                        const content = json.choices[0].delta.content || "";
+                        fullContent += content;
+                        outputDiv.innerHTML = marked.parse(fullContent);
+                    } catch (e) {
+                        // ignore parse error
+                    }
+                }
+            }
+        }
+        
+        // 成功完成后，添加到历史记录
+        window.G_FocusAIChat.messages.push({ "role": "assistant", "content": fullContent });
+
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            outputDiv.innerHTML += "\n\n> ⚠️ *[已停止生成]*";
+        } else {
+            console.error(err);
+            outputDiv.innerHTML += `<br><span style="color:red;">❌ 生成出错: ${err.message}</span>`;
+        }
+        
+        // 无论何种错误 (中断或网络异常)，只要有内容生成，都存入历史，保证上下文连贯
+        if (fullContent) {
+            // 避免重复添加 (如果成功完成已经添加过了，这里需要判断吗？)
+            // 注意：上面的 success block 是在 try 块末尾。如果报错，不会执行到那里。
+            // 所以这里是安全的。但为了防止 finally 里的逻辑混乱，最好把 success block 的 push 移到 try 块最后，
+            // 而 catch 块里只处理异常情况下的 push。
+            // 但由于 try 块中途报错会跳过后面的 push，所以 catch 里必须补上。
+            // 为了避免逻辑复杂，我们可以只在 catch 里 push。
+            // 但 wait，如果 try 成功了，catch 不会执行。
+            // 所以 try 最后要 push，catch 里也要 push。
+            // 为了防止重复（例如 try 最后 push 了，然后 finally... 不，finally 不会 push），
+            // 只要 try 里的 push 是最后一句，报错就会跳过它。
+            // 所以 catch 里 push 是对的。
+            
+            // 但是，如果 err 是 AbortError，之前的代码已经 push 了。
+            // 现在的逻辑是把 push 统一放在 catch 的公共区域？
+            // 不，try 成功后必须 push。
+            
+            // 简单做法：
+            // try { ... push() } catch { ... if(content) push() }
+            // 这样没问题。
+            
+            // 修正：之前的代码在 AbortError 里 push 了，在 else 里没 push。
+            // 现在统一在 catch 块末尾 push。
+            window.G_FocusAIChat.messages.push({ "role": "assistant", "content": fullContent });
+        }
+    } finally {
+        // 恢复状态
+        window.G_FocusAIChat.isGenerating = false;
+        window.G_FocusAIChat.controller = null;
+        
+        if (stopBtn) stopBtn.style.display = 'none';
+        if (loadingDiv) loadingDiv.style.display = 'none';
+        if (inputArea) inputArea.style.display = 'block'; // 显示输入框
+        if (sendBtn) sendBtn.disabled = false;
+        if (sendBtn) sendBtn.style.opacity = '1';
+
+        // [新增] 自动保存到 AI 历史记录 (Module 13)
+        if (typeof saveToAIHistory === 'function') {
+            const container = document.getElementById('focus-ai-chat-container');
+            if (container && container.innerHTML.trim().length > 10) {
+                // 构造标题
+                const title = "重点关注对象分析";
+                const subTitle = `${window.G_LastFocusContext ? window.G_LastFocusContext.targetClass : '未知'}班 | ${window.G_LastFocusContext ? window.G_LastFocusContext.targetSubject : '未知'}`;
+                
+                // 保存并更新 ID (这样后续对话会更新同一条记录)
+                window.G_FocusAIHistoryId = saveToAIHistory(title, subTitle, window.G_FocusAIHistoryId, container.innerHTML);
+            }
+        }
+    }
+}
+
+/**
+ * AI 智能筛选 (返回过滤后的列表)
+ */
+async function runFocusAIFilter(focusList, targetClass, targetSubject) {
+    const apiKey = localStorage.getItem('G_DeepSeekKey');
+    if (!apiKey) { alert('请先设置 DeepSeek API Key'); return null; }
+    
+    const model = document.getElementById('ai-model-select').value || 'deepseek-chat';
+    
+    // 1. 构建 Prompt
+    let prompt = `你是一个严厉的教务主任。请对以下【初筛名单】进行二次审核，剔除那些“不够紧急”或“属于正常波动”的学生，只保留真正需要班主任立即干预的【高危学生】。
+
+筛选原则（非常严格）：
+1. 📉 对于“剧烈下滑”：
+   - 必须是断崖式下跌（如排名跌幅超过 20% 或 尖子生跌出第一梯队）。
+   - 普通的中等生小幅波动（如排名下滑 < 50名且占比不大）请直接剔除。
+   
+2. 🥀 对于“连续退步”：
+   - 必须是趋势明显且难以遏制的。
+   - 如果只是微弱的连续下滑（每次只降几名），请剔除。
+
+3. ⚖️ 对于“严重偏科”：
+   - 必须是严重拖后腿的科目（如总分前10名但单科不及格）。
+   - 如果只是弱势学科但未及格线以上，请剔除。
+
+请务必进行筛选！不要保留所有人！建议保留比例控制在 50% - 80% 之间，除非所有人确实都非常严重。
+
+请返回一个 JSON 数组，仅包含保留的学生的 ID (字符串格式)。
+例如：["1001", "1002", "2005"]
+
+学生名单数据：
+`;
+
+    // 限制名单长度 (取前 50 名)
+    const topList = focusList.slice(0, 50);
+    topList.forEach((s, index) => {
+        prompt += `ID:${s.id} | ${s.name} | ${s.type} | ${s.desc}\n`;
+    });
+
+    const messages = [
+        { "role": "system", "content": "你是一个只输出 JSON 的数据助手。不要输出任何 Markdown 标记或解释性文字。" },
+        { "role": "user", "content": prompt }
+    ];
+
+    try {
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({ model: model, messages: messages, temperature: 0.1, stream: false })
+        });
+
+        if (!response.ok) throw new Error("API 请求失败");
+        
+        const data = await response.json();
+        let content = data.choices[0].message.content;
+        
+        // 清理 Markdown 代码块标记
+        content = content.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        const keptIds = JSON.parse(content);
+        
+        if (Array.isArray(keptIds)) {
+            return focusList.filter(s => keptIds.includes(String(s.id)));
+        } else {
+            throw new Error("AI 返回格式错误");
+        }
+    } catch (err) {
+        console.error("AI Filter Error:", err);
+        alert("AI 筛选失败，请重试。\n" + err.message);
+        return null;
+    }
 }
