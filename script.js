@@ -5253,7 +5253,13 @@ function renderMultiExam(container) {
                 </div>
 
                 <!-- 2. 详细名单 -->
-                <h5 style="margin-top: 20px;">📋 需约谈/关注学生列表</h5>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+                    <h5 style="margin: 0;">📋 需约谈/关注学生列表</h5>
+                    <div style="display: flex; gap: 10px;">
+                        <button id="btn-print-focus-list" class="sidebar-button" style="padding: 4px 12px; font-size: 0.9em;">🖨️ 打印</button>
+                        <button id="btn-export-focus-list" class="sidebar-button" style="padding: 4px 12px; font-size: 0.9em;">📤 导出Excel</button>
+                    </div>
+                </div>
                 <div class="table-container" style="max-height: 400px; overflow-y: auto;">
                     <table class="data-table" id="focus-student-table">
                         <thead>
@@ -23825,6 +23831,74 @@ function renderFocusAnalysis(focusList, examList) {
             window.showFocusStudentDetail(params.data.studentId);
         }
     });
+
+    // 绑定打印和导出按钮事件
+    const btnPrint = document.getElementById('btn-print-focus-list');
+    const btnExport = document.getElementById('btn-export-focus-list');
+
+    if (btnPrint) {
+        // 移除旧的监听器 (通过克隆节点)
+        const newBtn = btnPrint.cloneNode(true);
+        btnPrint.parentNode.replaceChild(newBtn, btnPrint);
+        
+        newBtn.addEventListener('click', () => {
+            const printWindow = window.open('', '_blank');
+            printWindow.document.write('<html><head><title>需约谈/关注学生列表</title>');
+            printWindow.document.write('<style>table { border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; } th, td { border: 1px solid #ddd; padding: 8px; text-align: left; } th { background-color: #f2f2f2; } h2 { text-align: center; }</style>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write('<h2>需约谈/关注学生列表</h2>');
+            printWindow.document.write('<table><thead><tr><th>姓名</th><th>班级</th><th>关注类型</th><th>详情描述</th></tr></thead><tbody>');
+            
+            focusList.forEach(item => {
+                printWindow.document.write(`<tr>
+                    <td>${item.name}</td>
+                    <td>${item.class}</td>
+                    <td>${item.type}</td>
+                    <td>${item.desc}</td>
+                </tr>`);
+            });
+            
+            printWindow.document.write('</tbody></table>');
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            setTimeout(() => {
+                printWindow.print();
+            }, 500);
+        });
+    }
+
+    if (btnExport) {
+        // 移除旧的监听器
+        const newBtn = btnExport.cloneNode(true);
+        btnExport.parentNode.replaceChild(newBtn, btnExport);
+
+        newBtn.addEventListener('click', () => {
+            if (typeof XLSX === 'undefined') {
+                alert('导出功能依赖 XLSX 库，请确保已加载。');
+                return;
+            }
+            const wb = XLSX.utils.book_new();
+            const wsData = [
+                ['姓名', '班级', '关注类型', '详情描述']
+            ];
+            
+            focusList.forEach(item => {
+                wsData.push([item.name, item.class, item.type, item.desc]);
+            });
+            
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+            // 设置列宽
+            ws['!cols'] = [
+                { wch: 10 }, // 姓名
+                { wch: 15 }, // 班级
+                { wch: 15 }, // 关注类型
+                { wch: 50 }  // 详情描述
+            ];
+            
+            XLSX.utils.book_append_sheet(wb, ws, "关注列表");
+            XLSX.writeFile(wb, "需约谈_关注学生列表.xlsx");
+        });
+    }
     
     window.showFocusStudentDetail = async (studentId) => {
         const reportContainer = document.getElementById('multi-student-report');
